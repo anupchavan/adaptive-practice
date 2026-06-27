@@ -49,6 +49,7 @@ import {
 export default class AdaptivePracticePlugin extends Plugin {
 	settings: AdaptivePracticeSettings = DEFAULT_SETTINGS;
 	private sessionTopics: TopicNote[] = [];
+	private sessionGenerationInProgress = false;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -451,6 +452,10 @@ export default class AdaptivePracticePlugin extends Plugin {
 		config: SessionConfig,
 		options: { replaceDraft?: boolean } = {}
 	): Promise<void> {
+		if (this.sessionGenerationInProgress) {
+			new Notice("Practice questions are already generating.");
+			return;
+		}
 		if (shouldConfirmPracticeDraftReplacement(
 			this.settings.practiceDraft,
 			options.replaceDraft ?? false
@@ -459,6 +464,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 			return;
 		}
 
+		this.sessionGenerationInProgress = true;
 		const loadingNotice = new Notice(
 			`Generating ${config.questionCount} adaptive question${config.questionCount === 1 ? "" : "s"} from ${config.topics.length} note${config.topics.length === 1 ? "" : "s"}... This can take a little while; the quiz will open when ready.`,
 			0
@@ -547,6 +553,8 @@ export default class AdaptivePracticePlugin extends Plugin {
 			new Notice(
 				`Error: ${e instanceof Error ? e.message : String(e)}`
 			);
+		} finally {
+			this.sessionGenerationInProgress = false;
 		}
 	}
 
