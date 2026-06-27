@@ -50,6 +50,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 	settings: AdaptivePracticeSettings = DEFAULT_SETTINGS;
 	private sessionTopics: TopicNote[] = [];
 	private sessionGenerationInProgress = false;
+	private sessionGenerationId = 0;
 	private dailyReminderNotice: Notice | null = null;
 
 	async onload(): Promise<void> {
@@ -512,10 +513,12 @@ export default class AdaptivePracticePlugin extends Plugin {
 		}
 
 		this.sessionGenerationInProgress = true;
-		const loadingNotice = new Notice(
-			`Generating ${config.questionCount} adaptive question${config.questionCount === 1 ? "" : "s"} from ${config.topics.length} note${config.topics.length === 1 ? "" : "s"}... This can take a little while; the quiz will open when ready.`,
-			0
-		);
+		const generationId = ++this.sessionGenerationId;
+		let canceled = false;
+		const loadingNotice = this.createGenerationNotice(config, () => {
+			canceled = true;
+			this.cancelSessionGeneration(generationId, loadingNotice);
+		});
 
 		try {
 			const compatibility = splitProviderCompatibleTopics(
@@ -553,6 +556,11 @@ export default class AdaptivePracticePlugin extends Plugin {
 				this.settings.llmProvider,
 				this.settings
 			);
+
+			if (this.isStaleGeneration(generationId, canceled)) {
+				loadingNotice.hide();
+				return;
+			}
 
 			loadingNotice.hide();
 
@@ -596,13 +604,42 @@ export default class AdaptivePracticePlugin extends Plugin {
 
 			new QuizModal(this.app, questions, onComplete, onExpand, onStateChange, onAbort).open();
 		} catch (e) {
+			if (this.isStaleGeneration(generationId, canceled)) return;
 			loadingNotice.hide();
 			new Notice(
 				`Error: ${e instanceof Error ? e.message : String(e)}`
 			);
 		} finally {
-			this.sessionGenerationInProgress = false;
+			if (this.sessionGenerationId === generationId) {
+				this.sessionGenerationInProgress = false;
+			}
 		}
+	}
+
+	private createGenerationNotice(
+		config: SessionConfig,
+		onCancel: () => void
+	): Notice {
+		const notice = new Notice("", 0);
+		notice.messageEl.empty();
+		notice.messageEl.createSpan({
+			text: `Generating ${config.questionCount} adaptive question${config.questionCount === 1 ? "" : "s"} from ${config.topics.length} note${config.topics.length === 1 ? "" : "s"}... This can take a little while; the quiz will open when ready. `,
+		});
+		const cancel = notice.messageEl.createEl("button", { text: "Cancel" });
+		cancel.addEventListener("click", onCancel);
+		return notice;
+	}
+
+	private cancelSessionGeneration(generationId: number, notice: Notice): void {
+		if (this.sessionGenerationId !== generationId) return;
+		this.sessionGenerationInProgress = false;
+		this.sessionGenerationId++;
+		notice.hide();
+		new Notice("Question generation cancelled.");
+	}
+
+	private isStaleGeneration(generationId: number, canceled: boolean): boolean {
+		return canceled || this.sessionGenerationId !== generationId;
 	}
 
 	private confirmPracticeDraftReplacement(config: SessionConfig): void {
