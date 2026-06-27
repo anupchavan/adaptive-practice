@@ -29,7 +29,10 @@ import {
 	buildQuestionHistoryBlock,
 	removeQuestionHistoryEntry,
 } from "../src/notes/history-format";
-import { buildRemotePromptAttachment } from "../src/notes/remote-media";
+import {
+	buildRemotePromptAttachment,
+	isSafeRemoteAttachmentUrl,
+} from "../src/notes/remote-media";
 import { LocalMediaLink, mergeLocalMediaLink } from "../src/notes/media-links";
 import { extractConceptCandidates } from "../src/notes/concepts";
 import {
@@ -1713,6 +1716,26 @@ test("remote image attachments fetch actual pixels for vision-capable prompts", 
 	assert.equal(attachment.kind, "image");
 	assert.equal(attachment.mimeType, "image/png");
 	assert.equal(attachment.data.byteLength, 4);
+});
+
+test("remote image attachments require safe public HTTPS URLs", async () => {
+	assert.equal(isSafeRemoteAttachmentUrl("https://upload.wikimedia.org/example.png"), true);
+	assert.equal(isSafeRemoteAttachmentUrl("http://upload.wikimedia.org/example.png"), false);
+	assert.equal(isSafeRemoteAttachmentUrl("https://localhost/example.png"), false);
+	assert.equal(isSafeRemoteAttachmentUrl("https://127.0.0.1/example.png"), false);
+	assert.equal(isSafeRemoteAttachmentUrl("https://192.168.0.4/example.png"), false);
+	assert.equal(isSafeRemoteAttachmentUrl("https://[::1]/example.png"), false);
+	assert.equal(isSafeRemoteAttachmentUrl("https://user:pass@example.com/image.png"), false);
+
+	const unsafe = await buildRemotePromptAttachment(
+		"Unsafe",
+		makeRemoteImageMedia("http://example.com/image.png"),
+		1024,
+		async () => {
+			throw new Error("unsafe URL should not be fetched");
+		}
+	);
+	assert.equal(unsafe, null);
 });
 
 test("remote image attachments skip unsafe or oversized downloads", async () => {

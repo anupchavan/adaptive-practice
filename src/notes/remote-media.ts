@@ -23,6 +23,7 @@ export async function buildRemotePromptAttachment(
 ): Promise<PromptAttachment | null> {
 	if (remainingBytes <= 0) return null;
 	if (media.source !== "remote" || media.kind !== "image" || !media.url) return null;
+	if (!isSafeRemoteAttachmentUrl(media.url)) return null;
 	const fallbackMimeType = normalizeAttachableImageMimeType(media.mimeType);
 
 	try {
@@ -52,6 +53,54 @@ export async function buildRemotePromptAttachment(
 	} catch {
 		return null;
 	}
+}
+
+export function isSafeRemoteAttachmentUrl(rawUrl: string): boolean {
+	let url: URL;
+	try {
+		url = new URL(rawUrl);
+	} catch {
+		return false;
+	}
+	if (url.protocol !== "https:") return false;
+	if (url.username || url.password) return false;
+	const hostname = url.hostname.toLowerCase();
+	if (
+		hostname === "localhost" ||
+		hostname.endsWith(".localhost") ||
+		hostname === "0.0.0.0"
+	) {
+		return false;
+	}
+	if (isPrivateIpv4(hostname) || isPrivateIpv6(hostname)) return false;
+	return true;
+}
+
+function isPrivateIpv4(hostname: string): boolean {
+	const parts = hostname.split(".");
+	if (parts.length !== 4) return false;
+	const octets = parts.map((part) => Number(part));
+	if (octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
+		return false;
+	}
+	const [a = 0, b = 0] = octets;
+	return (
+		a === 10 ||
+		a === 127 ||
+		(a === 169 && b === 254) ||
+		(a === 172 && b >= 16 && b <= 31) ||
+		(a === 192 && b === 168)
+	);
+}
+
+function isPrivateIpv6(hostname: string): boolean {
+	const normalized = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+	return (
+		normalized === "::1" ||
+		normalized.startsWith("fc") ||
+		normalized.startsWith("fd") ||
+		normalized.startsWith("fe80:")
+	);
 }
 
 function normalizeAttachableImageMimeType(mimeType: string): string | null {
