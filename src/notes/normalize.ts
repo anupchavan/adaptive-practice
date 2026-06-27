@@ -116,7 +116,7 @@ export function parseInternalEmbedReference(raw: string): InternalEmbedReference
 }
 
 export function cleanMarkdownPath(path: string): string {
-	let cleaned = path.trim();
+	let cleaned = decodeHtmlEntities(path).trim();
 	if (cleaned.startsWith("<")) {
 		const end = cleaned.indexOf(">");
 		if (end !== -1) cleaned = cleaned.slice(1, end);
@@ -174,7 +174,7 @@ function parseHtmlAttributes(tag: string): Map<string, string> {
 	let match: RegExpExecArray | null;
 	while ((match = attrRe.exec(tag)) !== null) {
 		const name = (match[1] ?? "").toLowerCase();
-		const value = match[2] ?? match[3] ?? match[4] ?? "";
+		const value = decodeHtmlEntities(match[2] ?? match[3] ?? match[4] ?? "");
 		if (name) attrs.set(name, value);
 	}
 	return attrs;
@@ -338,6 +338,28 @@ function normalizeRemoteMarkdownUrl(link: string): string {
 
 function normalizeReferenceLabel(label: string): string {
 	return label.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function decodeHtmlEntities(value: string): string {
+	return value.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (match, entity: string) => {
+		const normalized = entity.toLowerCase();
+		if (normalized === "amp") return "&";
+		if (normalized === "lt") return "<";
+		if (normalized === "gt") return ">";
+		if (normalized === "quot") return "\"";
+		if (normalized === "apos") return "'";
+		const codePoint = normalized.startsWith("#x")
+			? Number.parseInt(normalized.slice(2), 16)
+			: normalized.startsWith("#")
+				? Number.parseInt(normalized.slice(1), 10)
+				: NaN;
+		if (!Number.isFinite(codePoint)) return match;
+		try {
+			return String.fromCodePoint(codePoint);
+		} catch {
+			return match;
+		}
+	});
 }
 
 function isRemoteMarkdownUrl(link: string): boolean {

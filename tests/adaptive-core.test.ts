@@ -1246,9 +1246,11 @@ Flowchart of Euclid's algorithm.
 <img src="Practice%20Lab/Assets/chem-mechanism.png" alt="SN1 mechanism sketch">
 
 <img src="//upload.wikimedia.org/example.png" title="Remote imported figure">
+
+<img src="https://example.com/plot.svg?x=1&amp;y=2" alt="Rate &amp; extent plot">
 `);
 
-	assert.equal(refs.length, 7);
+	assert.equal(refs.length, 8);
 	assert.equal(refs[0]?.link, "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/GCD.svg/250px-GCD.svg.png");
 	assert.equal(refs[0]?.alt, "Flowchart");
 	assert.equal(refs[0]?.caption, "Flowchart of Euclid's algorithm.");
@@ -1269,6 +1271,9 @@ Flowchart of Euclid's algorithm.
 	assert.equal(refs[6]?.link, "https://upload.wikimedia.org/example.png");
 	assert.equal(refs[6]?.alt, "Remote imported figure");
 	assert.equal(refs[6]?.isRemote, true);
+	assert.equal(refs[7]?.link, "https://example.com/plot.svg?x=1&y=2");
+	assert.equal(refs[7]?.alt, "Rate & extent plot");
+	assert.equal(refs[7]?.isRemote, true);
 });
 
 test("remote image attachments fetch actual pixels for vision-capable prompts", async () => {
