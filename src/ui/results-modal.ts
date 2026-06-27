@@ -1,20 +1,33 @@
-import { App, Component, Modal } from "obsidian";
+import { App, Component, Modal, Notice } from "obsidian";
 import { PracticeCredit } from "../practice/daily-credit";
 import { averageFluency } from "../practice/grader";
-import { QuizResult, SkillDelta } from "../types";
+import { QuestionFeedbackKind, QuizResult, SkillDelta } from "../types";
 import { hasBlockMarkdown, renderMarkdown } from "./markdown";
+
+type QuestionFeedbackHandler = (
+	result: QuizResult,
+	feedback: QuestionFeedbackKind
+) => void | Promise<void>;
 
 export class ResultsModal extends Modal {
 	private results: QuizResult[];
 	private deltas: SkillDelta[];
 	private practiceCredit: PracticeCredit | null;
+	private onQuestionFeedback: QuestionFeedbackHandler | null;
 	private renderComponent: Component;
 
-	constructor(app: App, results: QuizResult[], deltas: SkillDelta[], practiceCredit: PracticeCredit | null) {
+	constructor(
+		app: App,
+		results: QuizResult[],
+		deltas: SkillDelta[],
+		practiceCredit: PracticeCredit | null,
+		onQuestionFeedback?: QuestionFeedbackHandler
+	) {
 		super(app);
 		this.results = results;
 		this.deltas = deltas;
 		this.practiceCredit = practiceCredit;
+		this.onQuestionFeedback = onQuestionFeedback ?? null;
 		this.renderComponent = new Component();
 	}
 
@@ -101,6 +114,7 @@ export class ResultsModal extends Modal {
 				text: `Time: ${formatTime(r.timeTakenMs)}`,
 				cls: "ap-review-time",
 			});
+			this.renderFeedbackButtons(item, r);
 		}
 
 		// Close button
@@ -124,6 +138,50 @@ export class ResultsModal extends Modal {
 			? row.createDiv({ cls: "ap-review-value-block" })
 			: row.createSpan({ cls: "ap-review-value-inline" });
 		this.renderMarkdown(markdown, value);
+	}
+
+	private renderFeedbackButtons(container: HTMLElement, result: QuizResult): void {
+		if (!this.onQuestionFeedback) return;
+		const row = container.createDiv({ cls: "ap-review-feedback" });
+		row.createSpan({ text: "Flag question:", cls: "ap-review-feedback-label" });
+		const options: Array<{ kind: QuestionFeedbackKind; label: string }> = [
+			{ kind: "too_easy", label: "Too easy" },
+			{ kind: "too_hard", label: "Too hard" },
+			{ kind: "bad_concept", label: "Bad concept" },
+		];
+		for (const option of options) {
+			const btn = row.createEl("button", {
+				text: option.label,
+				cls: "ap-review-feedback-button",
+			});
+			btn.addEventListener("click", () => {
+				void this.saveQuestionFeedback(row, btn, result, option.kind);
+			});
+		}
+	}
+
+	private async saveQuestionFeedback(
+		row: HTMLElement,
+		button: HTMLButtonElement,
+		result: QuizResult,
+		feedback: QuestionFeedbackKind
+	): Promise<void> {
+		if (!this.onQuestionFeedback || button.disabled) return;
+		row.querySelectorAll<HTMLButtonElement>("button").forEach((btn) => {
+			btn.disabled = true;
+			btn.removeClass("is-active");
+		});
+		button.addClass("is-active");
+		try {
+			await this.onQuestionFeedback(result, feedback);
+			new Notice("Question feedback saved.");
+		} catch (e) {
+			new Notice(`Failed to save feedback: ${e instanceof Error ? e.message : String(e)}`);
+			row.querySelectorAll<HTMLButtonElement>("button").forEach((btn) => {
+				btn.disabled = false;
+			});
+			button.removeClass("is-active");
+		}
 	}
 
 	private renderPracticeCredit(container: HTMLElement): void {

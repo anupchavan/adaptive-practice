@@ -88,6 +88,7 @@ import {
 } from "../src/practice/scheduler";
 import { resolvePracticeCredit } from "../src/practice/daily-credit";
 import { hasPracticedToday } from "../src/practice/daily-status";
+import { recordQuestionFeedback } from "../src/practice/question-feedback";
 import {
 	reconcileGeneratedQuestions,
 	reconcileSourceTopics,
@@ -2229,6 +2230,50 @@ test("normalizePracticeMemory backfills fluency fields for older saved data", ()
 	assert.equal(state.averageTimeMs, 0);
 	assert.equal(state.lastSessionAccuracy, 0);
 	assert.equal(state.lastSessionFluency, 0);
+});
+
+test("question feedback stores bounded evaluation labels", () => {
+	const question = makeQuestion({
+		questionText: "Why does the duplicate-heavy rotated search degrade to linear time?",
+		correctAnswer: "Equal low/mid/high values only let us shrink both ends.",
+		sourceTopics: ["Rotated binary search"],
+		sourceSubtopics: ["Duplicate ambiguity"],
+		difficulty: "medium",
+	});
+	const result = makeResult(question, {
+		isCorrect: true,
+		timeTakenMs: 42_000,
+	});
+	const now = Date.UTC(2026, 5, 27, 10);
+	const memory = recordQuestionFeedback(
+		normalizePracticeMemory(undefined),
+		result,
+		"too_easy",
+		now
+	);
+
+	const feedback = memory.questionFeedback ?? [];
+	assert.equal(feedback.length, 1);
+	assert.equal(feedback[0]?.kind, "too_easy");
+	assert.equal(feedback[0]?.difficulty, "medium");
+	assert.equal(feedback[0]?.sourceSubtopics[0], "Duplicate ambiguity");
+	assert.equal(feedback[0]?.wasCorrect, true);
+
+	const updated = recordQuestionFeedback(memory, result, "too_easy", now + 1000);
+	const replacedFeedback = updated.questionFeedback ?? [];
+	assert.equal(replacedFeedback.length, 1);
+	assert.equal(replacedFeedback[0]?.createdAt, now + 1000);
+
+	let bounded = updated;
+	for (let i = 0; i < 260; i++) {
+		bounded = recordQuestionFeedback(
+			bounded,
+			makeResult(makeQuestion({ id: `q-${i}`, questionText: `Question ${i}` })),
+			"bad_concept",
+			now + i
+		);
+	}
+	assert.equal((bounded.questionFeedback ?? []).length, 250);
 });
 
 test("reconcilePracticeMemory carries practice state across a moved note", () => {

@@ -5,6 +5,7 @@ import {
 	NoteIndexMedia,
 	NotePracticeState,
 	PracticeMemory,
+	QuestionFeedbackEntry,
 	QuizResult,
 	SkillDelta,
 	DailySessionPlan,
@@ -84,6 +85,7 @@ export function normalizePracticeMemory(input: PracticeMemory | undefined): Prac
 			streak: clampNumber(raw.daily?.streak, 0, 36500, 0),
 			lastScanAt: clampNumber(raw.daily?.lastScanAt, 0, Number.MAX_SAFE_INTEGER, 0),
 		},
+		questionFeedback: normalizeQuestionFeedback(raw.questionFeedback),
 	};
 }
 
@@ -929,6 +931,58 @@ function normalizeSubtopicKey(input: string): string {
 
 function stringOrEmpty(input: unknown): string {
 	return typeof input === "string" ? input : "";
+}
+
+function normalizeQuestionFeedback(input: unknown): QuestionFeedbackEntry[] {
+	if (!Array.isArray(input)) return [];
+	return input
+		.map((entry) => normalizeQuestionFeedbackEntry(entry))
+		.filter((entry): entry is QuestionFeedbackEntry => !!entry)
+		.slice(-250);
+}
+
+function normalizeQuestionFeedbackEntry(input: unknown): QuestionFeedbackEntry | null {
+	if (!input || typeof input !== "object") return null;
+	const raw = input as Partial<QuestionFeedbackEntry>;
+	if (
+		raw.kind !== "too_easy" &&
+		raw.kind !== "too_hard" &&
+		raw.kind !== "bad_concept"
+	) {
+		return null;
+	}
+	if (
+		raw.difficulty !== "easy" &&
+		raw.difficulty !== "medium" &&
+		raw.difficulty !== "hard"
+	) {
+		return null;
+	}
+	const id = stringOrEmpty(raw.id).trim();
+	const questionText = stringOrEmpty(raw.questionText).trim();
+	if (!id || !questionText) return null;
+	return {
+		id,
+		kind: raw.kind,
+		questionText,
+		correctAnswer: stringOrEmpty(raw.correctAnswer).trim(),
+		difficulty: raw.difficulty,
+		sourceTopics: normalizeFeedbackStringArray(raw.sourceTopics),
+		sourceSubtopics: normalizeFeedbackStringArray(raw.sourceSubtopics),
+		wasCorrect: raw.wasCorrect === true,
+		skipped: raw.skipped === true,
+		timeTakenMs: clampNumber(raw.timeTakenMs, 0, 24 * 60 * 60 * 1000, 0),
+		createdAt: clampNumber(raw.createdAt, 0, Number.MAX_SAFE_INTEGER, 0),
+	};
+}
+
+function normalizeFeedbackStringArray(input: unknown): string[] {
+	if (!Array.isArray(input)) return [];
+	return [...new Set(input
+		.filter((value): value is string => typeof value === "string")
+		.map((value) => value.trim())
+		.filter(Boolean))]
+		.slice(0, 8);
 }
 
 function clampNumber(

@@ -931,6 +931,32 @@
 	color: var(--text-muted);
 }
 
+.ap-review-feedback {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 8px;
+	font-size: var(--font-ui-smaller);
+}
+
+.ap-review-feedback-label {
+	color: var(--text-faint);
+}
+
+.ap-review-feedback-button {
+	min-height: 24px;
+	padding: 2px 8px;
+	border-radius: 6px;
+	font-size: var(--font-ui-smaller);
+}
+
+.ap-review-feedback-button.is-active {
+	border-color: var(--interactive-accent);
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
 /* ══════════════════════════════════════════════════════
    Practice View (full tab) — replicating reference UI
    ══════════════════════════════════════════════════════ */

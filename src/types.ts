@@ -195,6 +195,23 @@ export interface PracticeMemory {
 	notes: Record<string, NotePracticeState>;
 	index: Record<string, NoteIndexEntry>;
 	daily: DailyPracticeState;
+	questionFeedback?: QuestionFeedbackEntry[];
+}
+
+export type QuestionFeedbackKind = "too_easy" | "too_hard" | "bad_concept";
+
+export interface QuestionFeedbackEntry {
+	id: string;
+	kind: QuestionFeedbackKind;
+	questionText: string;
+	correctAnswer: string;
+	difficulty: Difficulty;
+	sourceTopics: string[];
+	sourceSubtopics: string[];
+	wasCorrect: boolean;
+	skipped: boolean;
+	timeTakenMs: number;
+	createdAt: number;
 }
 
 export const DEFAULT_PRACTICE_MEMORY: PracticeMemory = {
@@ -208,6 +225,7 @@ export const DEFAULT_PRACTICE_MEMORY: PracticeMemory = {
 		streak: 0,
 		lastScanAt: 0,
 	},
+	questionFeedback: [],
 };
 
 export const DEFAULT_SETTINGS: AdaptivePracticeSettings = {

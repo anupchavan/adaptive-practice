@@ -7,6 +7,7 @@ import {
 	DailySessionPlan,
 	PracticeDraft,
 	Question,
+	QuestionFeedbackKind,
 	QuizResult,
 	SessionConfig,
 	TopicNote,
@@ -21,6 +22,7 @@ import { ConfirmationModal } from "./ui/confirmation-modal";
 import { generateQuestions, finalizeSession } from "./practice/session";
 import { hasPracticedToday as memoryHasPracticedToday } from "./practice/daily-status";
 import { resolvePracticeCredit } from "./practice/daily-credit";
+import { recordQuestionFeedback as recordQuestionFeedbackInMemory } from "./practice/question-feedback";
 import {
 	applyPracticeMemoryToTopics,
 	normalizePracticeMemory,
@@ -869,13 +871,31 @@ export default class AdaptivePracticePlugin extends Plugin {
 			await this.saveSettings();
 			this.renderDashboardViews();
 			finalNotice.hide();
-			new ResultsModal(this.app, results, deltas, practiceCredit).open();
+			new ResultsModal(
+				this.app,
+				results,
+				deltas,
+				practiceCredit,
+				(result, feedback) => this.recordQuestionFeedback(result, feedback)
+			).open();
 		} catch (e) {
 			finalNotice.hide();
 			new Notice(
 				`Error saving results: ${e instanceof Error ? e.message : String(e)}`
 			);
 		}
+	}
+
+	private async recordQuestionFeedback(
+		result: QuizResult,
+		feedback: QuestionFeedbackKind
+	): Promise<void> {
+		this.settings.practiceMemory = recordQuestionFeedbackInMemory(
+			this.settings.practiceMemory,
+			result,
+			feedback
+		);
+		await this.saveSettings();
 	}
 
 	private async openPracticeView(
