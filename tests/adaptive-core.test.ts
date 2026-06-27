@@ -2473,6 +2473,62 @@ test("selectDailyTopics introduces untouched notes only up to the daily limit", 
 	assert.ok(selected.every((topic) => /new/.test(topic.scheduleReason ?? "")));
 });
 
+test("selectDailyTopics mixes due review with a capped untouched intro", () => {
+	const now = Date.UTC(2026, 5, 26, 12);
+	const dueTopics = [
+		makeTopic({ path: "cs/graphs.md", title: "Graph traversals" }),
+		makeTopic({ path: "math/integrals.md", title: "Definite integrals" }),
+	];
+	const newTopics = Array.from({ length: 12 }, (_, index) =>
+		makeTopic({
+			path: `backlog/new-${index + 1}.md`,
+			title: `Untouched topic ${index + 1}`,
+		})
+	);
+	const memory = normalizePracticeMemory({
+		version: 1,
+		index: {},
+		daily: {
+			lastReminderDate: "",
+			lastReminderAttemptAt: 0,
+			lastPracticeDate: "",
+			streak: 0,
+			lastScanAt: now,
+		},
+		notes: {
+			[dueTopics[0]!.path]: makeNoteState(dueTopics[0]!, {
+				attempts: 5,
+				correct: 3,
+				lastPracticedAt: now - 8 * DAY_MS,
+				dueAt: now - DAY_MS,
+				lastSessionAccuracy: 0.6,
+				lastSessionFluency: 0.5,
+			}),
+			[dueTopics[1]!.path]: makeNoteState(dueTopics[1]!, {
+				attempts: 4,
+				correct: 4,
+				lastPracticedAt: now - 7 * DAY_MS,
+				dueAt: now - 2 * DAY_MS,
+				lastSessionAccuracy: 1,
+				lastSessionFluency: 0.9,
+			}),
+		},
+	});
+
+	const selected = selectDailyTopics([...dueTopics, ...newTopics], memory, 6, now);
+	const untouchedCount = selected.filter((topic) =>
+		topic.path.startsWith("backlog/")
+	).length;
+
+	assert.deepEqual(
+		new Set(selected.slice(0, 2).map((topic) => topic.title)),
+		new Set(["Graph traversals", "Definite integrals"])
+	);
+	assert.equal(untouchedCount, 3);
+	assert.equal(selected.length, 5);
+	assert.ok(selected.slice(2).every((topic) => /new/.test(topic.scheduleReason ?? "")));
+});
+
 test("selectDailyTopics moves past freshly imported notes already practiced today", () => {
 	const now = Date.UTC(2026, 5, 26, 12);
 	const topics = Array.from({ length: 8 }, (_, index) =>

@@ -169,25 +169,59 @@ export function selectDailyTopics(
 	now = Date.now()
 ): TopicNote[] {
 	const reconciled = reconcilePracticeMemory(memory, topics, now);
+	const safeLimit = Math.max(1, limit);
 	const scored = topics
 		.map((topic) => scoreTopic(topic, reconciled, now))
 		.sort((a, b) => b.score - a.score);
 	const due = scored.filter((item) => {
 		const state = reconciled.notes[item.topic.path];
 		if (!state) return false;
+		const practicedToday =
+			state.lastPracticedAt > 0 &&
+			localDateKey(new Date(state.lastPracticedAt)) === localDateKey(new Date(now));
 		const modifiedAfterPractice =
 			state.lastPracticedAt > 0 && state.updatedAt > state.lastPracticedAt + 1000;
-		return state.dueAt <= now || state.attempts === 0 || modifiedAfterPractice;
+		return (
+			state.dueAt <= now ||
+			state.attempts === 0 ||
+			modifiedAfterPractice ||
+			(!practicedToday && item.score >= 1.25)
+		);
 	});
 	const pool = due.length > 0 ? due : scored.filter((item) => item.score >= 1.25);
+	const selected = selectDailyTopicMix(pool, reconciled, safeLimit);
 
-	return pool.slice(0, Math.max(1, limit)).map((item) => ({
+	return selected.map((item) => ({
 		...item.topic,
 		priorityScore: item.score,
 		scheduleReason: item.reason,
 		dueAt: reconciled.notes[item.topic.path]?.dueAt,
 		lastPracticedAt: reconciled.notes[item.topic.path]?.lastPracticedAt || undefined,
 	}));
+}
+
+function selectDailyTopicMix(
+	pool: TopicScore[],
+	memory: PracticeMemory,
+	limit: number
+): TopicScore[] {
+	const reviewed = pool.filter((item) => {
+		const state = memory.notes[item.topic.path];
+		return !!state && state.attempts > 0;
+	});
+	const untouched = pool.filter((item) => {
+		const state = memory.notes[item.topic.path];
+		return !!state && state.attempts === 0;
+	});
+	if (reviewed.length === 0) return untouched.slice(0, limit);
+
+	const selected = reviewed.slice(0, limit);
+	const remaining = limit - selected.length;
+	if (remaining <= 0) return selected;
+
+	const maxUntouched = Math.max(1, Math.ceil(limit / 2));
+	selected.push(...untouched.slice(0, Math.min(remaining, maxUntouched)));
+	return selected;
 }
 
 export function selectPracticeMoreTopics(
