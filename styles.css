@@ -220,6 +220,33 @@
 	margin-top: 1em;
 }
 
+.ap-btn-container button {
+	min-height: 36px;
+	padding: 8px 18px;
+	border: 1px solid transparent;
+	border-radius: 8px;
+	background: var(--background-secondary);
+	color: var(--text-normal);
+	font-weight: 600;
+	cursor: pointer;
+	transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.ap-btn-container button:hover {
+	background: var(--background-modifier-hover);
+	border-color: var(--background-modifier-border-hover);
+}
+
+.ap-btn-container button.mod-cta {
+	border-color: transparent;
+	background: var(--color-green);
+	color: #fff;
+}
+
+.ap-btn-container button.mod-cta:hover {
+	background: rgba(var(--color-green-rgb), 0.82);
+}
+
 /* ── Daily dashboard ── */
 
 .ap-dashboard-view {
@@ -441,23 +468,35 @@
 
 .ap-quiz-modal .modal-content {
 	max-width: 640px;
+	padding-top: 36px;
 }
 
 .ap-quiz-modal-controls {
 	position: absolute;
-	top: 8px;
-	inset-inline-end: 8px;
+	top: 12px;
+	inset-inline-end: 12px;
 	z-index: 30;
 	display: flex;
 	align-items: center;
-	gap: 4px;
+	justify-content: flex-end;
+	gap: 8px;
+	pointer-events: auto;
 }
 
-.ap-quiz-modal-controls .modal-close-button {
-	position: static;
-	inset: auto;
-	margin: 0;
+.ap-quiz-modal .ap-quiz-modal-controls .modal-close-button.ap-quiz-close-button {
+	position: static !important;
+	inset: auto !important;
+	transform: none !important;
+	margin: 0 !important;
 	flex: 0 0 auto;
+	width: 30px;
+	height: 30px;
+	border-radius: 4px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: transparent;
+	color: var(--text-muted);
 }
 
 .ap-expand-button {

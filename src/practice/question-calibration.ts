@@ -13,7 +13,8 @@ export function calibrateQuestionsForPractice(
 		.filter((question) =>
 			!isLowConceptRecallQuestion(question, topics) &&
 			!isTitleDependentProblemQuestion(question, topics)
-		);
+		)
+		.map((question) => linkSourceTopicMentions(question, topics));
 }
 
 export function calibrateQuestionForPractice(
@@ -119,6 +120,19 @@ export function inferSourceSubtopics(
 		.slice(0, 4);
 }
 
+export function linkSourceTopicMentions(
+	question: Question,
+	topics: TopicNote[]
+): Question {
+	const replacements = sourceTopicLinkReplacements(question, topics);
+	if (replacements.length === 0) return question;
+
+	return {
+		...question,
+		questionText: linkTopicMentions(question.questionText, replacements),
+	};
+}
+
 function addHeadingScore(
 	output: Array<{ heading: string; score: number }>,
 	heading: string,
@@ -137,6 +151,122 @@ function addHeadingScore(
 	const overlap = tokens.filter((token) => combinedQuestion.includes(token)).length;
 	const score = (overlap / tokens.length) * weight;
 	if (score > 0) output.push({ heading, score });
+}
+
+interface TopicLinkReplacement {
+	label: string;
+	target: string;
+}
+
+function sourceTopicLinkReplacements(
+	question: Question,
+	topics: TopicNote[]
+): TopicLinkReplacement[] {
+	const sourceKeys = new Set(question.sourceTopics.map(normalizeText).filter(Boolean));
+	const replacements: TopicLinkReplacement[] = [];
+	const seen = new Set<string>();
+
+	for (const topic of topics) {
+		const labels = [topic.title, ...(topic.aliases ?? [])].filter(Boolean);
+		const matchesSource = labels.some((label) => sourceKeys.has(normalizeText(label)));
+		if (!matchesSource) continue;
+
+		const target = topic.path.replace(/\.md$/i, "");
+		for (const label of labels) {
+			const trimmed = label.trim();
+			const key = normalizeText(trimmed);
+			if (!trimmed || key.length < 3 || seen.has(key)) continue;
+			seen.add(key);
+			replacements.push({
+				label: trimmed,
+				target,
+			});
+		}
+	}
+
+	return replacements.sort((a, b) => b.label.length - a.label.length);
+}
+
+function linkTopicMentions(
+	markdown: string,
+	replacements: TopicLinkReplacement[]
+): string {
+	return replaceOutsideCode(markdown, (chunk) => {
+		let next = chunk;
+		for (const replacement of replacements) {
+			next = replaceTopicLabel(next, replacement);
+		}
+		return next;
+	});
+}
+
+function replaceTopicLabel(
+	text: string,
+	replacement: TopicLinkReplacement
+): string {
+	const labelPattern = escapeRegExp(replacement.label);
+	const boldPattern = new RegExp(`\\*\\*(${labelPattern})\\*\\*`, "gi");
+	const plainPattern = new RegExp(`(^|[^A-Za-z0-9])(${labelPattern})(?=$|[^A-Za-z0-9])`, "gi");
+
+	return text
+		.replace(boldPattern, (_match, display: string, offset: number, full: string) =>
+			shouldSkipLinkReplacement(full, offset)
+				? _match
+				: buildWikiLink(replacement.target, display)
+		)
+		.replace(plainPattern, (match: string, prefix: string, display: string, offset: number, full: string) =>
+			shouldSkipLinkReplacement(full, offset + prefix.length)
+				? match
+				: `${prefix}${buildWikiLink(replacement.target, display)}`
+		);
+}
+
+function replaceOutsideCode(
+	markdown: string,
+	replaceChunk: (chunk: string) => string
+): string {
+	const segments = markdown.split(/(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`)/g);
+	return segments
+		.map((segment) =>
+			segment.startsWith("```") ||
+			segment.startsWith("~~~") ||
+			(segment.startsWith("`") && segment.endsWith("`"))
+				? segment
+				: replaceChunk(segment)
+		)
+		.join("");
+}
+
+function shouldSkipLinkReplacement(
+	full: string,
+	offset: number
+): boolean {
+	return isInsideWikiLink(full, offset);
+}
+
+function isInsideWikiLink(
+	full: string,
+	offset: number
+): boolean {
+	const open = full.lastIndexOf("[[", offset);
+	if (open === -1) return false;
+	const close = full.lastIndexOf("]]", offset);
+	return close < open;
+}
+
+function buildWikiLink(
+	target: string,
+	display: string
+): string {
+	return `[[${escapeWikiLinkPart(target)}|${escapeWikiLinkPart(display)}]]`;
+}
+
+function escapeWikiLinkPart(value: string): string {
+	return value.replace(/\[|\]/g, "").replace(/\|/g, " ").trim();
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function isTopicLabel(

@@ -320,11 +320,8 @@ export function planDailySession(
 		newRatio >= 0.6;
 
 	if (fragile) {
-		const reduction = averageAccuracy < 0.45 || averageFluency < 0.35
-			? 0.55
-			: 0.75;
 		return {
-			questionCount: Math.max(3, Math.round(baseCount * reduction)),
+			questionCount: baseCount,
 			challengeMode: "warmup",
 			reason: summarizePlanReason([
 				averageSkill < 45 ? "low skill" : "",
@@ -346,7 +343,7 @@ export function planDailySession(
 
 	if (cruising) {
 		return {
-			questionCount: Math.min(20, baseCount + Math.max(1, Math.round(baseCount * 0.25))),
+			questionCount: baseCount,
 			challengeMode: "stretch",
 			reason: "strong recent accuracy and fluency",
 		};
@@ -359,7 +356,7 @@ export function planDailySession(
 
 	if (momentumStretch) {
 		return {
-			questionCount: Math.min(20, baseCount + Math.max(1, Math.round(baseCount * 0.15))),
+			questionCount: baseCount,
 			challengeMode: "stretch",
 			reason: "recent correct streak and fluent answers",
 		};

@@ -469,10 +469,6 @@ export default class AdaptivePracticePlugin extends Plugin {
 		if (!extraPractice) return plan;
 		return {
 			...plan,
-			questionCount: Math.min(
-				plan.questionCount,
-				Math.max(3, Math.ceil(this.settings.dailyQuestionCount / 2))
-			),
 			reason: `extra practice: ${plan.reason}`,
 		};
 	}

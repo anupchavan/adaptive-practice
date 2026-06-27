@@ -72,6 +72,8 @@ export class PracticeView extends ItemView {
 	async onClose(): Promise<void> {
 		if (this.hasAnsweredAllQuestions()) {
 			this.finishCompletedSession();
+		} else {
+			this.emitStateChange();
 		}
 		this.removeKeyHandler();
 		this.renderComponent.unload();
@@ -624,7 +626,7 @@ export class PracticeView extends ItemView {
 			const isCorrectOption = opt === q.correctAnswer;
 			const isUserChoice = opt === result.userAnswer;
 
-			if (wasAttempted && isCorrectOption) {
+			if (isCorrectOption) {
 				optionEl.addClass("ap-pv-option-correct");
 			} else if (wasAttempted && isUserChoice && !result.isCorrect) {
 				optionEl.addClass("ap-pv-option-wrong");
@@ -632,7 +634,7 @@ export class PracticeView extends ItemView {
 
 			const letterBadge = optionEl.createDiv({ cls: "ap-pv-option-letter" });
 
-			if (wasAttempted && isCorrectOption) {
+			if (isCorrectOption) {
 				letterBadge.addClass("ap-pv-letter-correct");
 				setIcon(letterBadge, "check");
 			} else if (wasAttempted && isUserChoice && !result.isCorrect) {
@@ -672,6 +674,17 @@ export class PracticeView extends ItemView {
 	}
 
 	private renderMarkdown(md: string, el: HTMLElement): void {
+		el.addEventListener(
+			"click",
+			(event) => {
+				const target = event.target;
+				if (!(target instanceof HTMLElement)) return;
+				if (target.closest("a.internal-link")) {
+					this.emitStateChange();
+				}
+			},
+			{ capture: true }
+		);
 		renderMarkdown(this.app, md, el, this.renderComponent);
 	}
 }

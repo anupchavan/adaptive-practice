@@ -850,6 +850,58 @@ test("question calibration rejects problem-title framing without the problem set
 	assert.equal(calibrated.length, 0);
 });
 
+test("question calibration links accepted source title mentions to Obsidian wikilinks", () => {
+	const topic = makeTopic({
+		path: "Algorithms/First and Last Occurrence.md",
+		title: "First and Last Occurrence",
+	});
+	const structure = makeStructure({
+		title: topic.title,
+		headings: [{ heading: "Upper bound endpoint", level: 2 }],
+		sections: [
+			{
+				heading: "Upper bound endpoint",
+				level: 2,
+				content: "The upper bound returns the first index strictly greater than the target.",
+				wordCount: 12,
+			},
+		],
+	});
+	const [question] = calibrateQuestionsForPractice(
+		[
+			makeQuestion({
+				questionText: "Given nums = [1, 2, 2, 3] and target = 2, the **First and Last Occurrence** approach returns `upperBound - 1` for the last index. Why not return `upperBound` directly?",
+				correctAnswer: "Because upperBound points to the first element greater than the target.",
+				options: [
+					"Because upperBound points to the first element greater than the target.",
+					"Because arrays are zero-indexed.",
+					"Because binary search always overshoots by one.",
+					"Because the array is searched in reverse.",
+				],
+				sourceTopics: [topic.title],
+				sourceSubtopics: ["Upper bound endpoint"],
+				difficulty: "hard",
+			}),
+		],
+		[
+			{
+				note: topic,
+				content: structure.cleanedText,
+				history: "",
+				structure,
+			},
+		],
+		[topic]
+	);
+
+	assert.ok(question);
+	assert.match(
+		question.questionText,
+		/\[\[Algorithms\/First and Last Occurrence\|First and Last Occurrence\]\]/
+	);
+	assert.doesNotMatch(question.questionText, /\*\*First and Last Occurrence\*\*/);
+});
+
 test("question calibration infers source subtopics from note headings", () => {
 	const topic = makeTopic({ title: "Binary search variants" });
 	const structure = makeStructure({
@@ -3078,7 +3130,7 @@ test("extra practice after a counted daily session does not add another streak d
 	assert.equal(updated.daily.streak, 5);
 });
 
-test("planDailySession shortens fragile daily review into a warm-up", () => {
+test("planDailySession keeps the configured count for fragile warm-up sessions", () => {
 	const topic = makeTopic({ skill: 35 });
 	const memory = normalizePracticeMemory({
 		version: 1,
@@ -3104,13 +3156,13 @@ test("planDailySession shortens fragile daily review into a warm-up", () => {
 	const plan = planDailySession([topic], memory, 10);
 
 	assert.equal(plan.challengeMode, "warmup");
-	assert.equal(plan.questionCount, 6);
+	assert.equal(plan.questionCount, 10);
 	assert.match(plan.reason, /low skill/);
 	assert.match(plan.reason, /recent misses/);
 	assert.match(plan.reason, /slow recall/);
 });
 
-test("planDailySession stretches fluent daily review without exceeding bounds", () => {
+test("planDailySession keeps the configured count for fluent stretch sessions", () => {
 	const topic = makeTopic({ skill: 88 });
 	const memory = normalizePracticeMemory({
 		version: 1,
@@ -3135,7 +3187,7 @@ test("planDailySession stretches fluent daily review without exceeding bounds", 
 	const plan = planDailySession([topic], memory, 19);
 
 	assert.equal(plan.challengeMode, "stretch");
-	assert.equal(plan.questionCount, 20);
+	assert.equal(plan.questionCount, 19);
 	assert.match(plan.reason, /strong recent accuracy/);
 });
 
@@ -3165,7 +3217,7 @@ test("planDailySession escalates after a fluent correct streak before skill catc
 	const plan = planDailySession([topic], memory, 8);
 
 	assert.equal(plan.challengeMode, "stretch");
-	assert.equal(plan.questionCount, 9);
+	assert.equal(plan.questionCount, 8);
 	assert.match(plan.reason, /correct streak/);
 });
 
