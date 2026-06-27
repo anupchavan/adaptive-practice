@@ -2615,14 +2615,16 @@ test("meaningful daily streak credit ignores skips and speed-clicked answers", (
 		[topic],
 		skippedResults,
 		[],
-		now
+		now,
+		{ countDailyCredit: true }
 	);
 	const engagedMemory = updatePracticeMemoryAfterSession(
 		undefined,
 		[topic],
 		engagedResults,
 		[],
-		now
+		now,
+		{ countDailyCredit: true }
 	);
 
 	assert.equal(hasPracticedToday(skippedMemory, new Date(now)), false);
@@ -2644,7 +2646,8 @@ test("practice credit status explains daily streak outcomes", () => {
 			makeResult(question, { isCorrect: true, timeTakenMs: 25_000 }),
 		],
 		[],
-		now
+		now,
+		{ countDailyCredit: true }
 	);
 	const notCounted = updatePracticeMemoryAfterSession(
 		before,
@@ -2654,14 +2657,16 @@ test("practice credit status explains daily streak outcomes", () => {
 			makeResult(question, { isCorrect: false, skipped: true, timeTakenMs: 2_000 }),
 		],
 		[],
-		now
+		now,
+		{ countDailyCredit: true }
 	);
 	const extra = updatePracticeMemoryAfterSession(
 		counted,
 		[topic],
 		[makeResult(question, { isCorrect: true, timeTakenMs: 30_000 })],
 		[],
-		now + 60_000
+		now + 60_000,
+		{ countDailyCredit: true }
 	);
 
 	assert.equal(
@@ -2676,6 +2681,27 @@ test("practice credit status explains daily streak outcomes", () => {
 		resolvePracticeCredit(counted, extra, new Date(now + 60_000)).status,
 		"already-counted"
 	);
+});
+
+test("manual practice updates note memory without counting daily streak", () => {
+	const now = Date.UTC(2026, 5, 26, 12);
+	const topic = makeTopic();
+	const question = makeQuestion({ sourceTopics: [topic.title] });
+	const updated = updatePracticeMemoryAfterSession(
+		undefined,
+		[topic],
+		[
+			makeResult(question, { isCorrect: true, timeTakenMs: 25_000 }),
+			makeResult(question, { isCorrect: true, timeTakenMs: 30_000 }),
+		],
+		[],
+		now
+	);
+
+	assert.equal(updated.notes[topic.path]?.attempts, 2);
+	assert.equal(updated.notes[topic.path]?.lastPracticedAt, now);
+	assert.equal(hasPracticedToday(updated, new Date(now)), false);
+	assert.equal(updated.daily.streak, 0);
 });
 
 test("extra practice after a counted daily session does not add another streak day", () => {
@@ -2712,7 +2738,8 @@ test("extra practice after a counted daily session does not add another streak d
 			makeResult(question, { isCorrect: true, timeTakenMs: 30_000 }),
 		],
 		[],
-		now
+		now,
+		{ countDailyCredit: true }
 	);
 
 	assert.equal(updated.daily.lastPracticeDate, "2026-06-26");

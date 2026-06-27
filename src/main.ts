@@ -839,13 +839,16 @@ export default class AdaptivePracticePlugin extends Plugin {
 				config.topics,
 				results,
 				deltas,
-				completedAt
+				completedAt,
+				{ countDailyCredit: config.mode === "daily" }
 			);
-			const practiceCredit = resolvePracticeCredit(
-				previousMemory,
-				this.settings.practiceMemory,
-				new Date(completedAt)
-			);
+			const practiceCredit = config.mode === "daily"
+				? resolvePracticeCredit(
+					previousMemory,
+					this.settings.practiceMemory,
+					new Date(completedAt)
+				)
+				: null;
 			this.settings.practiceDraft = null;
 			await this.saveSettings();
 			this.renderDashboardViews();

@@ -7,10 +7,10 @@ import { hasBlockMarkdown, renderMarkdown } from "./markdown";
 export class ResultsModal extends Modal {
 	private results: QuizResult[];
 	private deltas: SkillDelta[];
-	private practiceCredit: PracticeCredit;
+	private practiceCredit: PracticeCredit | null;
 	private renderComponent: Component;
 
-	constructor(app: App, results: QuizResult[], deltas: SkillDelta[], practiceCredit: PracticeCredit) {
+	constructor(app: App, results: QuizResult[], deltas: SkillDelta[], practiceCredit: PracticeCredit | null) {
 		super(app);
 		this.results = results;
 		this.deltas = deltas;
@@ -52,7 +52,7 @@ export class ResultsModal extends Modal {
 			text: `Fluency: ${Math.round(fluency * 100)}%`,
 			cls: "ap-results-stat",
 		});
-		this.renderPracticeCredit(contentEl);
+		if (this.practiceCredit) this.renderPracticeCredit(contentEl);
 
 		// Skill changes
 		if (this.deltas.length > 0) {
@@ -127,6 +127,7 @@ export class ResultsModal extends Modal {
 	}
 
 	private renderPracticeCredit(container: HTMLElement): void {
+		if (!this.practiceCredit) return;
 		const banner = container.createDiv({
 			cls: `ap-results-credit ap-results-credit-${this.practiceCredit.status}`,
 		});

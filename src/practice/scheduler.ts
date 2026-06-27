@@ -32,6 +32,10 @@ interface SessionTopicStats {
 	subtopics: Map<string, { attempts: number; correct: number }>;
 }
 
+interface PracticeMemoryUpdateOptions {
+	countDailyCredit?: boolean;
+}
+
 export function clonePracticeMemory(): PracticeMemory {
 	return JSON.parse(JSON.stringify(DEFAULT_PRACTICE_MEMORY)) as PracticeMemory;
 }
@@ -324,7 +328,8 @@ export function updatePracticeMemoryAfterSession(
 	topics: TopicNote[],
 	results: QuizResult[],
 	deltas: SkillDelta[],
-	now = Date.now()
+	now = Date.now(),
+	options: PracticeMemoryUpdateOptions = {}
 ): PracticeMemory {
 	const next = reconcilePracticeMemory(memory, topics, now);
 	const statsByPath = collectSessionStats(topics, results);
@@ -381,7 +386,7 @@ export function updatePracticeMemoryAfterSession(
 		}
 	}
 
-	if (isMeaningfulPracticeSession(results)) {
+	if (options.countDailyCredit === true && isMeaningfulPracticeSession(results)) {
 		updateDailyStreak(next, now);
 	}
 	return next;
