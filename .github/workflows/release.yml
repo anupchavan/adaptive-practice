@@ -34,7 +34,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="${GITHUB_REF#refs/tags/}"
+          notes_file="release-notes/${tag}.md"
+          notes_args=()
+          if [ -f "$notes_file" ]; then
+            notes_args=(--notes-file "$notes_file")
+          fi
           gh release create "$tag" \
             --title="$tag" \
-            --draft \
+            "${notes_args[@]}" \
             main.js manifest.json styles.css
