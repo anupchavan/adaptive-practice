@@ -10,6 +10,7 @@ import {
 import { Question, QuizResult, TopicNote } from "../types";
 import { checkAnswer } from "../practice/grader";
 import { adaptQuestionOrderForFlow } from "../practice/flow-navigation";
+import { hasAnsweredEveryQuestion } from "../practice/results";
 import { appendSingleQuestion, removeSingleQuestion } from "../notes/writer";
 import { ConfirmationModal } from "./confirmation-modal";
 import { hasBlockMarkdown, renderMarkdown } from "./markdown";
@@ -293,7 +294,7 @@ export class PracticeView extends ItemView {
 
 	private hasAnsweredAllQuestions(): boolean {
 		const s = this.state;
-		return !!s && s.questions.length > 0 && s.results.length >= s.questions.length;
+		return !!s && hasAnsweredEveryQuestion(s.questions, s.results);
 	}
 
 	private finishCompletedSession(): void {

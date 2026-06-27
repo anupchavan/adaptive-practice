@@ -1,6 +1,7 @@
 import { Difficulty, Question, QuizResult, SkillDelta, TopicNote } from "../types";
 import { reconcileSourceTopics } from "./source-map";
 import { isIntegerLike, parseNumericAnswer } from "./numeric-answer";
+import { compactQuizResults } from "./results";
 
 const DIFFICULTY_MULTIPLIER: Record<Difficulty, number> = {
 	easy: 0.5,
@@ -63,9 +64,10 @@ export function resultFluency(result: QuizResult): number {
 }
 
 export function averageFluency(results: QuizResult[]): number {
-	if (results.length === 0) return 0;
-	const total = results.reduce((sum, result) => sum + resultFluency(result), 0);
-	return total / results.length;
+	const answered = compactQuizResults(results);
+	if (answered.length === 0) return 0;
+	const total = answered.reduce((sum, result) => sum + resultFluency(result), 0);
+	return total / answered.length;
 }
 
 export function computeSkillDeltas(
@@ -77,7 +79,7 @@ export function computeSkillDeltas(
 		skillMap.set(t.title, { note: t, skill: t.skill });
 	}
 
-	for (const r of results) {
+	for (const r of compactQuizResults(results)) {
 		const mult = DIFFICULTY_MULTIPLIER[r.question.difficulty];
 		for (const topicTitle of reconcileSourceTopics(r.question.sourceTopics, topics)) {
 			const entry = skillMap.get(topicTitle);

@@ -48,6 +48,7 @@ import {
 	practiceDraftProgress,
 	shouldConfirmPracticeDraftReplacement,
 } from "./practice/draft";
+import { hasAnsweredEveryQuestion } from "./practice/results";
 
 export default class AdaptivePracticePlugin extends Plugin {
 	settings: AdaptivePracticeSettings = DEFAULT_SETTINGS;
@@ -802,7 +803,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 		currentIndex: number,
 		topics = config.topics
 	): Promise<void> {
-		if (results.length >= questions.length) return;
+		if (hasAnsweredEveryQuestion(questions, results)) return;
 		this.settings.practiceDraft = buildPracticeDraft(
 			questions,
 			results,

@@ -12,6 +12,7 @@ import {
 } from "../types";
 import { expectedTimeMs, resultFluency } from "./grader";
 import { reconcileSourceTopics } from "./source-map";
+import { compactQuizResults } from "./results";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const REMINDER_RETRY_COOLDOWN_MS = 30 * 60 * 1000;
@@ -364,12 +365,14 @@ export function updatePracticeMemoryAfterSession(
 }
 
 export function isMeaningfulPracticeSession(results: QuizResult[]): boolean {
-	if (results.length === 0) return false;
+	const answered = compactQuizResults(results);
+	if (answered.length === 0) return false;
 
-	const attempted = results.filter((result) => !result.skipped);
+	const attempted = answered.filter((result) => !result.skipped);
+	const totalSlots = Math.max(results.length, answered.length);
 	const minimumAttempts = Math.min(
-		results.length,
-		Math.max(2, Math.ceil(results.length * 0.5))
+		totalSlots,
+		Math.max(2, Math.ceil(totalSlots * 0.5))
 	);
 	if (attempted.length < minimumAttempts) return false;
 
@@ -716,7 +719,7 @@ function collectSessionStats(
 	const byTitle = new Map(topics.map((topic) => [topic.title, topic]));
 	const byPath = new Map<string, SessionTopicStats>();
 
-	for (const result of results) {
+	for (const result of compactQuizResults(results)) {
 		const sourceTopics = reconcileSourceTopics(
 			result.question.sourceTopics,
 			topics

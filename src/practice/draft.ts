@@ -7,6 +7,11 @@ import {
 	SessionConfig,
 	TopicNote,
 } from "../types";
+import {
+	answeredResultCount,
+	firstUnansweredQuestionIndex,
+	hasAnsweredEveryQuestion,
+} from "./results";
 
 const MAX_DRAFT_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -21,17 +26,18 @@ export function normalizePracticeDraft(
 
 	const results = normalizeResults(input["results"], questions);
 	const maxIndex = Math.max(0, questions.length - 1);
-	const firstUnanswered = firstUnansweredIndex(questions, results);
+	const firstUnanswered = firstUnansweredQuestionIndex(questions, results);
+	const furthestReachable = Math.min(firstUnanswered, maxIndex);
 	const currentIndex = clampNumber(
 		input["currentIndex"],
 		0,
-		maxIndex,
-		Math.min(firstUnanswered, maxIndex)
+		furthestReachable,
+		furthestReachable
 	);
 	const createdAt = clampNumber(input["createdAt"], 0, now, now);
 	const updatedAt = clampNumber(input["updatedAt"], 0, now, createdAt);
 	if (now - updatedAt > MAX_DRAFT_AGE_MS) return null;
-	if (results.length >= questions.length) return null;
+	if (hasAnsweredEveryQuestion(questions, results)) return null;
 
 	const config = normalizeSessionConfig(input["config"], topics, questions.length);
 
@@ -74,7 +80,7 @@ export function buildPracticeDraft(
 }
 
 export function practiceDraftProgress(draft: PracticeDraft): string {
-	const answered = draft.results.length;
+	const answered = answeredResultCount(draft.results);
 	const total = draft.questions.length;
 	return `${answered} / ${total} answered`;
 }
@@ -126,18 +132,22 @@ function normalizeResults(input: unknown, questions: Question[]): QuizResult[] {
 	if (!Array.isArray(input)) return [];
 	const byId = new Map(questions.map((question) => [question.id, question]));
 	const results: QuizResult[] = [];
-	for (const item of input) {
+	for (let index = 0; index < input.length; index++) {
+		const item: unknown = input[index];
 		if (!isRecord(item)) continue;
 		const rawQuestion = normalizeQuestion(item["question"]);
 		const question = rawQuestion ? byId.get(rawQuestion.id) ?? rawQuestion : null;
 		if (!question) continue;
-		results.push({
+		const questionIndex = questions.findIndex((q) => q.id === question.id);
+		const targetIndex = questionIndex >= 0 ? questionIndex : index;
+		if (targetIndex < 0 || targetIndex >= questions.length) continue;
+		results[targetIndex] = {
 			question,
 			userAnswer: stringValue(item["userAnswer"]),
 			isCorrect: Boolean(item["isCorrect"]),
 			skipped: Boolean(item["skipped"]),
 			timeTakenMs: clampNumber(item["timeTakenMs"], 0, Number.MAX_SAFE_INTEGER, 0),
-		});
+		};
 	}
 	return results.slice(0, questions.length);
 }
@@ -182,10 +192,6 @@ function normalizeSessionConfig(
 		challengeMode,
 		challengeReason,
 	};
-}
-
-function firstUnansweredIndex(questions: Question[], results: QuizResult[]): number {
-	return Math.min(results.length, Math.max(0, questions.length - 1));
 }
 
 function normalizeQuestionType(value: unknown): QuestionType {

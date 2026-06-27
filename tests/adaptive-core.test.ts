@@ -840,6 +840,40 @@ test("practice drafts normalize unfinished generated sessions for reload resume"
 	assert.equal(practiceDraftProgress(normalized), "1 / 2 answered");
 });
 
+test("practice drafts count sparse saved results by answered slots", () => {
+	const now = Date.UTC(2026, 5, 27, 12);
+	const topics = [makeTopic({ title: "Rotated binary search" })];
+	const questions = [
+		makeQuestion({ id: "q1", sourceTopics: [topics[0]!.title] }),
+		makeQuestion({ id: "q2", sourceTopics: [topics[0]!.title] }),
+		makeQuestion({ id: "q3", sourceTopics: [topics[0]!.title] }),
+	];
+	const sparseResults = [] as QuizResult[];
+	sparseResults[1] = makeResult(questions[1]!, { timeTakenMs: 45_000 });
+
+	const draft = buildPracticeDraft(
+		questions,
+		sparseResults,
+		2,
+		topics,
+		{
+			topics,
+			questionCount: 3,
+			mode: "daily",
+			challengeMode: "steady",
+			challengeReason: "balanced challenge",
+		},
+		now
+	);
+	const normalized = normalizePracticeDraft(draft, now + 60_000);
+
+	assert.ok(normalized);
+	assert.equal(normalized.currentIndex, 0);
+	assert.equal(practiceDraftProgress(normalized), "1 / 3 answered");
+	assert.equal(normalized.results[1]?.question.id, "q2");
+	assert.equal(normalized.results[0], undefined);
+});
+
 test("practice drafts drop stale, completed, or malformed sessions", () => {
 	const now = Date.UTC(2026, 5, 27, 12);
 	const topics = [makeTopic()];
@@ -1988,10 +2022,16 @@ test("meaningful daily streak credit ignores skips and speed-clicked answers", (
 			timeTakenMs: 1_000,
 		})
 	);
+	const sparseResults = [] as QuizResult[];
+	sparseResults[3] = makeResult(question, {
+		isCorrect: true,
+		timeTakenMs: 45_000,
+	});
 
 	assert.equal(isMeaningfulPracticeSession(engagedResults), true);
 	assert.equal(isMeaningfulPracticeSession(skippedResults), false);
 	assert.equal(isMeaningfulPracticeSession(speedClickedResults), false);
+	assert.equal(isMeaningfulPracticeSession(sparseResults), false);
 
 	const skippedMemory = updatePracticeMemoryAfterSession(
 		undefined,
