@@ -3,6 +3,8 @@ import {
 	NoteMediaReference,
 	NoteStructure,
 	PromptAttachment,
+	QuestionFeedbackEntry,
+	QuestionFeedbackKind,
 	SubtopicPracticeState,
 	TopicNote,
 } from "../types";
@@ -15,6 +17,8 @@ const MAX_RENDERED_SECTIONS = 16;
 const MIN_SECTION_CHARS = 280;
 const MAX_SUBTOPIC_MEMORY_ITEMS = 12;
 const MAX_CONCEPT_TARGETS = 18;
+const MAX_FEEDBACK_EXAMPLES = 4;
+const MAX_FEEDBACK_ITEMS = 24;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export interface TopicContext {
@@ -35,6 +39,7 @@ export interface StructuredPrompt {
 export interface PromptBuildOptions {
 	challengeMode?: DailyChallengeMode;
 	challengeReason?: string;
+	questionFeedback?: QuestionFeedbackEntry[];
 	now?: number;
 }
 
@@ -46,6 +51,10 @@ export function buildPrompt(
 	const challengeMode = options.challengeMode ?? "steady";
 	const challengeReason = options.challengeReason?.trim() || "balanced challenge";
 	const now = options.now ?? Date.now();
+	const feedbackGuidance = renderQuestionFeedbackGuidance(
+		options.questionFeedback ?? [],
+		topics.map((topic) => topic.note)
+	);
 	const mdTopics = topics.filter((t) => !t.note.isPdf);
 	const pdfTopics = topics.filter((t) => t.note.isPdf);
 	const perTopicBudget = mdTopics.length === 0
@@ -75,6 +84,7 @@ export function buildPrompt(
 Session mode: ${formatChallengeMode(challengeMode)}
 Scheduler reason: ${challengeReason}
 ${challengeModeInstructions(challengeMode)}
+${feedbackGuidance}
 
 ## Core learning contract
 
@@ -189,6 +199,99 @@ function challengeModeInstructions(mode: DailyChallengeMode): string {
 		"Use the skill-based difficulty distribution below and sequence questions from approachable recall toward transfer.",
 		"Keep challenge close to the learner's current level so the session feels focused rather than either trivial or punishing.",
 	].join("\n");
+}
+
+function renderQuestionFeedbackGuidance(
+	feedback: QuestionFeedbackEntry[],
+	topics: TopicNote[]
+): string {
+	const topicTitles = new Set(topics.map((topic) => topic.title));
+	const aliases = new Set(topics.flatMap((topic) => topic.aliases ?? []));
+	const relevant = feedback
+		.filter((entry) => entry.sourceTopics.some((topic) =>
+			topicTitles.has(topic) || aliases.has(topic)
+		))
+		.sort((a, b) => b.createdAt - a.createdAt)
+		.slice(0, MAX_FEEDBACK_ITEMS);
+	if (relevant.length === 0) return "";
+
+	const grouped = groupFeedback(relevant);
+	const lines = [
+		"",
+		"## Learner quality feedback",
+		"",
+		"Use these recent learner flags as calibration data only. Do not quote them as source material.",
+	];
+	for (const kind of ["too_easy", "too_hard", "bad_concept"] as QuestionFeedbackKind[]) {
+		const entries = grouped[kind];
+		if (entries.length === 0) continue;
+		lines.push(`- ${feedbackLabel(kind)} (${entries.length}): ${feedbackGuidance(kind, entries)}`);
+	}
+
+	const examples = relevant
+		.slice(0, MAX_FEEDBACK_EXAMPLES)
+		.map((entry) =>
+			`- ${feedbackLabel(entry.kind)} ${entry.difficulty}: ${truncateText(singleLine(entry.questionText), 160)}`
+		);
+	if (examples.length > 0) {
+		lines.push("Recent flagged stems:");
+		lines.push(...examples);
+	}
+	return lines.join("\n");
+}
+
+function groupFeedback(
+	feedback: QuestionFeedbackEntry[]
+): Record<QuestionFeedbackKind, QuestionFeedbackEntry[]> {
+	return {
+		too_easy: feedback.filter((entry) => entry.kind === "too_easy"),
+		too_hard: feedback.filter((entry) => entry.kind === "too_hard"),
+		bad_concept: feedback.filter((entry) => entry.kind === "bad_concept"),
+	};
+}
+
+function feedbackGuidance(
+	kind: QuestionFeedbackKind,
+	entries: QuestionFeedbackEntry[]
+): string {
+	const subtopics = mostCommon(entries.flatMap((entry) => entry.sourceSubtopics), 3);
+	const difficulties = mostCommon(entries.map((entry) => entry.difficulty), 3);
+	const scope = subtopics.length > 0
+		? `Often around ${subtopics.join(", ")}. `
+		: "";
+	const difficultyNote = difficulties.length > 0
+		? `Prior labels: ${difficulties.join(", ")}. `
+		: "";
+	if (kind === "too_easy") {
+		return `${scope}${difficultyNote}Increase depth for similar concepts: require transfer, edge cases, multi-step tracing, or stronger distractors.`;
+	}
+	if (kind === "too_hard") {
+		return `${scope}${difficultyNote}Add scaffolding and avoid stacking unrelated traps; keep the question answerable from the provided notes.`;
+	}
+	return `${scope}${difficultyNote}Avoid note-title recall and source-label questions; test the underlying concept named by headings, examples, mechanisms, invariants, or traps.`;
+}
+
+function feedbackLabel(kind: QuestionFeedbackKind): string {
+	if (kind === "too_easy") return "Too easy";
+	if (kind === "too_hard") return "Too hard";
+	return "Bad concept";
+}
+
+function mostCommon(values: string[], limit: number): string[] {
+	const counts = new Map<string, number>();
+	for (const value of values) {
+		const trimmed = value.trim();
+		if (!trimmed) continue;
+		counts.set(trimmed, (counts.get(trimmed) ?? 0) + 1);
+	}
+	return [...counts.entries()]
+		.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+		.slice(0, limit)
+		.map(([value]) => value);
+}
+
+function singleLine(value: string): string {
+	return value.replace(/\s+/g, " ").trim();
 }
 
 function renderTopicBlock(

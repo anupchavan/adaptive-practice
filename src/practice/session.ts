@@ -140,6 +140,7 @@ export async function generateQuestions(
 	const prompt = buildPrompt(topicContexts, config.questionCount, {
 		challengeMode: config.challengeMode,
 		challengeReason: config.challengeReason,
+		questionFeedback: settings.practiceMemory.questionFeedback ?? [],
 		now: Date.now(),
 	});
 	const client = createClient(provider, apiKey, settings);

@@ -129,6 +129,7 @@ import {
 	DEFAULT_SETTINGS,
 	PROVIDER_PRESETS,
 	Question,
+	QuestionFeedbackEntry,
 	QuizResult,
 	SkillDelta,
 	TopicNote,
@@ -3154,6 +3155,73 @@ test("buildPrompt includes compact subtopic memory to reduce repetition", () => 
 	assert.match(prompt.textPrompt, /pivot invariant: 5 attempts, 100% correct/);
 	assert.match(prompt.textPrompt, /pivot invariant:.*guidance=avoid-if-possible/);
 	assert.match(prompt.textPrompt, /Subtopic memory rule/);
+});
+
+test("buildPrompt uses topic-scoped question feedback as calibration", () => {
+	const topic = makeTopic({
+		title: "Rotated binary search",
+		aliases: ["Binary search rotation"],
+	});
+	const feedback: QuestionFeedbackEntry[] = [
+		{
+			id: "f1",
+			kind: "too_easy",
+			questionText: "Which half is eliminated when nums[low] <= nums[mid]?",
+			correctAnswer: "The left half",
+			difficulty: "medium",
+			sourceTopics: ["Binary search rotation"],
+			sourceSubtopics: ["Sorted half invariant"],
+			wasCorrect: true,
+			skipped: false,
+			timeTakenMs: 20_000,
+			createdAt: Date.UTC(2026, 5, 27, 9),
+		},
+		{
+			id: "f2",
+			kind: "bad_concept",
+			questionText: "In Rotated binary search, what does the problem do?",
+			correctAnswer: "It searches a rotated array",
+			difficulty: "easy",
+			sourceTopics: ["Rotated binary search"],
+			sourceSubtopics: [],
+			wasCorrect: true,
+			skipped: false,
+			timeTakenMs: 8_000,
+			createdAt: Date.UTC(2026, 5, 27, 10),
+		},
+		{
+			id: "f3",
+			kind: "too_hard",
+			questionText: "Unrelated stoichiometry trap should not leak into this CS prompt.",
+			correctAnswer: "2 mol",
+			difficulty: "hard",
+			sourceTopics: ["Stoichiometry"],
+			sourceSubtopics: ["Limiting reagent"],
+			wasCorrect: false,
+			skipped: false,
+			timeTakenMs: 180_000,
+			createdAt: Date.UTC(2026, 5, 27, 11),
+		},
+	];
+	const prompt = buildPrompt(
+		[
+			{
+				note: topic,
+				content: "Rotated array search depends on a sorted-half invariant.",
+				history: "",
+			},
+		],
+		4,
+		{ questionFeedback: feedback }
+	);
+
+	assert.match(prompt.textPrompt, /## Learner quality feedback/);
+	assert.match(prompt.textPrompt, /Too easy \(1\): Often around Sorted half invariant/);
+	assert.match(prompt.textPrompt, /Increase depth for similar concepts/);
+	assert.match(prompt.textPrompt, /Bad concept \(1\):/);
+	assert.match(prompt.textPrompt, /Avoid note-title recall/);
+	assert.match(prompt.textPrompt, /Which half is eliminated/);
+	assert.doesNotMatch(prompt.textPrompt, /Unrelated stoichiometry trap/);
 });
 
 test("buildPrompt marks mastered subtopics revisitable when the topic is due", () => {
