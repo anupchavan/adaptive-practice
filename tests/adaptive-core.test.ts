@@ -427,6 +427,53 @@ test("flow calibration asks for challenge top-up when a generated batch is too e
 	assert.ok(balanced.some((question) => question.difficulty === "medium"));
 });
 
+test("flow calibration sequences balanced batches as a ramp instead of an easy block", () => {
+	const topic = makeTopic({ skill: 70 });
+	const questions = [
+		...Array.from({ length: 4 }, (_, index) =>
+			makeQuestion({
+				id: `easy-${index}`,
+				questionText: `Easy recall ${index}`,
+				correctAnswer: `easy ${index}`,
+				options: [`easy ${index}`, "B", "C", "D"],
+				difficulty: "easy",
+			})
+		),
+		...Array.from({ length: 2 }, (_, index) =>
+			makeQuestion({
+				id: `medium-${index}`,
+				questionText: `Medium trace ${index}`,
+				correctAnswer: `medium ${index}`,
+				options: [`medium ${index}`, "B", "C", "D"],
+				difficulty: "medium",
+			})
+		),
+		...Array.from({ length: 2 }, (_, index) =>
+			makeQuestion({
+				id: `hard-${index}`,
+				questionText: `Hard transfer ${index}`,
+				correctAnswer: `hard ${index}`,
+				options: [`hard ${index}`, "B", "C", "D"],
+				difficulty: "hard",
+			})
+		),
+	];
+
+	const sequenced = selectFlowBalancedQuestions(
+		questions,
+		[],
+		questions.length,
+		[topic],
+		"steady"
+	);
+	const earlyDifficulties = sequenced
+		.slice(0, 4)
+		.map((question) => question.difficulty);
+
+	assert.deepEqual(earlyDifficulties.slice(0, 3), ["easy", "medium", "hard"]);
+	assert.ok(earlyDifficulties.filter((difficulty) => difficulty === "easy").length <= 2);
+});
+
 test("flow navigation pulls harder questions forward after fluent correct answers", () => {
 	const questions = [
 		makeQuestion({ id: "q1", difficulty: "easy" }),

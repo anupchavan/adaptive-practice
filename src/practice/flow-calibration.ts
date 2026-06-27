@@ -92,8 +92,60 @@ function countDifficulties(questions: Question[]): Record<Difficulty, number> {
 }
 
 function sequenceForFlow(questions: Question[]): Question[] {
-	const rank: Record<Difficulty, number> = { easy: 0, medium: 1, hard: 2 };
-	return [...questions].sort((a, b) => rank[a.difficulty] - rank[b.difficulty]);
+	const buckets: Record<Difficulty, Question[]> = {
+		easy: [],
+		medium: [],
+		hard: [],
+	};
+	for (const question of questions) {
+		buckets[question.difficulty].push(question);
+	}
+
+	const out: Question[] = [];
+	takeFirstAvailable(out, buckets, ["easy", "medium", "hard"]);
+
+	while (hasRemaining(buckets)) {
+		const last = out[out.length - 1]?.difficulty;
+		const preferences = nextDifficultyPreferences(last);
+		const recent = out.slice(-2).map((question) => question.difficulty);
+		const avoid =
+			recent.length === 2 && recent[0] === recent[1]
+				? recent[0]
+				: null;
+		const preferred = avoid
+			? preferences.filter((difficulty) => difficulty !== avoid)
+			: preferences;
+		if (!takeFirstAvailable(out, buckets, preferred)) {
+			takeFirstAvailable(out, buckets, preferences);
+		}
+	}
+
+	return out;
+}
+
+function nextDifficultyPreferences(last: Difficulty | undefined): Difficulty[] {
+	if (last === "easy") return ["medium", "hard", "easy"];
+	if (last === "medium") return ["hard", "medium", "easy"];
+	if (last === "hard") return ["medium", "easy", "hard"];
+	return ["easy", "medium", "hard"];
+}
+
+function takeFirstAvailable(
+	out: Question[],
+	buckets: Record<Difficulty, Question[]>,
+	preferences: Difficulty[]
+): boolean {
+	for (const difficulty of preferences) {
+		const next = buckets[difficulty].shift();
+		if (!next) continue;
+		out.push(next);
+		return true;
+	}
+	return false;
+}
+
+function hasRemaining(buckets: Record<Difficulty, Question[]>): boolean {
+	return buckets.easy.length + buckets.medium.length + buckets.hard.length > 0;
 }
 
 function uniqueByStem(questions: Question[]): Question[] {
