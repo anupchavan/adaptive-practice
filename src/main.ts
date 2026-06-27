@@ -66,10 +66,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 		this.registerView(DASHBOARD_VIEW_TYPE, (leaf) => new DashboardView(leaf, this));
 
 		this.app.workspace.onLayoutReady(() => {
-			void this.restorePracticeViewsAfterReload();
-			void this.restoreDashboardAfterReload();
-			void this.refreshPracticePlan(false);
-			void this.checkDailyReminder();
+			void this.restoreWorkspaceAfterReload();
 		});
 
 		this.registerInterval(window.setInterval(() => {
@@ -195,6 +192,15 @@ export default class AdaptivePracticePlugin extends Plugin {
 		}
 	}
 
+	private async restoreWorkspaceAfterReload(): Promise<void> {
+		await this.restorePracticeViewsAfterReload();
+		const dashboardWillScan = await this.restoreDashboardAfterReload();
+		if (!dashboardWillScan) {
+			await this.refreshPracticePlan(false);
+		}
+		await this.checkDailyReminder();
+	}
+
 	getSecretId(): string {
 		return getProviderSecretId(this.settings);
 	}
@@ -299,10 +305,11 @@ export default class AdaptivePracticePlugin extends Plugin {
 		await this.saveSettings();
 	}
 
-	private async restoreDashboardAfterReload(): Promise<void> {
-		if (!this.settings.dashboardOpen) return;
-		if (this.app.workspace.getLeavesOfType(DASHBOARD_VIEW_TYPE).length > 0) return;
+	private async restoreDashboardAfterReload(): Promise<boolean> {
+		if (this.app.workspace.getLeavesOfType(DASHBOARD_VIEW_TYPE).length > 0) return true;
+		if (!this.settings.dashboardOpen) return false;
 		await this.openDashboard();
+		return true;
 	}
 
 	getDailyTopics(topics: TopicNote[], now = Date.now()): TopicNote[] {
