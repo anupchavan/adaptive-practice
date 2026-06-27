@@ -67,6 +67,7 @@ import { hasPracticedToday } from "../src/practice/daily-status";
 import {
 	reconcileGeneratedQuestions,
 	reconcileSourceTopics,
+	resolveQuestionTargetTopics,
 } from "../src/practice/source-map";
 import {
 	buildQuestionTopUpPrompt,
@@ -1379,6 +1380,24 @@ test("reconcileSourceTopics uses conservative fallbacks for missing sources", ()
 	assert.deepEqual(reconcileSourceTopics([], [a]), ["A topic"]);
 	assert.deepEqual(reconcileSourceTopics([], [a, b]), ["A topic", "B topic"]);
 	assert.deepEqual(reconcileSourceTopics(["unknown"], [a, b]), ["unknown"]);
+});
+
+test("resolveQuestionTargetTopics saves path-based questions to their note", () => {
+	const topic = makeTopic({
+		path: "Practice Lab/CS/Rotated Binary Search - messy lab note.md",
+		title: "Rotated Binary Search - messy lab note",
+	});
+	const result = makeResult(makeQuestion({ sourceTopics: [topic.path] }));
+
+	assert.deepEqual(resolveQuestionTargetTopics([topic], result), [topic]);
+});
+
+test("resolveQuestionTargetTopics falls back to all topics when source topics are empty", () => {
+	const a = makeTopic({ title: "A topic", path: "a.md" });
+	const b = makeTopic({ title: "B topic", path: "b.md" });
+	const result = makeResult(makeQuestion({ sourceTopics: [] }));
+
+	assert.deepEqual(resolveQuestionTargetTopics([a, b], result), [a, b]);
 });
 
 test("question quality gate merges top-up batches without duplicates", () => {

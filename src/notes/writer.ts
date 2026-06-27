@@ -1,5 +1,6 @@
 import { App, TFile } from "obsidian";
 import { QuizResult, TopicNote } from "../types";
+import { resolveQuestionTargetTopics } from "../practice/source-map";
 import {
 	buildQuestionHistoryBlock,
 	removeQuestionHistoryEntry,
@@ -52,9 +53,7 @@ export async function appendSingleQuestion(
 	topics: TopicNote[],
 	result: QuizResult
 ): Promise<void> {
-	for (const topicTitle of result.question.sourceTopics) {
-		const topic = topics.find((t) => t.title === topicTitle);
-		if (!topic) continue;
+	for (const topic of resolveQuestionTargetTopics(topics, result)) {
 		await appendQuestionHistory(app, topic.path, [result]);
 	}
 }
@@ -64,9 +63,7 @@ export async function removeSingleQuestion(
 	topics: TopicNote[],
 	result: QuizResult
 ): Promise<void> {
-	for (const topicTitle of result.question.sourceTopics) {
-		const topic = topics.find((t) => t.title === topicTitle);
-		if (!topic) continue;
+	for (const topic of resolveQuestionTargetTopics(topics, result)) {
 		const file = app.vault.getAbstractFileByPath(topic.path);
 		if (!(file instanceof TFile)) continue;
 		const content = await app.vault.read(file);

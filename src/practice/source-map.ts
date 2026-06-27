@@ -1,4 +1,4 @@
-import { Question, TopicNote } from "../types";
+import { Question, QuizResult, TopicNote } from "../types";
 
 export function reconcileGeneratedQuestions(
 	questions: Question[],
@@ -29,6 +29,19 @@ export function reconcileSourceTopics(
 	if (topics.length === 1) return [topics[0]!.title];
 	if (sourceTopics.length === 0) return topics.map((topic) => topic.title);
 	return normalizeStringList(sourceTopics);
+}
+
+export function resolveQuestionTargetTopics(
+	topics: TopicNote[],
+	result: QuizResult
+): TopicNote[] {
+	const sourceTitles = reconcileSourceTopics(result.question.sourceTopics, topics);
+	const targets: TopicNote[] = [];
+	for (const sourceTitle of sourceTitles) {
+		const topic = topics.find((t) => t.title === sourceTitle);
+		if (topic && !targets.includes(topic)) targets.push(topic);
+	}
+	return targets;
 }
 
 function findTopicMatch(source: string, topics: TopicNote[]): TopicNote | null {
