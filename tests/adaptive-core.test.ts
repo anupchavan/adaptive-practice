@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { buildPrompt } from "../src/llm/prompt";
 import { parseQuestions } from "../src/llm/parse";
 import {
@@ -879,6 +880,24 @@ test("provider presets use documented current model IDs", () => {
 	assert.equal(PROVIDER_PRESETS.anthropic.supportsPdfs, true);
 	assert.equal(PROVIDER_PRESETS.openai.supportsPdfs, false);
 	assert.equal(PROVIDER_PRESETS.openrouter.supportsPdfs, false);
+});
+
+test("README provider defaults stay in sync with presets", () => {
+	const readme = readFileSync("README.md", "utf8");
+	for (const preset of Object.values(PROVIDER_PRESETS)) {
+		if (preset.model) {
+			assert.ok(
+				readme.includes(`\`${preset.model}\``),
+				`README missing default model ${preset.model}`
+			);
+		}
+		if (preset.baseUrl && !preset.baseUrl.includes("localhost")) {
+			assert.ok(
+				readme.includes(`\`${preset.baseUrl}\``),
+				`README missing default endpoint ${preset.baseUrl}`
+			);
+		}
+	}
 });
 
 test("provider model migration repairs stale saved defaults without changing custom models", () => {
