@@ -751,6 +751,15 @@ test("provider errors guide JSON mode changes for schema rejections", () => {
 	assert.match(message, /OpenAI-compatible API error \(400\)/);
 	assert.match(message, /endpoint http:\/\/localhost:1234\/v1\/chat\/completions/);
 	assert.match(message, /Try changing this provider's JSON mode/);
+
+	const responsesMessage = formatProviderError({
+		providerLabel: "OpenAI",
+		status: 400,
+		model: "gpt-5.5",
+		baseUrl: "https://api.openai.com/v1/responses",
+		detail: "Invalid value for text.format json_schema",
+	});
+	assert.match(responsesMessage, /Try changing this provider's JSON mode/);
 });
 
 test("provider secret names survive provider switches", () => {

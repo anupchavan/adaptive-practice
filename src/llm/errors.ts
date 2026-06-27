@@ -36,7 +36,7 @@ function suggestedAction(context: ProviderErrorContext): string {
 	if (context.status === 401 || context.status === 403) {
 		return "Check the API key and provider account permissions in Settings -> Adaptive Practice.";
 	}
-	if (context.status === 400 && /response_format|json_schema|json object|schema/i.test(detail)) {
+	if (context.status === 400 && /response_format|text\.format|json_schema|json object|schema/i.test(detail)) {
 		return "Try changing this provider's JSON mode in Settings -> Adaptive Practice.";
 	}
 	if (context.status === 429) {
