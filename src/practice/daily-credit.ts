@@ -1,5 +1,6 @@
-import { PracticeMemory } from "../types";
+import { PracticeMemory, QuizResult } from "../types";
 import { hasPracticedToday } from "./daily-status";
+import { evaluatePracticeSessionMeaningfulness } from "./scheduler";
 
 export type PracticeCreditStatus = "counted" | "already-counted" | "not-counted";
 
@@ -12,7 +13,8 @@ export interface PracticeCredit {
 export function resolvePracticeCredit(
 	before: PracticeMemory | undefined,
 	after: PracticeMemory | undefined,
-	now = new Date()
+	now = new Date(),
+	results: QuizResult[] = []
 ): PracticeCredit {
 	if (hasPracticedToday(before, now)) {
 		return {
@@ -31,6 +33,8 @@ export function resolvePracticeCredit(
 	return {
 		status: "not-counted",
 		title: "Streak not counted",
-		detail: "Too many skips or very fast answers do not count toward the daily streak.",
+		detail: results.length > 0
+			? evaluatePracticeSessionMeaningfulness(results).detail
+			: "Too many skips or very fast answers do not count toward the daily streak.",
 	};
 }

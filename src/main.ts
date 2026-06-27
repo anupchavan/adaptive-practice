@@ -846,7 +846,8 @@ export default class AdaptivePracticePlugin extends Plugin {
 				? resolvePracticeCredit(
 					previousMemory,
 					this.settings.practiceMemory,
-					new Date(completedAt)
+					new Date(completedAt),
+					results
 				)
 				: null;
 			this.settings.practiceDraft = null;

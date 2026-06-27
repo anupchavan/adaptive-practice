@@ -36,6 +36,19 @@ interface PracticeMemoryUpdateOptions {
 	countDailyCredit?: boolean;
 }
 
+export interface PracticeMeaningfulnessEvaluation {
+	meaningful: boolean;
+	reason:
+		| "engaged"
+		| "no-answers"
+		| "too-few-attempts"
+		| "too-fast-average"
+		| "too-fast-total"
+		| "too-fast-relative"
+		| "no-demonstrated-recall";
+	detail: string;
+}
+
 export function clonePracticeMemory(): PracticeMemory {
 	return JSON.parse(JSON.stringify(DEFAULT_PRACTICE_MEMORY)) as PracticeMemory;
 }
@@ -386,15 +399,30 @@ export function updatePracticeMemoryAfterSession(
 		}
 	}
 
-	if (options.countDailyCredit === true && isMeaningfulPracticeSession(results)) {
+	if (
+		options.countDailyCredit === true &&
+		evaluatePracticeSessionMeaningfulness(results).meaningful
+	) {
 		updateDailyStreak(next, now);
 	}
 	return next;
 }
 
 export function isMeaningfulPracticeSession(results: QuizResult[]): boolean {
+	return evaluatePracticeSessionMeaningfulness(results).meaningful;
+}
+
+export function evaluatePracticeSessionMeaningfulness(
+	results: QuizResult[]
+): PracticeMeaningfulnessEvaluation {
 	const answered = compactQuizResults(results);
-	if (answered.length === 0) return false;
+	if (answered.length === 0) {
+		return {
+			meaningful: false,
+			reason: "no-answers",
+			detail: "No answered questions were submitted.",
+		};
+	}
 
 	const attempted = answered.filter((result) => !result.skipped);
 	const totalSlots = Math.max(results.length, answered.length);
@@ -402,7 +430,13 @@ export function isMeaningfulPracticeSession(results: QuizResult[]): boolean {
 		totalSlots,
 		Math.max(2, Math.ceil(totalSlots * 0.5))
 	);
-	if (attempted.length < minimumAttempts) return false;
+	if (attempted.length < minimumAttempts) {
+		return {
+			meaningful: false,
+			reason: "too-few-attempts",
+			detail: `Attempt at least ${minimumAttempts} non-skipped question${minimumAttempts === 1 ? "" : "s"} for streak credit.`,
+		};
+	}
 
 	const attemptedTimeMs = attempted.reduce(
 		(sum, result) => sum + Math.max(0, result.timeTakenMs),
@@ -418,11 +452,40 @@ export function isMeaningfulPracticeSession(results: QuizResult[]): boolean {
 		: 0;
 	const correct = attempted.filter((result) => result.isCorrect).length;
 
-	if (averageAttemptTimeMs < 10_000) return false;
-	if (attempted.length > 2 && attemptedTimeMs < 30_000) return false;
-	if (timeRatio < 0.1) return false;
+	if (averageAttemptTimeMs < 10_000) {
+		return {
+			meaningful: false,
+			reason: "too-fast-average",
+			detail: "Answers were too fast to count as deliberate practice.",
+		};
+	}
+	if (attempted.length > 2 && attemptedTimeMs < 30_000) {
+		return {
+			meaningful: false,
+			reason: "too-fast-total",
+			detail: "The session finished too quickly to count toward the streak.",
+		};
+	}
+	if (timeRatio < 0.1) {
+		return {
+			meaningful: false,
+			reason: "too-fast-relative",
+			detail: "The answers were much faster than the expected time for these questions.",
+		};
+	}
 
-	return correct > 0 || averageAttemptTimeMs >= 45_000;
+	if (correct > 0 || averageAttemptTimeMs >= 45_000) {
+		return {
+			meaningful: true,
+			reason: "engaged",
+			detail: "This session had enough deliberate answers to count for today.",
+		};
+	}
+	return {
+		meaningful: false,
+		reason: "no-demonstrated-recall",
+		detail: "A counted streak needs at least one correct answer or a longer reflective attempt.",
+	};
 }
 
 export function localDateKey(date: Date): string {

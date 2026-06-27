@@ -73,6 +73,7 @@ import {
 	setProviderModelOverride,
 } from "../src/practice/provider-models";
 import {
+	evaluatePracticeSessionMeaningfulness,
 	isMeaningfulPracticeSession,
 	normalizePracticeMemory,
 	planDailySession,
@@ -2609,6 +2610,18 @@ test("meaningful daily streak credit ignores skips and speed-clicked answers", (
 	assert.equal(isMeaningfulPracticeSession(skippedResults), false);
 	assert.equal(isMeaningfulPracticeSession(speedClickedResults), false);
 	assert.equal(isMeaningfulPracticeSession(sparseResults), false);
+	assert.equal(
+		evaluatePracticeSessionMeaningfulness(skippedResults).reason,
+		"too-few-attempts"
+	);
+	assert.equal(
+		evaluatePracticeSessionMeaningfulness(speedClickedResults).reason,
+		"too-fast-average"
+	);
+	assert.equal(
+		evaluatePracticeSessionMeaningfulness(engagedResults).detail,
+		"This session had enough deliberate answers to count for today."
+	);
 
 	const skippedMemory = updatePracticeMemoryAfterSession(
 		undefined,
@@ -2638,6 +2651,10 @@ test("practice credit status explains daily streak outcomes", () => {
 	const topic = makeTopic();
 	const question = makeQuestion({ sourceTopics: [topic.title] });
 	const before = normalizePracticeMemory(undefined);
+	const skippedForCredit = [
+		makeResult(question, { isCorrect: false, skipped: true, timeTakenMs: 2_000 }),
+		makeResult(question, { isCorrect: false, skipped: true, timeTakenMs: 2_000 }),
+	];
 	const counted = updatePracticeMemoryAfterSession(
 		before,
 		[topic],
@@ -2652,10 +2669,7 @@ test("practice credit status explains daily streak outcomes", () => {
 	const notCounted = updatePracticeMemoryAfterSession(
 		before,
 		[topic],
-		[
-			makeResult(question, { isCorrect: false, skipped: true, timeTakenMs: 2_000 }),
-			makeResult(question, { isCorrect: false, skipped: true, timeTakenMs: 2_000 }),
-		],
+		skippedForCredit,
 		[],
 		now,
 		{ countDailyCredit: true }
@@ -2674,8 +2688,12 @@ test("practice credit status explains daily streak outcomes", () => {
 		"counted"
 	);
 	assert.equal(
-		resolvePracticeCredit(before, notCounted, new Date(now)).status,
+		resolvePracticeCredit(before, notCounted, new Date(now), skippedForCredit).status,
 		"not-counted"
+	);
+	assert.match(
+		resolvePracticeCredit(before, notCounted, new Date(now), skippedForCredit).detail,
+		/non-skipped/
 	);
 	assert.equal(
 		resolvePracticeCredit(counted, extra, new Date(now + 60_000)).status,
