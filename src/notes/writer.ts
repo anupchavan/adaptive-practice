@@ -1,5 +1,9 @@
 import { App, TFile } from "obsidian";
 import { QuizResult, TopicNote } from "../types";
+import {
+	buildQuestionHistoryBlock,
+	removeQuestionHistoryEntry,
+} from "./history-format";
 
 const HISTORY_HEADING = "## Practice history";
 const HISTORY_COMMENT =
@@ -20,18 +24,7 @@ export async function appendQuestionHistory(
 	const lines: string[] = [];
 	lines.push(`\n### Session: ${timestamp}`);
 	for (const r of results) {
-		const result = r.isCorrect ? "Correct" : "Incorrect";
-		lines.push(
-			`- **Q:** ${r.question.questionText} | **Type:** ${r.question.type.toUpperCase()} | **Difficulty:** ${r.question.difficulty}`
-		);
-		if (r.question.sourceSubtopics && r.question.sourceSubtopics.length > 0) {
-			lines.push(
-				`  - **Subtopics:** ${r.question.sourceSubtopics.join(", ")}`
-			);
-		}
-		lines.push(
-			`  - **Your answer:** ${r.userAnswer} | **Correct answer:** ${r.question.correctAnswer} | **Result:** ${result}`
-		);
+		lines.push(buildQuestionHistoryBlock(r));
 	}
 
 	const content = await app.vault.read(file);
@@ -71,36 +64,16 @@ export async function removeSingleQuestion(
 	topics: TopicNote[],
 	result: QuizResult
 ): Promise<void> {
-	const marker = buildQuestionMarker(result);
 	for (const topicTitle of result.question.sourceTopics) {
 		const topic = topics.find((t) => t.title === topicTitle);
 		if (!topic) continue;
 		const file = app.vault.getAbstractFileByPath(topic.path);
 		if (!(file instanceof TFile)) continue;
 		const content = await app.vault.read(file);
-		const idx = content.indexOf(marker);
-		if (idx === -1) continue;
-
-		let end = content.indexOf("\n- **Q:**", idx + marker.length);
-		if (end === -1) {
-			let nextSection = content.indexOf("\n### ", idx + marker.length);
-			if (nextSection === -1) nextSection = content.length;
-			end = nextSection;
-		}
-
-		const before = content.slice(0, idx);
-		const after = content.slice(end);
-		let newContent = before + after;
-
-		const sessionHeaderRe = /\n### Session: [^\n]+\n(?=\n### Session:|\n*$)/;
-		newContent = newContent.replace(sessionHeaderRe, "\n");
-
-		await app.vault.modify(file, newContent);
+		const removed = removeQuestionHistoryEntry(content, result);
+		if (!removed.removed) continue;
+		await app.vault.modify(file, removed.content);
 	}
-}
-
-function buildQuestionMarker(r: QuizResult): string {
-	return `- **Q:** ${r.question.questionText} | **Type:** ${r.question.type.toUpperCase()} | **Difficulty:** ${r.question.difficulty}`;
 }
 
 export async function updateSkill(

@@ -18,6 +18,10 @@ import {
 	parseInternalEmbedReference,
 	parseSkillValue,
 } from "../src/notes/normalize";
+import {
+	buildQuestionHistoryBlock,
+	removeQuestionHistoryEntry,
+} from "../src/notes/history-format";
 import { buildRemotePromptAttachment } from "../src/notes/remote-media";
 import {
 	frontmatterDateMs,
@@ -637,6 +641,68 @@ test("markdown block detection catches fenced code with indentation", () => {
 	assert.equal(hasBlockMarkdown("Trace this:\n```ts\nlet mid = 2;\n```"), true);
 	assert.equal(hasBlockMarkdown("Trace this:\n   ```python\nprint(mid)\n   ```"), true);
 	assert.equal(hasBlockMarkdown("Use `nums[mid]` inline only."), false);
+});
+
+test("question history blocks preserve fenced code as renderable Markdown", () => {
+	const question = makeQuestion({
+		id: "trace-code",
+		questionText: `Trace this branch:
+
+\`\`\`ts
+if (nums[mid] > nums[right]) {
+  low = mid + 1;
+}
+\`\`\``,
+		correctAnswer: `\`\`\`ts
+low = mid + 1
+\`\`\``,
+		explanation: "The pivot must be to the right of `mid`.",
+		sourceSubtopics: ["pivot invariant"],
+		difficulty: "medium",
+	});
+	const block = buildQuestionHistoryBlock(
+		makeResult(question, {
+			userAnswer: `\`\`\`ts
+low = mid + 1
+\`\`\``,
+			timeTakenMs: 62_000,
+		})
+	);
+
+	assert.match(block, /<!-- Adaptive Practice question: [a-z0-9]+ -->/);
+	assert.match(block, /\*\*Question\*\*\n\nTrace this branch:\n\n```ts/);
+	assert.match(block, /\*\*Your answer\*\*\n\n```ts\nlow = mid \+ 1\n```/);
+	assert.match(block, /\*\*Correct answer\*\*\n\n```ts\nlow = mid \+ 1\n```/);
+	assert.match(block, /\*\*Source subtopics:\*\* pivot invariant/);
+});
+
+test("question history removal deletes marker-delimited blocks and empty sessions", () => {
+	const question = makeQuestion({
+		id: "remove-me",
+		questionText: "Why does the invariant survive?",
+		correctAnswer: "The target interval is preserved.",
+	});
+	const result = makeResult(question);
+	const block = buildQuestionHistoryBlock(result);
+	const content = [
+		"# Rotated binary search",
+		"",
+		"## Practice history",
+		"<!-- Adaptive Practice log - do not edit above this line -->",
+		"### Session: 2026-06-27 11:40",
+		block,
+		"### Session: 2026-06-27 12:00",
+		buildQuestionHistoryBlock(makeResult(makeQuestion({ id: "keep-me" }))),
+		"",
+	].join("\n");
+
+	const removed = removeQuestionHistoryEntry(content, result);
+
+	assert.equal(removed.removed, true);
+	assert.doesNotMatch(removed.content, /remove-me/);
+	assert.doesNotMatch(removed.content, /2026-06-27 11:40/);
+	assert.match(removed.content, /keep-me/);
+	assert.match(removed.content, /2026-06-27 12:00/);
 });
 
 test("topic group helpers prefer readable courses and folders", () => {
