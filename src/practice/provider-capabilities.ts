@@ -1,0 +1,43 @@
+import {
+	LLM_PROVIDER_LABELS,
+	LlmProvider,
+	PROVIDER_PRESETS,
+	TopicNote,
+} from "../types";
+
+export interface ProviderTopicCompatibility {
+	compatibleTopics: TopicNote[];
+	skippedPdfTopics: TopicNote[];
+	warning: string;
+}
+
+export function splitProviderCompatibleTopics(
+	provider: LlmProvider,
+	topics: TopicNote[]
+): ProviderTopicCompatibility {
+	if (PROVIDER_PRESETS[provider].supportsPdfs) {
+		return {
+			compatibleTopics: topics,
+			skippedPdfTopics: [],
+			warning: "",
+		};
+	}
+
+	const compatibleTopics = topics.filter((topic) => !topic.isPdf);
+	const skippedPdfTopics = topics.filter((topic) => topic.isPdf);
+	return {
+		compatibleTopics,
+		skippedPdfTopics,
+		warning: getProviderPdfWarning(provider, skippedPdfTopics),
+	};
+}
+
+export function getProviderPdfWarning(
+	provider: LlmProvider,
+	topics: TopicNote[]
+): string {
+	const pdfCount = topics.filter((topic) => topic.isPdf).length;
+	if (pdfCount === 0 || PROVIDER_PRESETS[provider].supportsPdfs) return "";
+	const label = LLM_PROVIDER_LABELS[provider];
+	return `${label} cannot read PDF topic attachments in Adaptive Practice yet. Switch to Gemini or Anthropic, or choose non-PDF notes.`;
+}

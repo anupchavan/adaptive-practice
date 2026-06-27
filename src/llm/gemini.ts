@@ -1,19 +1,49 @@
 import { requestUrl } from "obsidian";
 import { Question } from "../types";
+import { StructuredPrompt } from "./prompt";
+import { parseQuestions } from "./parse";
+import { extractProviderErrorDetail, formatProviderError } from "./errors";
 
-const GEMINI_URL =
-	"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+const GEMINI_API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models";
+
+export interface GeminiClientConfig {
+	model: string;
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+	const bytes = new Uint8Array(buffer);
+	let binary = "";
+	for (let i = 0; i < bytes.byteLength; i++) {
+		binary += String.fromCharCode(bytes[i]!);
+	}
+	return btoa(binary);
+}
 
 export class GeminiClient {
 	private apiKey: string;
+	private config: GeminiClientConfig;
 
-	constructor(apiKey: string) {
+	constructor(apiKey: string, config: GeminiClientConfig) {
 		this.apiKey = apiKey;
+		this.config = config;
 	}
 
-	async generateQuestions(prompt: string): Promise<Question[]> {
+	async generateQuestions(prompt: StructuredPrompt): Promise<Question[]> {
+		const parts: Array<Record<string, unknown>> = [
+			{ text: prompt.textPrompt },
+		];
+
+		for (const attachment of prompt.attachments) {
+			parts.push({
+				inline_data: {
+					mime_type: attachment.mimeType,
+					data: arrayBufferToBase64(attachment.data),
+				},
+			});
+		}
+
 		const body = {
-			contents: [{ parts: [{ text: prompt }] }],
+			contents: [{ parts }],
 			generationConfig: {
 				temperature: 0.8,
 				maxOutputTokens: 8192,
@@ -21,69 +51,51 @@ export class GeminiClient {
 			},
 		};
 		const bodyStr = JSON.stringify(body);
+		const model = normalizeGeminiModel(this.config.model);
 
 		const response = await requestUrl({
-			url: `${GEMINI_URL}?key=${this.apiKey}`,
+			url: `${GEMINI_API_ROOT}/${encodeURIComponent(model)}:generateContent?key=${this.apiKey}`,
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: bodyStr,
+			throw: false,
 		});
 
 		if (response.status !== 200) {
-			throw new Error(
-				`Gemini API error (${response.status}): ${response.text}`
-			);
+			throw new Error(formatProviderError({
+				providerLabel: "Gemini",
+				status: response.status,
+				model,
+				detail: extractProviderErrorDetail(response.text),
+			}));
 		}
 
-		const data = response.json;
-		const text =
-			data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+		const data: unknown = response.json;
+		const text = getGeminiText(data);
 
 		return parseQuestions(text);
 	}
 }
 
-function parseQuestions(raw: string): Question[] {
-	let cleaned = raw.trim();
-	if (cleaned.startsWith("```")) {
-		cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-	}
-
-	const parsed: unknown = JSON.parse(cleaned);
-	if (!Array.isArray(parsed)) {
-		throw new Error("LLM response is not a JSON array");
-	}
-
-	return parsed.map((item: Record<string, unknown>, i: number) => {
-		const q: Question = {
-			id: String(item["id"] ?? `q${i + 1}`),
-			type: validateType(item["type"]),
-			questionText: String(item["questionText"] ?? ""),
-			correctAnswer: String(item["correctAnswer"] ?? ""),
-			explanation: String(item["explanation"] ?? ""),
-			sourceTopics: Array.isArray(item["sourceTopics"])
-				? item["sourceTopics"].map(String)
-				: [],
-			difficulty: validateDifficulty(item["difficulty"]),
-		};
-		if (q.type === "mcq" && Array.isArray(item["options"])) {
-			q.options = item["options"].map((o) => stripOptionPrefix(String(o)));
-			q.correctAnswer = stripOptionPrefix(q.correctAnswer);
-		}
-		return q;
-	});
+function normalizeGeminiModel(model: string): string {
+	return model.trim().replace(/^models\//, "");
 }
 
-function stripOptionPrefix(text: string): string {
-	return text.replace(/^[A-Da-d][).]\s*/, "");
+function getGeminiText(data: unknown): string {
+	if (!isRecord(data)) return "";
+	const candidates = data["candidates"];
+	if (!Array.isArray(candidates)) return "";
+	const candidate: unknown = candidates[0];
+	if (!isRecord(candidate)) return "";
+	const content = candidate["content"];
+	if (!isRecord(content)) return "";
+	const parts = content["parts"];
+	if (!Array.isArray(parts)) return "";
+	const firstPart: unknown = parts[0];
+	if (!isRecord(firstPart) || typeof firstPart["text"] !== "string") return "";
+	return firstPart["text"];
 }
 
-function validateType(v: unknown): Question["type"] {
-	if (v === "mcq" || v === "integer" || v === "decimal") return v;
-	return "mcq";
-}
-
-function validateDifficulty(v: unknown): Question["difficulty"] {
-	if (v === "easy" || v === "medium" || v === "hard") return v;
-	return "medium";
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return !!value && typeof value === "object";
 }

@@ -71,14 +71,14 @@ function evaluateFilter(app: App, filter: Filter, file: TFile, frontmatter?: Fro
 		else if (filter.field === "file.size") targetValue = file.stat.size;
 		else if (filter.field === "file.ctime") targetValue = file.stat.ctime;
 		else if (filter.field === "file.mtime") targetValue = file.stat.mtime;
-	} else if (filter.field === "file tags") {
-		targetValue = getFileTags(app, file, frontmatter);
-	} else if (filter.field === "aliases") {
-		const fm = frontmatter?.aliases;
-		targetValue = Array.isArray(fm) ? fm.map(String) : typeof fm === "string" ? [fm] : [];
-	} else if (frontmatter) {
-		const fm = frontmatter as Record<string, unknown>;
-		targetValue = fm[filter.field] ?? null;
+		} else if (filter.field === "file tags") {
+			targetValue = getFileTags(app, file, frontmatter);
+		} else if (filter.field === "aliases") {
+			const fm = (frontmatter as Record<string, unknown> | undefined)?.["aliases"];
+			targetValue = Array.isArray(fm) ? fm.map(stringValue) : typeof fm === "string" ? [fm] : [];
+		} else if (frontmatter) {
+			const fm = frontmatter as Record<string, unknown>;
+			targetValue = fm[filter.field] ?? null;
 	}
 
 	if (targetValue === undefined || targetValue === null) targetValue = "";
@@ -103,32 +103,31 @@ function evaluateFilter(app: App, filter: Filter, file: TFile, frontmatter?: Fro
 		}
 	}
 
-	const str = (v: unknown) => String(v);
-	const filterValue = str(filter.value || "");
+	const filterValue = stringValue(filter.value || "");
 
 	if (Array.isArray(targetValue)) {
 		const arr = targetValue as unknown[];
 		switch (filter.operator) {
 			case "is empty": return arr.length === 0;
 			case "is not empty": return arr.length > 0;
-			case "is": case "is not": { const m = arr.some(v => str(v) === filterValue); return filter.operator === "is" ? m : !m; }
-			case "contains": case "does not contain": { const m = arr.some(v => str(v).includes(filterValue)); return filter.operator === "contains" ? m : !m; }
+			case "is": case "is not": { const m = arr.some(v => stringValue(v) === filterValue); return filter.operator === "is" ? m : !m; }
+			case "contains": case "does not contain": { const m = arr.some(v => stringValue(v).includes(filterValue)); return filter.operator === "contains" ? m : !m; }
 			case "contains any of": case "does not contain any of": {
 				const fvs = (filter.value || "").split(",").map(v => v.trim()).filter(v => v.length > 0);
 				if (fvs.length === 0) return filter.operator === "does not contain any of";
-				const m = fvs.some(fv => arr.some(v => str(v).includes(fv)));
+				const m = fvs.some(fv => arr.some(v => stringValue(v).includes(fv)));
 				return filter.operator === "contains any of" ? m : !m;
 			}
 			case "contains all of": case "does not contain all of": {
 				const fvs = (filter.value || "").split(",").map(v => v.trim()).filter(v => v.length > 0);
 				if (fvs.length === 0) return filter.operator === "does not contain all of";
-				const m = fvs.every(fv => arr.some(v => str(v).includes(fv)));
+				const m = fvs.every(fv => arr.some(v => stringValue(v).includes(fv)));
 				return filter.operator === "contains all of" ? m : !m;
 			}
 			default: return false;
 		}
 	} else {
-		const sv = str(targetValue);
+		const sv = stringValue(targetValue);
 		switch (filter.operator) {
 			case "is empty": return !sv;
 			case "is not empty": return !!sv;
@@ -158,9 +157,9 @@ function evaluateFilter(app: App, filter: Filter, file: TFile, frontmatter?: Fro
 function getFileTags(app: App, file: TFile, frontmatter?: FrontMatterCache): string[] {
 	const cache = app.metadataCache.getFileCache(file);
 	const body = (cache?.tags || []).map(t => t.tag.replace(/^#+/, ""));
-	const fmTags = frontmatter?.tags;
+	const fmTags = (frontmatter as Record<string, unknown> | undefined)?.["tags"];
 	const fm: string[] = [];
-	if (Array.isArray(fmTags)) fm.push(...fmTags.map(t => typeof t === "string" ? t.replace(/^#+/, "") : String(t).replace(/^#+/, "")));
+	if (Array.isArray(fmTags)) fm.push(...fmTags.map(t => stringValue(t).replace(/^#+/, "")));
 	else if (typeof fmTags === "string") fm.push(fmTags.replace(/^#+/, ""));
 	return [...body, ...fm];
 }
@@ -168,10 +167,21 @@ function getFileTags(app: App, file: TFile, frontmatter?: FrontMatterCache): str
 function extractLinks(value: unknown): string[] {
 	if (value === undefined || value === null) return [];
 	if (Array.isArray(value)) return value.flatMap(extractLinks);
-	const s = String(value);
+	const s = stringValue(value);
 	const re = /\[\[([^\]]+)\]\]/g;
 	const out: string[] = [];
 	let m;
 	while ((m = re.exec(s)) !== null) out.push(m[1]!);
 	return out;
+}
+
+function stringValue(value: unknown): string {
+	if (
+		typeof value === "string" ||
+		typeof value === "number" ||
+		typeof value === "boolean"
+	) {
+		return String(value);
+	}
+	return "";
 }

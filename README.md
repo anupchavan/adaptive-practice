@@ -4,16 +4,50 @@ Adaptive Practice is an Obsidian community plugin that helps you practice and re
 
 ## Features
 
-- Create practice items directly from your notes.
-- Adaptive scheduling based on your performance.
-- Tight integration with Obsidian’s native UI.
-- Works fully offline inside your vault.
+- Generate adaptive practice questions directly from Obsidian notes and PDFs.
+- Maintain a lightweight vault skeleton index with frontmatter, tags, links, headings, file stats, and embedded media references.
+- Read selected notes more deeply at generation time, including frontmatter, outline, bounded section excerpts, and supported attachments.
+- Daily practice reminders with a spaced, skill-aware topic queue stored in plugin data.
+- Fluency-aware review that uses correctness, skips, and response time to detect fragile recall.
+- A dashboard view for streak, due notes, scan status, and one-click daily practice.
+- Multi-provider BYOK support for Gemini, Anthropic, OpenAI, DeepSeek, Qwen, OpenRouter, and custom OpenAI-compatible endpoints.
+- Obsidian-native Markdown output with LaTeX and code block guidance in the generation prompt.
+
+## Model providers
+
+Open **Settings → Adaptive Practice** and choose a provider, then select or create the Obsidian secret that stores that provider's API key. API keys are stored through Obsidian secret storage. Each provider keeps its own configurable secret name, so switching between Gemini, Anthropic, OpenAI-compatible routes, etc. does not overwrite the key slot you chose for another provider.
+
+| Provider | Default endpoint/model | Notes |
+| --- | --- | --- |
+| Gemini | `gemini-3.5-flash` | Supports image and PDF attachments through the Gemini API. Change the model in settings if your account uses a different Gemini model. |
+| Anthropic | `claude-sonnet-4-6` | Supports image and PDF attachments through the Messages API. Change the model in settings if your account uses a different Claude model. |
+| OpenAI | `https://api.openai.com/v1/chat/completions`, `gpt-5.5` | Uses Chat Completions with JSON schema response format. Change the model in settings if your account uses a different OpenAI model. |
+| DeepSeek | `https://api.deepseek.com/chat/completions`, `deepseek-v4-flash` | Uses OpenAI-compatible chat completions with JSON object mode. Change the model in settings if you want the pro route. |
+| Qwen | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions`, `qwen-plus` | Uses Alibaba Cloud Model Studio's OpenAI-compatible interface. Change the model in settings if your region or account uses another Qwen route. |
+| OpenRouter | `https://openrouter.ai/api/v1/chat/completions`, `openai/gpt-5.4-mini` | Uses OpenRouter's OpenAI-compatible route. Change the model to any route you have access to. |
+| OpenAI-compatible | `http://localhost:1234/v1/chat/completions` | For LM Studio, local gateways, or other compatible servers. Local endpoints may omit an API key. |
+
+Image attachments are sent only when the selected provider is configured to support vision input. PDF/document attachments currently require Gemini or Anthropic. The note picker warns and blocks PDF-topic sessions for providers that cannot read PDF attachments through this plugin yet; daily practice skips incompatible PDF topics and uses compatible due notes when available. Standalone PDF topics are capped at 10 MB per file before upload.
+
+## Daily practice
+
+Use the **Open dashboard** command or the calendar-check ribbon icon to open the Adaptive Practice dashboard. The dashboard shows your current streak, how many notes are ready for review, the last vault scan, and the selected daily review topics. From there you can start the daily session, choose notes manually, or rescan the vault skeleton.
+
+When choosing notes manually, the picker uses practice memory to sort due and low-skill notes first. You can search by title/path, filter to due/new/low-skill/PDF notes, and select all currently visible matches without rendering the whole vault at once.
+
+The scan is incremental: unchanged notes reuse their previous skeleton entry, while changed notes refresh metadata from Obsidian's cache. Scans yield back to Obsidian between batches so large vaults do not freeze the UI during startup or scheduled rescans. This keeps daily topic selection cheap enough for large vaults while still letting generation read the selected notes in detail. For very large notes, prompts keep the outline and sample representative section excerpts so a single clipped or encyclopedic note does not consume the whole context window.
+
+After a session, the scheduler updates each note with recent accuracy, skipped answers, rolling average time, and a fluency score. Slow or skipped recall shortens the next interval and can bring a note forward in the daily queue even when the overall skill score is not low.
+
+Adaptive Practice also tracks generated `sourceSubtopics` per note. Future prompts receive a compact subtopic memory block so the model can avoid already-mastered subtopics and revisit weak or due ones without rereading the full practice log.
+
+Daily sessions also adjust the generated question count before calling the model: fragile recall gets a shorter warm-up, balanced review keeps your configured count, and strong recent accuracy/fluency earns a small stretch. This keeps token use bounded while nudging the session toward flow instead of a fixed-size batch every day.
 
 ---
 
 ## Requirements
 
-- Obsidian v1.0.0 or higher (desktop or mobile; desktop recommended for initial install).
+- Obsidian v1.11.4 or higher (desktop or mobile; desktop recommended for initial install).
 - Node.js (LTS, v18+ recommended) for local builds.
 - Git (for install via cloning).
 

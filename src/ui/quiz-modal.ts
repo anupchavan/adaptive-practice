@@ -1,6 +1,9 @@
-import { App, Component, MarkdownRenderer, Modal, setIcon } from "obsidian";
+import { App, Component, Modal, setIcon } from "obsidian";
 import { Question, QuizResult } from "../types";
 import { checkAnswer } from "../practice/grader";
+import { adaptQuestionOrderForFlow } from "../practice/flow-navigation";
+import { hasBlockMarkdown, renderMarkdown } from "./markdown";
+import { ConfirmationModal } from "./confirmation-modal";
 
 export class QuizModal extends Modal {
 	private questions: Question[];
@@ -13,6 +16,8 @@ export class QuizModal extends Modal {
 	private selectedAnswer = "";
 	private hasChecked = false;
 	private questionStartTime = 0;
+	private allowClose = false;
+	private closeConfirmationOpen = false;
 
 	constructor(
 		app: App,
@@ -32,21 +37,7 @@ export class QuizModal extends Modal {
 		this.renderComponent.load();
 
 		if (this.onExpand) {
-			const closeBtn = this.modalEl.querySelector(".modal-close-button");
-			if (closeBtn) {
-				const expandBtn = createEl("div", { cls: "ap-expand-button" });
-				setIcon(expandBtn, "maximize");
-				expandBtn.setAttribute("aria-label", "Expand to full tab");
-				expandBtn.addEventListener("click", (e) => {
-					e.stopPropagation();
-					const handler = this.onExpand;
-					this.onExpand = null;
-					this.onComplete = () => {};
-					this.close();
-					handler?.(this.questions, this.results, this.currentIndex);
-				});
-				closeBtn.parentElement?.insertBefore(expandBtn, closeBtn);
-			}
+			this.renderExpandButton();
 		}
 
 		this.renderQuestion();
@@ -55,6 +46,66 @@ export class QuizModal extends Modal {
 	onClose(): void {
 		this.renderComponent.unload();
 		this.contentEl.empty();
+	}
+
+	close(): void {
+		if (this.shouldConfirmClose()) {
+			this.openCloseConfirmation();
+			return;
+		}
+		super.close();
+	}
+
+	private renderExpandButton(): void {
+		this.modalEl.querySelector(".ap-expand-button")?.remove();
+		const expandBtn = createEl("button", {
+			cls: "clickable-icon ap-expand-button",
+			attr: {
+				"aria-label": "Open in full tab",
+				type: "button",
+			},
+		});
+		setIcon(expandBtn, "external-link");
+		expandBtn.setAttribute("title", "Open in full tab");
+		expandBtn.addEventListener("click", (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			const handler = this.onExpand;
+			this.onExpand = null;
+			this.onComplete = () => {};
+			this.allowClose = true;
+			this.close();
+			handler?.(this.questions, this.results, this.currentIndex);
+		});
+		this.modalEl.appendChild(expandBtn);
+	}
+
+	private shouldConfirmClose(): boolean {
+		return (
+			!this.allowClose &&
+			this.questions.length > 0 &&
+			this.results.length < this.questions.length
+		);
+	}
+
+	private openCloseConfirmation(): void {
+		if (this.closeConfirmationOpen) return;
+		this.closeConfirmationOpen = true;
+		new ConfirmationModal(this.app, {
+			title: "End practice session?",
+			message: "Generated questions and answers from this unfinished session will be discarded.",
+			confirmText: "End session",
+			cancelText: "Keep practicing",
+			destructive: true,
+			onConfirm: () => {
+				this.allowClose = true;
+				this.closeConfirmationOpen = false;
+				this.close();
+			},
+			onCancel: () => {
+				this.closeConfirmationOpen = false;
+			},
+		}).open();
 	}
 
 	private renderQuestion(): void {
@@ -114,6 +165,7 @@ export class QuizModal extends Modal {
 				skipped: true,
 				timeTakenMs: elapsed,
 			});
+			adaptQuestionOrderForFlow(this.questions, this.results, this.currentIndex);
 			this.advance();
 		});
 
@@ -136,6 +188,7 @@ export class QuizModal extends Modal {
 				skipped: false,
 				timeTakenMs: elapsed,
 			});
+			adaptQuestionOrderForFlow(this.questions, this.results, this.currentIndex);
 
 			this.showFeedback(feedbackEl, isCorrect, q);
 			checkBtn.remove();
@@ -149,6 +202,9 @@ export class QuizModal extends Modal {
 		const radioName = `ap-mcq-${this.currentIndex}`;
 		for (const opt of options) {
 			const label = container.createEl("label", { cls: "ap-option" });
+			if (hasBlockMarkdown(opt)) {
+				label.addClass("ap-option-has-block");
+			}
 			const radio = label.createEl("input", { type: "radio" });
 			radio.name = radioName;
 			radio.value = opt;
@@ -169,14 +225,14 @@ export class QuizModal extends Modal {
 		type: "integer" | "decimal"
 	): void {
 		const input = container.createEl("input", {
-			type: "number",
+			type: "text",
 			cls: "ap-numeric-input",
 			placeholder: type === "integer" ? "Enter an integer" : "Enter a number",
 		});
 		if (type === "integer") {
-			input.step = "1";
+			input.inputMode = "numeric";
 		} else {
-			input.step = "any";
+			input.inputMode = "decimal";
 		}
 		input.addEventListener("input", () => {
 			this.selectedAnswer = input.value;
@@ -198,7 +254,9 @@ export class QuizModal extends Modal {
 		if (!isCorrect) {
 			const correctEl = el.createDiv();
 			correctEl.createEl("span", { text: "Correct answer: " });
-			const ansEl = correctEl.createSpan();
+			const ansEl = hasBlockMarkdown(q.correctAnswer)
+				? correctEl.createDiv({ cls: "ap-correct-answer-block" })
+				: correctEl.createSpan();
 			this.renderMarkdown(q.correctAnswer, ansEl);
 		}
 
@@ -214,7 +272,7 @@ export class QuizModal extends Modal {
 		if (q.type !== "mcq") return;
 
 		container.querySelectorAll(".ap-option").forEach((el) => {
-			const radio = el.querySelector("input") as HTMLInputElement | null;
+			const radio = el.querySelector<HTMLInputElement>("input");
 			if (!radio) return;
 			if (radio.value === q.correctAnswer) {
 				el.addClass("ap-option-correct");
@@ -237,6 +295,7 @@ export class QuizModal extends Modal {
 	private advance(): void {
 		const isLast = this.currentIndex >= this.questions.length - 1;
 		if (isLast) {
+			this.allowClose = true;
 			this.close();
 			this.onComplete(this.results);
 		} else {
@@ -246,6 +305,6 @@ export class QuizModal extends Modal {
 	}
 
 	private renderMarkdown(md: string, el: HTMLElement): void {
-		MarkdownRenderer.render(this.app, md, el, "", this.renderComponent);
+		renderMarkdown(this.app, md, el, this.renderComponent);
 	}
 }

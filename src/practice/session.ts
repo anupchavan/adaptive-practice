@@ -1,40 +1,198 @@
 import { App } from "obsidian";
 import {
+	AdaptivePracticeSettings,
+	LlmProvider,
+	LLM_PROVIDER_LABELS,
+	OPENAI_COMPATIBLE_PROVIDERS,
+	PROVIDER_PRESETS,
 	Question,
 	QuizResult,
 	SessionConfig,
 	SkillDelta,
 	TopicNote,
 } from "../types";
-import { getNoteContent, getPastHistory } from "../notes/reader";
+import {
+	getNoteContent,
+	getNoteStructure,
+	getPastHistory,
+	getPdfContent,
+	getPromptAttachments,
+} from "../notes/reader";
 import { updateSkill } from "../notes/writer";
-import { buildPrompt } from "../llm/prompt";
+import { buildPrompt, StructuredPrompt, TopicContext } from "../llm/prompt";
 import { GeminiClient } from "../llm/gemini";
+import { AnthropicClient } from "../llm/anthropic";
+import { OpenAiCompatibleClient } from "../llm/openai-compatible";
 import { computeSkillDeltas } from "./grader";
+import { reconcileGeneratedQuestions } from "./source-map";
+import {
+	buildChallengeTopUpPrompt,
+	buildQuestionTopUpPrompt,
+	limitUniqueQuestions,
+} from "./question-quality";
+import {
+	selectFlowBalancedQuestions,
+	shouldRequestChallengeTopUp,
+} from "./flow-calibration";
+import { calibrateQuestionsForPractice } from "./question-calibration";
+
+interface LlmClient {
+	generateQuestions(prompt: StructuredPrompt): Promise<Question[]>;
+}
+
+function createClient(
+	provider: LlmProvider,
+	apiKey: string,
+	settings: AdaptivePracticeSettings
+): LlmClient {
+	switch (provider) {
+		case "anthropic": {
+			const preset = PROVIDER_PRESETS[provider];
+			return new AnthropicClient(apiKey, {
+				model: settings.providerModels[provider] || preset.model,
+			});
+		}
+		case "gemini": {
+			const preset = PROVIDER_PRESETS[provider];
+			return new GeminiClient(apiKey, {
+				model: settings.providerModels[provider] || preset.model,
+			});
+		}
+		case "openai":
+		case "deepseek":
+		case "qwen":
+		case "openrouter":
+		case "openai-compatible": {
+			const preset = PROVIDER_PRESETS[provider];
+			return new OpenAiCompatibleClient(apiKey, {
+				baseUrl: settings.providerBaseUrls[provider] || preset.baseUrl,
+				model: settings.providerModels[provider] || preset.model,
+				jsonMode: settings.providerJsonModes[provider] || preset.jsonMode,
+				supportsImages:
+					settings.providerSupportsImages[provider] ?? preset.supportsImages,
+				providerLabel: LLM_PROVIDER_LABELS[provider],
+			});
+		}
+		default:
+			throw new Error("Unsupported model provider.");
+	}
+}
 
 export async function generateQuestions(
 	app: App,
 	apiKey: string,
-	config: SessionConfig
+	config: SessionConfig,
+	provider: LlmProvider,
+	settings: AdaptivePracticeSettings
 ): Promise<Question[]> {
-	const topicContexts = await Promise.all(
-		config.topics.map(async (note) => ({
-			note,
-			content: await getNoteContent(app, note.path),
-			history: await getPastHistory(app, note.path),
-		}))
+	if (
+		(provider === "gemini" || provider === "anthropic" || OPENAI_COMPATIBLE_PROVIDERS.includes(provider)) &&
+		!(settings.providerModels[provider] || PROVIDER_PRESETS[provider].model)
+	) {
+		throw new Error("Choose a model before starting practice.");
+	}
+
+	const topicContexts: TopicContext[] = await Promise.all(
+		config.topics.map(async (note) => {
+			if (note.isPdf) {
+				return {
+					note,
+					content: "",
+					history: "",
+					pdfData: await getPdfContent(app, note.path),
+				};
+			}
+			const structure = await getNoteStructure(app, note.path, settings);
+			return {
+				note,
+				content: structure?.cleanedText ?? await getNoteContent(app, note.path),
+				history: await getPastHistory(app, note.path),
+				practicedSubtopics:
+					settings.practiceMemory.notes[note.path]?.practicedSubtopics ?? {},
+				structure: structure ?? undefined,
+				attachments: structure
+					? await getPromptAttachments(app, structure, note.title)
+					: [],
+			};
+		})
 	);
 
 	shuffle(topicContexts);
 
-	const prompt = buildPrompt(topicContexts, config.questionCount);
-	const client = new GeminiClient(apiKey);
+	const prompt = buildPrompt(topicContexts, config.questionCount, {
+		challengeMode: config.challengeMode,
+		challengeReason: config.challengeReason,
+		now: Date.now(),
+	});
+	const client = createClient(provider, apiKey, settings);
 
 	try {
-		return await client.generateQuestions(prompt);
+		let firstBatch = limitUniqueQuestions(
+			await requestReconciledQuestions(client, prompt, config.topics, topicContexts),
+			config.questionCount
+		);
+		if (firstBatch.length >= config.questionCount) {
+			if (
+				shouldRequestChallengeTopUp(
+					firstBatch,
+					config.topics,
+					config.challengeMode
+				)
+			) {
+				try {
+					const challengePrompt = buildChallengeTopUpPrompt(
+						prompt,
+						firstBatch,
+						config.questionCount
+					);
+					firstBatch = selectFlowBalancedQuestions(
+						firstBatch,
+						await requestReconciledQuestions(
+							client,
+							challengePrompt,
+							config.topics,
+							topicContexts
+						),
+						config.questionCount,
+						config.topics,
+						config.challengeMode
+					);
+				} catch {
+					firstBatch = selectFlowBalancedQuestions(
+						firstBatch,
+						[],
+						config.questionCount,
+						config.topics,
+						config.challengeMode
+					);
+				}
+			}
+			return firstBatch;
+		}
+
+		try {
+			const topUpPrompt = buildQuestionTopUpPrompt(
+				prompt,
+				firstBatch,
+				config.questionCount
+			);
+			return selectFlowBalancedQuestions(
+				firstBatch,
+				await requestReconciledQuestions(
+					client,
+					topUpPrompt,
+					config.topics,
+					topicContexts
+				),
+				config.questionCount,
+				config.topics,
+				config.challengeMode
+			);
+		} catch (topUpError) {
+			if (firstBatch.length > 0) return firstBatch;
+			throw topUpError;
+		}
 	} catch (e) {
-		// Only retry once if this looks like a JSON parse problem,
-		// not for HTTP errors such as 429 rate limiting.
 		const isParseError =
 			e instanceof SyntaxError ||
 			(e instanceof Error &&
@@ -49,7 +207,15 @@ export async function generateQuestions(
 		}
 
 		try {
-			return await client.generateQuestions(prompt);
+			return limitUniqueQuestions(
+				await requestReconciledQuestions(
+					client,
+					buildQuestionTopUpPrompt(prompt, [], config.questionCount),
+					config.topics,
+					topicContexts
+				),
+				config.questionCount
+			);
 		} catch (retryError) {
 			throw new Error(
 				`Failed to generate questions after retry: ${
@@ -62,15 +228,32 @@ export async function generateQuestions(
 	}
 }
 
+async function requestReconciledQuestions(
+	client: LlmClient,
+	prompt: StructuredPrompt,
+	topics: TopicNote[],
+	topicContexts: TopicContext[]
+): Promise<Question[]> {
+	return calibrateQuestionsForPractice(
+		reconcileGeneratedQuestions(
+			await client.generateQuestions(prompt),
+			topics
+		),
+		topicContexts,
+		topics
+	);
+}
+
 export async function finalizeSession(
 	app: App,
 	topics: TopicNote[],
-	results: QuizResult[]
+	results: QuizResult[],
+	savePdfSkill?: (path: string, skill: number) => Promise<void>
 ): Promise<SkillDelta[]> {
 	const deltas = computeSkillDeltas(topics, results);
 
 	for (const delta of deltas) {
-		await updateSkill(app, delta.path, delta.after);
+		await updateSkill(app, delta.path, delta.after, savePdfSkill);
 	}
 
 	return deltas;

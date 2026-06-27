@@ -10,6 +10,7 @@ export async function appendQuestionHistory(
 	path: string,
 	results: QuizResult[]
 ): Promise<void> {
+	if (path.endsWith(".pdf")) return;
 	const file = app.vault.getAbstractFileByPath(path);
 	if (!(file instanceof TFile)) return;
 
@@ -23,6 +24,11 @@ export async function appendQuestionHistory(
 		lines.push(
 			`- **Q:** ${r.question.questionText} | **Type:** ${r.question.type.toUpperCase()} | **Difficulty:** ${r.question.difficulty}`
 		);
+		if (r.question.sourceSubtopics && r.question.sourceSubtopics.length > 0) {
+			lines.push(
+				`  - **Subtopics:** ${r.question.sourceSubtopics.join(", ")}`
+			);
+		}
 		lines.push(
 			`  - **Your answer:** ${r.userAnswer} | **Correct answer:** ${r.question.correctAnswer} | **Result:** ${result}`
 		);
@@ -100,14 +106,21 @@ function buildQuestionMarker(r: QuizResult): string {
 export async function updateSkill(
 	app: App,
 	path: string,
-	newSkill: number
+	newSkill: number,
+	savePdfSkill?: (path: string, skill: number) => Promise<void>
 ): Promise<void> {
+	const rounded = Math.round(newSkill * 10) / 10;
+
+	if (path.endsWith(".pdf")) {
+		if (savePdfSkill) await savePdfSkill(path, rounded);
+		return;
+	}
+
 	const file = app.vault.getAbstractFileByPath(path);
 	if (!(file instanceof TFile)) return;
 
-	const rounded = Math.round(newSkill * 10) / 10;
-
 	await app.fileManager.processFrontMatter(file, (fm) => {
-		fm["skill"] = rounded;
+		const frontmatter = fm as Record<string, unknown>;
+		frontmatter["skill"] = rounded;
 	});
 }

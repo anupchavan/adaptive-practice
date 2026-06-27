@@ -2,7 +2,6 @@ import {
 	App,
 	Component,
 	ItemView,
-	MarkdownRenderer,
 	Modal,
 	Notice,
 	WorkspaceLeaf,
@@ -10,7 +9,9 @@ import {
 } from "obsidian";
 import { Question, QuizResult, TopicNote } from "../types";
 import { checkAnswer } from "../practice/grader";
+import { adaptQuestionOrderForFlow } from "../practice/flow-navigation";
 import { appendSingleQuestion, removeSingleQuestion } from "../notes/writer";
+import { hasBlockMarkdown, renderMarkdown } from "./markdown";
 
 export const PRACTICE_VIEW_TYPE = "adaptive-practice-view";
 
@@ -20,6 +21,7 @@ interface PracticeState {
 	currentIndex: number;
 	topics: TopicNote[];
 	onComplete: (results: QuizResult[]) => void;
+	questionPaneSide: "left" | "right";
 }
 
 const MAX_VISIBLE_TOPICS = 3;
@@ -97,7 +99,7 @@ export class PracticeView extends ItemView {
 
 				if (e.key === "Enter" && this.selectedAnswer) {
 					e.preventDefault();
-					const checkBtn = container.querySelector(".ap-pv-btn-check") as HTMLButtonElement | null;
+					const checkBtn = container.querySelector<HTMLButtonElement>(".ap-pv-btn-check");
 					checkBtn?.click();
 				}
 			}
@@ -143,6 +145,9 @@ export class PracticeView extends ItemView {
 		contentEl.addClass("ap-practice-view");
 
 		const wrapper = contentEl.createDiv({ cls: "ap-pv-wrapper" });
+		if (this.state.questionPaneSide === "right") {
+			wrapper.addClass("ap-pv-wrapper-sidebar-right");
+		}
 		const sidebar = wrapper.createDiv({ cls: "ap-pv-sidebar" });
 		const main = wrapper.createDiv({ cls: "ap-pv-main" });
 
@@ -294,6 +299,11 @@ export class PracticeView extends ItemView {
 				skipped: true,
 				timeTakenMs: elapsed,
 			};
+			adaptQuestionOrderForFlow(
+				this.state!.questions,
+				this.state!.results,
+				this.state!.currentIndex
+			);
 			this.render();
 		});
 
@@ -316,6 +326,11 @@ export class PracticeView extends ItemView {
 				skipped: false,
 				timeTakenMs: elapsed,
 			};
+			adaptQuestionOrderForFlow(
+				this.state!.questions,
+				this.state!.results,
+				this.state!.currentIndex
+			);
 			this.render();
 		});
 
@@ -335,9 +350,10 @@ export class PracticeView extends ItemView {
 
 			const inputArea = card.createDiv({ cls: "ap-pv-input-area" });
 			const input = inputArea.createEl("input", {
-				type: "number",
+				type: "text",
 				cls: "ap-pv-numeric-input",
 			});
+			input.inputMode = q.type === "integer" ? "numeric" : "decimal";
 			input.value = result.userAnswer || "";
 			input.disabled = true;
 			if (!result.skipped) {
@@ -429,30 +445,32 @@ export class PracticeView extends ItemView {
 		const saveBtn = bar.createEl("button", { cls: "ap-pv-btn-save" });
 		this.renderSaveButtonContent(saveBtn, isSaved);
 
-		saveBtn.addEventListener("click", async () => {
-			if (saveBtn.disabled) return;
-			saveBtn.disabled = true;
+		saveBtn.addEventListener("click", () => {
+			void (async () => {
+				if (saveBtn.disabled) return;
+				saveBtn.disabled = true;
 
-			if (this.savedIndices.has(currentIdx)) {
-				try {
-					await removeSingleQuestion(this.app, s.topics, result);
-					this.savedIndices.delete(currentIdx);
-					new Notice("Question removed from topic note.");
-				} catch (e) {
-					new Notice(`Failed to remove: ${e instanceof Error ? e.message : String(e)}`);
+				if (this.savedIndices.has(currentIdx)) {
+					try {
+						await removeSingleQuestion(this.app, s.topics, result);
+						this.savedIndices.delete(currentIdx);
+						new Notice("Question removed from topic note.");
+					} catch (e) {
+						new Notice(`Failed to remove: ${e instanceof Error ? e.message : String(e)}`);
+					}
+				} else {
+					try {
+						await appendSingleQuestion(this.app, s.topics, result);
+						this.savedIndices.add(currentIdx);
+						new Notice("Question saved to topic note.");
+					} catch (e) {
+						new Notice(`Failed to save: ${e instanceof Error ? e.message : String(e)}`);
+					}
 				}
-			} else {
-				try {
-					await appendSingleQuestion(this.app, s.topics, result);
-					this.savedIndices.add(currentIdx);
-					new Notice("Question saved to topic note.");
-				} catch (e) {
-					new Notice(`Failed to save: ${e instanceof Error ? e.message : String(e)}`);
-				}
-			}
 
-			saveBtn.disabled = false;
-			this.renderSaveButtonContent(saveBtn, this.savedIndices.has(currentIdx));
+				saveBtn.disabled = false;
+				this.renderSaveButtonContent(saveBtn, this.savedIndices.has(currentIdx));
+			})();
 		});
 
 		const isLast = s.currentIndex >= s.questions.length - 1;
@@ -492,6 +510,10 @@ export class PracticeView extends ItemView {
 			const letter = letters[i] ?? String(i + 1);
 
 			const optionEl = container.createDiv({ cls: "ap-pv-option" });
+			if (hasBlockMarkdown(opt)) {
+				optionEl.addClass("ap-pv-option-has-block");
+				container.addClass("ap-pv-options-grid-has-block");
+			}
 			optionEl.addEventListener("click", () => {
 				this.selectedAnswer = opt;
 				container.querySelectorAll(".ap-pv-option").forEach((el) => {
@@ -518,6 +540,10 @@ export class PracticeView extends ItemView {
 			const letter = letters[i] ?? String(i + 1);
 
 			const optionEl = container.createDiv({ cls: "ap-pv-option ap-pv-option-disabled" });
+			if (hasBlockMarkdown(opt)) {
+				optionEl.addClass("ap-pv-option-has-block");
+				container.addClass("ap-pv-options-grid-has-block");
+			}
 
 			const isCorrectOption = opt === q.correctAnswer;
 			const isUserChoice = opt === result.userAnswer;
@@ -548,14 +574,14 @@ export class PracticeView extends ItemView {
 	private renderNumericInput(container: HTMLElement, type: "integer" | "decimal"): void {
 		const inputWrap = container.createDiv({ cls: "ap-pv-input-wrap" });
 		const input = inputWrap.createEl("input", {
-			type: "number",
+			type: "text",
 			cls: "ap-pv-numeric-input",
-			placeholder: "Type your answer here....",
+			placeholder: "Type your answer here...",
 		});
 		if (type === "integer") {
-			input.step = "1";
+			input.inputMode = "numeric";
 		} else {
-			input.step = "any";
+			input.inputMode = "decimal";
 		}
 		input.addEventListener("input", () => {
 			this.selectedAnswer = input.value;
@@ -563,14 +589,14 @@ export class PracticeView extends ItemView {
 		input.addEventListener("keydown", (e) => {
 			if (e.key === "Enter" && this.selectedAnswer) {
 				e.preventDefault();
-				const checkBtn = container.closest(".ap-pv-card")?.querySelector(".ap-pv-btn-check") as HTMLButtonElement | null;
+				const checkBtn = container.closest(".ap-pv-card")?.querySelector<HTMLButtonElement>(".ap-pv-btn-check");
 				checkBtn?.click();
 			}
 		});
 	}
 
 	private renderMarkdown(md: string, el: HTMLElement): void {
-		MarkdownRenderer.render(this.app, md, el, "", this.renderComponent);
+		renderMarkdown(this.app, md, el, this.renderComponent);
 	}
 }
 

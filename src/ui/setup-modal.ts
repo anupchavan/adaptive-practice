@@ -1,7 +1,20 @@
-import { App, Modal, Notice, Setting } from "obsidian";
-import { AdaptivePracticeSettings, SessionConfig, TopicNote, FilterGroup, DEFAULT_FILTER_RULES } from "../types";
+import { App, Modal, Notice, Setting, TFile } from "obsidian";
+import {
+	AdaptivePracticeSettings,
+	DEFAULT_FILTER_RULES,
+	FilterGroup,
+	SessionConfig,
+	TopicNote,
+} from "../types";
 import { getTopicNotes, getTopicNotesWithFilters } from "../notes/reader";
 import { FilterBuilder } from "../filters/builder";
+import { applyPracticeMemoryToTopics } from "../practice/scheduler";
+import { getProviderPdfWarning } from "../practice/provider-capabilities";
+import { folderLabel, stringifyGroupValue } from "./topic-groups";
+
+type TopicQuickFilter = "all" | "due" | "new" | "low" | "pdf";
+
+const MAX_RENDERED_TOPICS = 300;
 
 export class SetupModal extends Modal {
 	private settings: AdaptivePracticeSettings;
@@ -13,6 +26,10 @@ export class SetupModal extends Modal {
 	private allTopics: TopicNote[] = [];
 	private useFilter = false;
 	private sessionFilterRules: FilterGroup;
+	private searchQuery = "";
+	private quickFilter: TopicQuickFilter = "all";
+	private groupFilter = "all";
+	private topicGroups = new Map<string, string>();
 
 	constructor(
 		app: App,
@@ -35,7 +52,17 @@ export class SetupModal extends Modal {
 
 		contentEl.createEl("h2", { text: "Start practice session" });
 
-		this.allTopics = getTopicNotes(this.app, this.settings.practiceFolder, this.settings.filterRules);
+		this.allTopics = applyPracticeMemoryToTopics(
+			getTopicNotes(
+				this.app,
+				this.settings.practiceFolder,
+				this.settings.pdfSkills,
+				this.settings.filterRules,
+				this.settings
+			),
+			this.settings.practiceMemory
+		).sort(compareTopicsForPicker);
+		this.topicGroups = new Map();
 
 		if (this.allTopics.length === 0 && !this.useFilter) {
 			contentEl.createEl("p", {
@@ -83,7 +110,15 @@ export class SetupModal extends Modal {
 		startBtn.addEventListener("click", () => {
 			let topics: TopicNote[];
 			if (this.useFilter) {
-				topics = getTopicNotesWithFilters(this.app, this.sessionFilterRules);
+				topics = applyPracticeMemoryToTopics(
+					getTopicNotesWithFilters(
+						this.app,
+						this.sessionFilterRules,
+						this.settings.pdfSkills,
+						this.settings
+					),
+					this.settings.practiceMemory
+				);
 				if (topics.length === 0) {
 					new Notice("No notes match the current filters.");
 					return;
@@ -94,6 +129,11 @@ export class SetupModal extends Modal {
 					return;
 				}
 				topics = this.allTopics.filter((t) => this.selectedPaths.has(t.path));
+			}
+			const warning = getProviderPdfWarning(this.settings.llmProvider, topics);
+			if (warning) {
+				new Notice(warning);
+				return;
 			}
 			this.close();
 			this.onStart({ topics, questionCount: this.questionCount });
@@ -121,65 +161,305 @@ export class SetupModal extends Modal {
 		} else {
 			const topicHeader = container.createDiv({ cls: "ap-topic-header" });
 			topicHeader.createEl("h3", { text: "Select topics" });
+			const summaryEl = topicHeader.createDiv({ cls: "ap-topic-summary" });
+
+			const controls = container.createDiv({ cls: "ap-topic-controls" });
+			const searchInput = controls.createEl("input", {
+				type: "search",
+				cls: "ap-topic-search",
+				placeholder: "Search title or path",
+			});
+			searchInput.value = this.searchQuery;
+
+			const filterBar = controls.createDiv({ cls: "ap-topic-filter-bar" });
+			const filters: Array<{ id: TopicQuickFilter; label: string }> = [
+				{ id: "all", label: "All" },
+				{ id: "due", label: "Due" },
+				{ id: "new", label: "New" },
+				{ id: "low", label: "Low skill" },
+				{ id: "pdf", label: "PDFs" },
+			];
+			for (const filter of filters) {
+				const button = filterBar.createEl("button", {
+					text: filter.label,
+					cls: "ap-topic-filter-button",
+				});
+				if (this.quickFilter === filter.id) {
+					button.addClass("is-active");
+				}
+				button.addEventListener("click", () => {
+					this.quickFilter = filter.id;
+					this.renderTopicSection(container);
+				});
+			}
 
 			const selectAllLabel = topicHeader.createEl("label", { cls: "ap-select-all" });
 			const selectAllCheckbox = selectAllLabel.createEl("input", { type: "checkbox" });
-			selectAllLabel.createEl("span", { text: "Select all" });
+			selectAllLabel.createEl("span", { text: "Select visible" });
+			const listHost = container.createDiv({ cls: "ap-topic-list-host" });
 
-			const topicContainer = container.createDiv({ cls: "ap-topic-list" });
-			const checkboxes: HTMLInputElement[] = [];
+			const groupOptions = this.getTopicGroupOptions();
+			if (groupOptions.length > 0) {
+				const groupSelect = controls.createEl("select", {
+					cls: "ap-topic-group-filter dropdown",
+				});
+				groupSelect.createEl("option", {
+					text: "All courses/folders",
+					value: "all",
+				});
+				for (const group of groupOptions) {
+					groupSelect.createEl("option", {
+						text: group,
+						value: group,
+					});
+				}
+				if (this.groupFilter !== "all" && !groupOptions.includes(this.groupFilter)) {
+					this.groupFilter = "all";
+				}
+				groupSelect.value = this.groupFilter;
+				groupSelect.addEventListener("change", () => {
+					this.groupFilter = groupSelect.value || "all";
+					this.renderManualTopicList(listHost, summaryEl, selectAllCheckbox);
+				});
+			}
 
 			selectAllCheckbox.addEventListener("change", () => {
 				const checked = selectAllCheckbox.checked;
-				for (let i = 0; i < this.allTopics.length; i++) {
-					const cb = checkboxes[i]!;
-					cb.checked = checked;
-					const path = this.allTopics[i]!.path;
-					if (checked) this.selectedPaths.add(path);
-					else this.selectedPaths.delete(path);
+				for (const topic of this.getVisibleTopics()) {
+					if (checked) this.selectedPaths.add(topic.path);
+					else this.selectedPaths.delete(topic.path);
 				}
+				this.renderManualTopicList(listHost, summaryEl, selectAllCheckbox);
 			});
 
-			for (const topic of this.allTopics) {
-				const row = topicContainer.createDiv({ cls: "ap-topic-row" });
-				const checkbox = row.createEl("input", { type: "checkbox" });
-				checkbox.checked = this.selectedPaths.has(topic.path);
-				checkboxes.push(checkbox);
-				checkbox.addEventListener("change", () => {
-					if (checkbox.checked) this.selectedPaths.add(topic.path);
-					else this.selectedPaths.delete(topic.path);
-					selectAllCheckbox.checked = this.selectedPaths.size === this.allTopics.length;
-				});
-				row.addEventListener("click", (e) => {
-					if (e.target === checkbox) return;
-					checkbox.checked = !checkbox.checked;
-					checkbox.dispatchEvent(new Event("change"));
-				});
-				row.createEl("span", { text: topic.title, cls: "ap-topic-title" });
-				const skillBadge = row.createEl("span", { cls: "ap-skill-badge" });
-				skillBadge.setText(`${Math.round(topic.skill)}`);
-				skillBadge.title = `Skill: ${Math.round(topic.skill)}/100`;
-				if (topic.skill < 30) skillBadge.addClass("ap-skill-low");
-				else if (topic.skill < 70) skillBadge.addClass("ap-skill-mid");
-				else skillBadge.addClass("ap-skill-high");
-			}
+			searchInput.addEventListener("input", () => {
+				this.searchQuery = searchInput.value;
+				this.renderManualTopicList(listHost, summaryEl, selectAllCheckbox);
+			});
+
+			this.renderManualTopicList(listHost, summaryEl, selectAllCheckbox);
 		}
 	}
 
+	private renderManualTopicList(
+		container: HTMLElement,
+		summaryEl: HTMLElement,
+		selectAllCheckbox: HTMLInputElement
+	): void {
+		container.empty();
+		this.updateManualSelectionSummary(summaryEl, selectAllCheckbox);
+
+		const visibleTopics = this.getVisibleTopics();
+		const renderedTopics = visibleTopics.slice(0, MAX_RENDERED_TOPICS);
+
+		if (visibleTopics.length === 0) {
+			container.createDiv({
+				text: "No topics match the current search or filter.",
+				cls: "ap-empty-state",
+			});
+			return;
+		}
+
+		const topicContainer = container.createDiv({ cls: "ap-topic-list" });
+		for (const topic of renderedTopics) {
+			this.renderManualTopicRow(topicContainer, topic, summaryEl, selectAllCheckbox);
+		}
+
+		if (visibleTopics.length > renderedTopics.length) {
+			container.createDiv({
+				text: `Showing ${renderedTopics.length} of ${visibleTopics.length} matches. Search or filter to narrow the list.`,
+				cls: "ap-topic-list-note",
+			});
+		}
+	}
+
+	private renderManualTopicRow(
+		container: HTMLElement,
+		topic: TopicNote,
+		summaryEl: HTMLElement,
+		selectAllCheckbox: HTMLInputElement
+	): void {
+		const row = container.createDiv({ cls: "ap-topic-row" });
+		const checkbox = row.createEl("input", { type: "checkbox" });
+		checkbox.checked = this.selectedPaths.has(topic.path);
+		checkbox.addEventListener("change", () => {
+			if (checkbox.checked) this.selectedPaths.add(topic.path);
+			else this.selectedPaths.delete(topic.path);
+			this.updateManualSelectionSummary(summaryEl, selectAllCheckbox);
+		});
+		row.addEventListener("click", (e) => {
+			if (e.target === checkbox) return;
+			checkbox.checked = !checkbox.checked;
+			checkbox.dispatchEvent(new Event("change"));
+		});
+
+		const main = row.createDiv({ cls: "ap-topic-main" });
+		const titleEl = main.createDiv({ cls: "ap-topic-title" });
+		titleEl.createSpan({ text: topic.title });
+		if (topic.isPdf) {
+			titleEl.createSpan({ text: "PDF", cls: "ap-pdf-badge" });
+		}
+		const group = this.getTopicGroup(topic);
+		if (group) {
+			titleEl.createSpan({ text: group, cls: "ap-topic-group-badge" });
+		}
+		main.createDiv({ text: topic.path, cls: "ap-topic-path" });
+
+		const meta = row.createDiv({ cls: "ap-topic-meta" });
+		const skillBadge = meta.createDiv({ cls: "ap-skill-badge" });
+		skillBadge.setText(`${Math.round(topic.skill)}`);
+		skillBadge.title = `Skill: ${Math.round(topic.skill)}/100`;
+		if (topic.skill < 30) skillBadge.addClass("ap-skill-low");
+		else if (topic.skill < 70) skillBadge.addClass("ap-skill-mid");
+		else skillBadge.addClass("ap-skill-high");
+		meta.createDiv({
+			text: this.getTopicStatusText(topic),
+			cls: "ap-topic-status",
+		});
+	}
+
+	private updateManualSelectionSummary(
+		summaryEl: HTMLElement,
+		selectAllCheckbox: HTMLInputElement
+	): void {
+		const visibleTopics = this.getVisibleTopics();
+		const visibleSelected = visibleTopics.filter((topic) =>
+			this.selectedPaths.has(topic.path)
+		).length;
+		const selectedTopics = this.allTopics.filter((topic) =>
+			this.selectedPaths.has(topic.path)
+		);
+		selectAllCheckbox.disabled = visibleTopics.length === 0;
+		selectAllCheckbox.checked =
+			visibleTopics.length > 0 && visibleSelected === visibleTopics.length;
+		selectAllCheckbox.indeterminate =
+			visibleSelected > 0 && visibleSelected < visibleTopics.length;
+		summaryEl.empty();
+		summaryEl.createSpan({
+			text: `${visibleTopics.length} match${visibleTopics.length === 1 ? "" : "es"} · ${this.selectedPaths.size} selected`,
+		});
+		const warning = getProviderPdfWarning(this.settings.llmProvider, selectedTopics);
+		if (warning) {
+			summaryEl.createDiv({
+				text: warning,
+				cls: "ap-topic-summary-warning",
+			});
+		}
+	}
+
+	private getVisibleTopics(): TopicNote[] {
+		const query = this.searchQuery.trim().toLowerCase();
+		return this.allTopics.filter((topic) => {
+			if (!this.matchesQuickFilter(topic)) return false;
+			const group = this.getTopicGroup(topic);
+			if (this.groupFilter !== "all" && group !== this.groupFilter) return false;
+			if (!query) return true;
+			return (
+				topic.title.toLowerCase().includes(query) ||
+				topic.path.toLowerCase().includes(query) ||
+				group.toLowerCase().includes(query)
+			);
+		});
+	}
+
+	private getTopicGroupOptions(): string[] {
+		const groups = new Set<string>();
+		for (const topic of this.allTopics) {
+			const group = this.getTopicGroup(topic);
+			if (group) groups.add(group);
+		}
+		return [...groups].sort((a, b) => a.localeCompare(b));
+	}
+
+	private getTopicGroup(topic: TopicNote): string {
+		const cached = this.topicGroups.get(topic.path);
+		if (cached !== undefined) return cached;
+
+		const indexCourse = this.settings.practiceMemory.index[topic.path]?.frontmatter.course;
+		const file = this.app.vault.getAbstractFileByPath(topic.path);
+		const cache = file instanceof TFile ? this.app.metadataCache.getFileCache(file) : null;
+		const frontmatter = cache?.frontmatter as Record<string, unknown> | undefined;
+		const rawCourse = indexCourse || frontmatter?.["course"];
+		const course = stringifyGroupValue(rawCourse);
+		const group = course || folderLabel(topic.path);
+		this.topicGroups.set(topic.path, group);
+		return group;
+	}
+
+	private matchesQuickFilter(topic: TopicNote): boolean {
+		const state = this.settings.practiceMemory.notes[topic.path];
+		switch (this.quickFilter) {
+			case "due":
+				return isTopicDue(topic);
+			case "new":
+				return !state || state.attempts === 0;
+			case "low":
+				return topic.skill < 55;
+			case "pdf":
+				return topic.isPdf;
+			case "all":
+			default:
+				return true;
+		}
+	}
+
+	private getTopicStatusText(topic: TopicNote): string {
+		const state = this.settings.practiceMemory.notes[topic.path];
+		const bits: string[] = [];
+		if (!state || state.attempts === 0) bits.push("new");
+		bits.push(formatDueText(topic.dueAt));
+		if (topic.skill < 55) bits.push("low skill");
+		return bits.join(" · ");
+	}
+
 	private updateFilterPreview(container: HTMLElement): void {
-		let preview = container.querySelector(".ap-filter-preview") as HTMLElement | null;
+		let preview = container.querySelector<HTMLElement>(".ap-filter-preview");
 		if (!preview) {
 			preview = container.createDiv({ cls: "ap-filter-preview" });
 		}
-		const matched = getTopicNotesWithFilters(this.app, this.sessionFilterRules);
+		const matched = getTopicNotesWithFilters(
+			this.app,
+			this.sessionFilterRules,
+			this.settings.pdfSkills,
+			this.settings
+		);
 		preview.empty();
 		preview.createEl("span", {
 			text: `${matched.length} note${matched.length !== 1 ? "s" : ""} matched`,
 			cls: matched.length > 0 ? "ap-filter-match-count" : "ap-filter-match-count ap-filter-no-match",
 		});
+		const warning = getProviderPdfWarning(this.settings.llmProvider, matched);
+		if (warning) {
+			preview.createDiv({
+				text: warning,
+				cls: "ap-topic-summary-warning",
+			});
+		}
 	}
 
 	onClose(): void {
 		this.contentEl.empty();
 	}
+}
+
+function compareTopicsForPicker(a: TopicNote, b: TopicNote): number {
+	const dueDiff = Number(isTopicDue(b)) - Number(isTopicDue(a));
+	if (dueDiff !== 0) return dueDiff;
+	const skillDiff = a.skill - b.skill;
+	if (skillDiff !== 0) return skillDiff;
+	return a.title.localeCompare(b.title);
+}
+
+function isTopicDue(topic: TopicNote): boolean {
+	return !topic.dueAt || topic.dueAt <= Date.now();
+}
+
+function formatDueText(dueAt: number | undefined): string {
+	if (!dueAt) return "due now";
+	const diffMs = dueAt - Date.now();
+	if (diffMs <= 0) return "due now";
+	const diffHours = Math.ceil(diffMs / (60 * 60 * 1000));
+	if (diffHours < 24) return `due in ${diffHours}h`;
+	const diffDays = Math.ceil(diffHours / 24);
+	return `due in ${diffDays}d`;
 }
