@@ -108,7 +108,7 @@ export const PROVIDER_PRESETS: Record<LlmProvider, ProviderPreset> = {
 	},
 	qwen: {
 		baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
-		model: "qwen-plus",
+		model: "qwen3.7-plus",
 		secretName: "qwen-api-key",
 		jsonMode: "json_object",
 		supportsImages: false,

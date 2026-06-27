@@ -59,6 +59,11 @@ import {
 	syncLegacySecretName,
 } from "../src/practice/provider-secrets";
 import {
+	hasStaleProviderModels,
+	migrateProviderModel,
+	normalizeProviderModels,
+} from "../src/practice/provider-models";
+import {
 	isMeaningfulPracticeSession,
 	normalizePracticeMemory,
 	planDailySession,
@@ -858,12 +863,53 @@ test("provider presets use documented current model IDs", () => {
 	assert.equal(PROVIDER_PRESETS.openai.model, "gpt-5.5");
 	assert.equal(PROVIDER_PRESETS.openai.baseUrl, "https://api.openai.com/v1/responses");
 	assert.equal(PROVIDER_PRESETS.deepseek.model, "deepseek-v4-flash");
-	assert.equal(PROVIDER_PRESETS.qwen.model, "qwen-plus");
+	assert.equal(PROVIDER_PRESETS.qwen.model, "qwen3.7-plus");
+	assert.notEqual(PROVIDER_PRESETS.qwen.model, "qwen-plus");
 	assert.equal(PROVIDER_PRESETS.openrouter.model, "openai/gpt-5.4-mini");
 	assert.equal(PROVIDER_PRESETS.gemini.supportsPdfs, true);
 	assert.equal(PROVIDER_PRESETS.anthropic.supportsPdfs, true);
 	assert.equal(PROVIDER_PRESETS.openai.supportsPdfs, false);
 	assert.equal(PROVIDER_PRESETS.openrouter.supportsPdfs, false);
+});
+
+test("provider model migration repairs stale saved defaults without changing custom models", () => {
+	assert.equal(
+		migrateProviderModel("anthropic", "claude-sonnet-4-20250514"),
+		PROVIDER_PRESETS.anthropic.model
+	);
+	assert.equal(
+		migrateProviderModel("deepseek", "deepseek-reasoner"),
+		PROVIDER_PRESETS.deepseek.model
+	);
+	assert.equal(
+		migrateProviderModel("qwen", "qwen-plus"),
+		PROVIDER_PRESETS.qwen.model
+	);
+	assert.equal(
+		migrateProviderModel("openai-compatible", "my-local-model"),
+		"my-local-model"
+	);
+	assert.deepEqual(
+		normalizeProviderModels({
+			anthropic: "claude-sonnet-4-20250514",
+			qwen: "qwen-plus",
+			"openai-compatible": "local/teacher",
+			unknown: "ignored",
+		}),
+		{
+			anthropic: PROVIDER_PRESETS.anthropic.model,
+			qwen: PROVIDER_PRESETS.qwen.model,
+			"openai-compatible": "local/teacher",
+		}
+	);
+	assert.equal(
+		hasStaleProviderModels({ anthropic: "claude-sonnet-4-20250514" }),
+		true
+	);
+	assert.equal(
+		hasStaleProviderModels({ anthropic: PROVIDER_PRESETS.anthropic.model }),
+		false
+	);
 });
 
 test("OpenAI Responses adapter normalizes endpoint and extracts output text", () => {

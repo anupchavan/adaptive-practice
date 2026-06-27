@@ -43,6 +43,10 @@ import {
 	syncLegacySecretName,
 } from "./practice/provider-secrets";
 import {
+	hasStaleProviderModels,
+	normalizeProviderModels,
+} from "./practice/provider-models";
+import {
 	buildPracticeDraft,
 	normalizePracticeDraft,
 	practiceDraftProgress,
@@ -229,7 +233,11 @@ export default class AdaptivePracticePlugin extends Plugin {
 	}
 
 	async loadSettings(): Promise<void> {
-		this.settings = normalizeSettings(await this.loadData());
+		const raw: unknown = await this.loadData();
+		this.settings = normalizeSettings(raw);
+		if (rawHasStaleProviderModels(raw)) {
+			await this.saveSettings();
+		}
 	}
 
 	async saveSettings(): Promise<void> {
@@ -900,13 +908,7 @@ function normalizeSettings(raw: unknown): AdaptivePracticeSettings {
 	if (settings.providerBaseUrls.openai === "https://api.openai.com/v1/chat/completions") {
 		settings.providerBaseUrls.openai = PROVIDER_PRESETS.openai.baseUrl;
 	}
-	settings.providerModels = normalizeProviderStrings(settings.providerModels);
-	if (settings.providerModels.gemini === "gemini-2.0-flash") {
-		settings.providerModels.gemini = PROVIDER_PRESETS.gemini.model;
-	}
-	if (settings.providerModels.anthropic === "claude-sonnet-4-20250514") {
-		settings.providerModels.anthropic = PROVIDER_PRESETS.anthropic.model;
-	}
+	settings.providerModels = normalizeProviderModels(settings.providerModels);
 	settings.providerJsonModes = normalizeProviderJsonModes(settings.providerJsonModes);
 	settings.providerSupportsImages = normalizeProviderBooleans(settings.providerSupportsImages);
 	if (!settings.filterRules || settings.filterRules.type !== "group") {
@@ -941,6 +943,12 @@ function normalizeSettings(raw: unknown): AdaptivePracticeSettings {
 function getProviderBaseUrl(settings: AdaptivePracticeSettings): string {
 	return settings.providerBaseUrls[settings.llmProvider] ||
 		PROVIDER_PRESETS[settings.llmProvider].baseUrl;
+}
+
+function rawHasStaleProviderModels(raw: unknown): boolean {
+	if (!raw || typeof raw !== "object") return false;
+	const providerModels = (raw as Partial<AdaptivePracticeSettings>).providerModels;
+	return hasStaleProviderModels(providerModels);
 }
 
 function stringSetting(value: unknown, fallback: string): string {
