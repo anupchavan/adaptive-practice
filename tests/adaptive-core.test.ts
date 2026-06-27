@@ -112,6 +112,7 @@ import {
 } from "../src/practice/draft";
 import { folderLabel, stringifyGroupValue } from "../src/ui/topic-groups";
 import { hasBlockMarkdown } from "../src/ui/markdown-detection";
+import { normalizeMarkdownForRender } from "../src/ui/markdown-normalize";
 import {
 	AdaptivePracticeSettings,
 	PracticeMemory,
@@ -1248,6 +1249,22 @@ test("markdown block detection catches fenced code with indentation", () => {
 	assert.equal(hasBlockMarkdown("Trace this:\n```ts\nlet mid = 2;\n```"), true);
 	assert.equal(hasBlockMarkdown("Trace this:\n   ```python\nprint(mid)\n   ```"), true);
 	assert.equal(hasBlockMarkdown("Use `nums[mid]` inline only."), false);
+});
+
+test("markdown render normalization repairs escaped fenced code newlines", () => {
+	const escaped = "```ts\\nconst x = 1;\\nconsole.log(x);\\n```";
+	const normalized = normalizeMarkdownForRender(escaped);
+
+	assert.equal(normalized, "```ts\nconst x = 1;\nconsole.log(x);\n```");
+	assert.equal(hasBlockMarkdown(normalized), true);
+	assert.equal(
+		normalizeMarkdownForRender("Use `\\n` as an escaped newline in a string."),
+		"Use `\\n` as an escaped newline in a string."
+	);
+	assert.equal(
+		normalizeMarkdownForRender("```ts\nconst slash = \"\\\\n\";\n```"),
+		"```ts\nconst slash = \"\\\\n\";\n```"
+	);
 });
 
 test("question history blocks preserve fenced code as renderable Markdown", () => {
