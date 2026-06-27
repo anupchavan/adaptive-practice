@@ -130,10 +130,11 @@ export function cleanMarkdownPath(path: string): string {
 export function parseMarkdownImageReferences(content: string): MarkdownImageReference[] {
 	const lines = content.replace(/\r\n/g, "\n").split("\n");
 	const refs: MarkdownImageReference[] = [];
+	const referenceDefinitions = parseMarkdownReferenceDefinitions(lines);
 
 	for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
 		const line = lines[lineIndex] ?? "";
-		for (const image of scanMarkdownImages(line)) {
+		for (const image of scanMarkdownImages(line, referenceDefinitions)) {
 			const link = normalizeRemoteMarkdownUrl(cleanMarkdownPath(image.link));
 			if (!link) continue;
 			refs.push({
@@ -148,26 +149,72 @@ export function parseMarkdownImageReferences(content: string): MarkdownImageRefe
 	return refs;
 }
 
-function scanMarkdownImages(line: string): Array<{ alt: string; link: string }> {
+function parseMarkdownReferenceDefinitions(lines: string[]): Map<string, string> {
+	const definitions = new Map<string, string>();
+	for (const line of lines) {
+		const match = /^\s{0,3}\[([^\]]+)\]:\s*(.+?)\s*$/.exec(line);
+		if (!match) continue;
+		const label = normalizeReferenceLabel(match[1] ?? "");
+		const destination = (match[2] ?? "").trim();
+		if (!label || !destination) continue;
+		definitions.set(label, destination);
+	}
+	return definitions;
+}
+
+function scanMarkdownImages(
+	line: string,
+	referenceDefinitions: Map<string, string>
+): Array<{ alt: string; link: string }> {
 	const images: Array<{ alt: string; link: string }> = [];
 	let cursor = 0;
 	while (cursor < line.length) {
 		const start = line.indexOf("![", cursor);
 		if (start === -1) break;
-		const altEnd = line.indexOf("](", start + 2);
+		const altEnd = findClosingBracket(line, start + 2);
 		if (altEnd === -1) break;
-		const destination = readMarkdownDestination(line, altEnd + 2);
-		if (!destination) {
-			cursor = altEnd + 2;
+		const alt = line.slice(start + 2, altEnd);
+		const next = line[altEnd + 1];
+		if (next === "(") {
+			const destination = readMarkdownDestination(line, altEnd + 2);
+			if (!destination) {
+				cursor = altEnd + 2;
+				continue;
+			}
+			images.push({ alt, link: destination.value });
+			cursor = destination.end + 1;
 			continue;
 		}
-		images.push({
-			alt: line.slice(start + 2, altEnd),
-			link: destination.value,
-		});
-		cursor = destination.end + 1;
+		if (next === "[") {
+			const labelEnd = findClosingBracket(line, altEnd + 2);
+			if (labelEnd === -1) {
+				cursor = altEnd + 2;
+				continue;
+			}
+			const rawLabel = line.slice(altEnd + 2, labelEnd).trim() || alt;
+			const destination = referenceDefinitions.get(
+				normalizeReferenceLabel(rawLabel)
+			);
+			if (destination) {
+				images.push({ alt, link: destination });
+			}
+			cursor = labelEnd + 1;
+			continue;
+		}
+		cursor = altEnd + 1;
 	}
 	return images;
+}
+
+function findClosingBracket(line: string, start: number): number {
+	for (let index = start; index < line.length; index++) {
+		if (line[index] === "\\") {
+			index++;
+			continue;
+		}
+		if (line[index] === "]") return index;
+	}
+	return -1;
 }
 
 function readMarkdownDestination(
@@ -238,6 +285,7 @@ function findNearbyImageCaption(lines: string[], imageLineIndex: number): string
 
 function isClearlyNotImageCaption(line: string): boolean {
 	return /^!\[/.test(line) ||
+		/^\[[^\]]+\]:/.test(line) ||
 		/^#{1,6}\s+/.test(line) ||
 		/^```/.test(line) ||
 		/^\|.*\|$/.test(line) ||
@@ -255,6 +303,10 @@ function cleanCaptionText(line: string): string {
 function normalizeRemoteMarkdownUrl(link: string): string {
 	if (link.startsWith("//")) return `https:${link}`;
 	return link;
+}
+
+function normalizeReferenceLabel(label: string): string {
+	return label.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function isRemoteMarkdownUrl(link: string): boolean {
