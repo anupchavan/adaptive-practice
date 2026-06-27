@@ -56,6 +56,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 	private sessionGenerationInProgress = false;
 	private sessionGenerationId = 0;
 	private dailyReminderNotice: Notice | null = null;
+	private dailyReminderCheckInProgress = false;
 	private unloading = false;
 	private practicePlanRefresh: Promise<TopicNote[]> | null = null;
 	private practicePlanRefreshNoticeRequested = false;
@@ -469,6 +470,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 	}
 
 	private async checkDailyReminder(): Promise<void> {
+		if (this.dailyReminderCheckInProgress) return;
 		const now = new Date();
 		if (!shouldOfferDailyReminder({
 			enabled: this.settings.dailyPracticeEnabled,
@@ -480,28 +482,33 @@ export default class AdaptivePracticePlugin extends Plugin {
 			noticeActive: !!this.dailyReminderNotice,
 		})) return;
 
-		const topics = await this.refreshPracticePlan(false);
-		const selection = this.getDailyTopicSelection(topics, now.getTime());
-		const dailyTopics = selection.compatibleTopics;
+		this.dailyReminderCheckInProgress = true;
+		try {
+			const topics = await this.refreshPracticePlan(false);
+			const selection = this.getDailyTopicSelection(topics, now.getTime());
+			const dailyTopics = selection.compatibleTopics;
 
-		if (dailyTopics.length === 0) {
+			if (dailyTopics.length === 0) {
+				this.settings.practiceMemory = recordDailyReminderAttempt(
+					this.settings.practiceMemory,
+					now.getTime()
+				);
+				await this.saveSettings();
+				if (selection.warning) new Notice(selection.warning);
+				return;
+			}
 			this.settings.practiceMemory = recordDailyReminderAttempt(
 				this.settings.practiceMemory,
 				now.getTime()
 			);
 			await this.saveSettings();
-			if (selection.warning) new Notice(selection.warning);
-			return;
+			this.showDailyPracticeNotice(
+				dailyTopics.length,
+				this.getDailySessionPlan(dailyTopics)
+			);
+		} finally {
+			this.dailyReminderCheckInProgress = false;
 		}
-		this.settings.practiceMemory = recordDailyReminderAttempt(
-			this.settings.practiceMemory,
-			now.getTime()
-		);
-		await this.saveSettings();
-		this.showDailyPracticeNotice(
-			dailyTopics.length,
-			this.getDailySessionPlan(dailyTopics)
-		);
 	}
 
 	private showDailyPracticeNotice(topicCount: number, plan: DailySessionPlan): void {
