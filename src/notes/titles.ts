@@ -21,6 +21,39 @@ export function noteDisplayTitle(
 	return cleanTitleValue(fallback) || fallback;
 }
 
+export function noteDisplayAliases(
+	frontmatter: Record<string, unknown> | undefined,
+	displayTitle?: string
+): string[] {
+	const aliases: string[] = [];
+	addAlias(aliases, cleanTitleValue(frontmatter?.["title"]));
+
+	const rawAliases = frontmatter?.["aliases"];
+	if (Array.isArray(rawAliases)) {
+		for (const alias of rawAliases) {
+			addAlias(aliases, cleanTitleValue(alias));
+		}
+	} else if (typeof rawAliases === "string") {
+		for (const alias of rawAliases.split(",")) {
+			addAlias(aliases, cleanTitleValue(alias));
+		}
+	}
+
+	const titleKey = displayTitle ? normalizeAliasKey(displayTitle) : "";
+	return aliases.filter((alias) => normalizeAliasKey(alias) !== titleKey);
+}
+
+function addAlias(aliases: string[], alias: string): void {
+	if (!alias) return;
+	const key = normalizeAliasKey(alias);
+	if (!key || aliases.some((existing) => normalizeAliasKey(existing) === key)) return;
+	aliases.push(alias);
+}
+
+function normalizeAliasKey(value: string): string {
+	return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
 function cleanTitleValue(value: unknown): string {
 	if (
 		typeof value !== "string" &&

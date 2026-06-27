@@ -269,6 +269,7 @@ export interface PracticeDraft {
 export interface TopicNote {
 	path: string;
 	title: string;
+	aliases?: string[];
 	skill: number;
 	isPdf: boolean;
 	createdAt?: number;
@@ -293,6 +294,7 @@ export interface NoteIndexMedia {
 export interface NoteIndexEntry {
 	path: string;
 	title: string;
+	aliases?: string[];
 	extension: string;
 	isPdf: boolean;
 	frontmatter: Record<string, string>;

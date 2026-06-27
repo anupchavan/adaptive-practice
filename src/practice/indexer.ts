@@ -56,6 +56,7 @@ export async function scanVaultSkeleton(
 			? {
 				...previous,
 				title: topic.title,
+				aliases: topic.aliases,
 				skill: topic.skill,
 				createdAt: topic.createdAt ?? previous.createdAt,
 				updatedAt: topic.updatedAt ?? previous.updatedAt,

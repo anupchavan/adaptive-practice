@@ -163,6 +163,7 @@ function normalizeTopics(input: unknown): TopicNote[] {
 			return {
 				path,
 				title,
+				aliases: normalizeStringList(item["aliases"]),
 				skill: clampNumber(item["skill"], 0, 100, 50),
 				isPdf: Boolean(item["isPdf"]),
 				createdAt: optionalNumber(item["createdAt"]),

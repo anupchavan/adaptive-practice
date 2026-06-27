@@ -23,7 +23,7 @@ import {
 	parseInternalEmbedReference,
 	parseSkillValue,
 } from "../src/notes/normalize";
-import { noteDisplayTitle } from "../src/notes/titles";
+import { noteDisplayAliases, noteDisplayTitle } from "../src/notes/titles";
 import { shouldAttachPromptMedia } from "../src/notes/attachment-policy";
 import {
 	buildQuestionHistoryBlock,
@@ -812,7 +812,10 @@ test("default practice view settings keep the question pane on the left", () => 
 
 test("practice drafts normalize unfinished generated sessions for reload resume", () => {
 	const now = Date.UTC(2026, 5, 27, 12);
-	const topics = [makeTopic({ title: "Rotated binary search" })];
+	const topics = [makeTopic({
+		title: "Rotated binary search",
+		aliases: ["Rotation pivot invariant"],
+	})];
 	const questions = [
 		makeQuestion({ id: "q1", sourceTopics: [topics[0]!.title] }),
 		makeQuestion({ id: "q2", sourceTopics: [topics[0]!.title] }),
@@ -838,6 +841,8 @@ test("practice drafts normalize unfinished generated sessions for reload resume"
 	assert.equal(normalized.results.length, 1);
 	assert.equal(normalized.config.mode, "daily");
 	assert.equal(normalized.config.challengeMode, "stretch");
+	assert.deepEqual(normalized.topics[0]?.aliases, ["Rotation pivot invariant"]);
+	assert.deepEqual(normalized.config.topics[0]?.aliases, ["Rotation pivot invariant"]);
 	assert.equal(practiceDraftProgress(normalized), "1 / 2 answered");
 });
 
@@ -1021,6 +1026,7 @@ test("vault scanner yields only between large-vault batches", () => {
 test("vault index freshness uses raw file stats, not only frontmatter dates", () => {
 	const topic = makeTopic({
 		title: "Projectile motion - moving platform note",
+		aliases: ["Relative velocity projectile"],
 		path: "Practice Lab/JEE Physics/Projectile motion - moving platform note.md",
 		createdAt: Date.UTC(2026, 2, 13),
 		updatedAt: Date.UTC(2026, 5, 26),
@@ -1028,6 +1034,7 @@ test("vault index freshness uses raw file stats, not only frontmatter dates", ()
 	const entry = makeIndexEntry({
 		path: topic.path,
 		title: topic.title,
+		aliases: topic.aliases,
 		createdAt: topic.createdAt!,
 		updatedAt: topic.updatedAt!,
 		fileCreatedAt: Date.UTC(2026, 5, 1, 8),
@@ -1050,6 +1057,18 @@ test("vault index freshness uses raw file stats, not only frontmatter dates", ()
 			updatedAt: entry.fileUpdatedAt + 1000,
 			size: entry.size,
 		}),
+		false
+	);
+	assert.equal(
+		isIndexEntryCurrent(
+			{ ...entry, aliases: ["Old moving-platform alias"] },
+			topic,
+			{
+				createdAt: entry.fileCreatedAt,
+				updatedAt: entry.fileUpdatedAt,
+				size: entry.size,
+			}
+		),
 		false
 	);
 });
@@ -1256,6 +1275,16 @@ test("note display titles prefer frontmatter title and aliases", () => {
 			"capacitor-note"
 		),
 		"Charging curve"
+	);
+	assert.deepEqual(
+		noteDisplayAliases(
+			{
+				title: "Rotated sorted array invariants",
+				aliases: ["Binary search rotation", "[[Pivot boundary]]", "binary search rotation"],
+			},
+			"Rotated sorted array invariants"
+		),
+		["Binary search rotation", "Pivot boundary"]
 	);
 });
 
@@ -1562,6 +1591,23 @@ test("reconcileSourceTopics matches filename aliases after frontmatter title cha
 	);
 	assert.deepEqual(
 		reconcileSourceTopics(["Practice Lab/CS/rotated-array-lab.md"], [topic]),
+		[topic.title]
+	);
+});
+
+test("reconcileSourceTopics matches frontmatter aliases when title differs", () => {
+	const topic = makeTopic({
+		path: "Practice Lab/CS/rotated-array-lab.md",
+		title: "Rotated sorted array invariants",
+		aliases: ["Binary search rotation", "Pivot boundary"],
+	});
+
+	assert.deepEqual(
+		reconcileSourceTopics(["binary search rotation"], [topic]),
+		[topic.title]
+	);
+	assert.deepEqual(
+		reconcileSourceTopics(["Pivot boundary"], [topic]),
 		[topic.title]
 	);
 });

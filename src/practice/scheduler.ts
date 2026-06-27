@@ -575,6 +575,7 @@ function normalizeIndexEntry(
 	return {
 		path,
 		title: stringOrEmpty(entry.title) || path,
+		aliases: normalizeStringArray(entry.aliases),
 		extension,
 		isPdf,
 		frontmatter: normalizeStringRecord(entry.frontmatter),

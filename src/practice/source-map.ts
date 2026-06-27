@@ -71,6 +71,7 @@ function topicAliases(topic: TopicNote): string[] {
 	const basename = withoutExtension.split("/").pop() ?? withoutExtension;
 	return [
 		topic.title,
+		...(topic.aliases ?? []),
 		topic.path,
 		withoutExtension,
 		basename,

@@ -26,7 +26,7 @@ import {
 	PromptAttachmentOptions,
 	shouldAttachPromptMedia,
 } from "./attachment-policy";
-import { noteDisplayTitle } from "./titles";
+import { noteDisplayAliases, noteDisplayTitle } from "./titles";
 
 const DEFAULT_SKILL = 50;
 const HISTORY_HEADING = "## Practice history";
@@ -65,6 +65,7 @@ export function fileToTopicNote(
 	const frontmatter = cache?.frontmatter as Record<string, unknown> | undefined;
 	const timestamps = noteTimestamps(f, frontmatter, dateProperties);
 	const title = pdf ? f.basename : noteDisplayTitle(frontmatter, f.basename);
+	const aliases = pdf ? [] : noteDisplayAliases(frontmatter, title);
 	let skill: number;
 	if (pdf) {
 		const stored = pdfSkills[f.path];
@@ -75,6 +76,7 @@ export function fileToTopicNote(
 	return {
 		path: f.path,
 		title,
+		...(aliases.length > 0 ? { aliases } : {}),
 		skill,
 		isPdf: pdf,
 		createdAt: timestamps.createdAt,
@@ -110,10 +112,12 @@ export function buildNoteIndexEntry(
 		: cache?.frontmatter as Record<string, unknown> | undefined;
 	const timestamps = noteTimestamps(file, frontmatter, dateProperties);
 	const title = isPdf ? file.basename : noteDisplayTitle(frontmatter, file.basename);
+	const aliases = isPdf ? [] : noteDisplayAliases(frontmatter, title);
 
 	return {
 		path: file.path,
 		title,
+		...(aliases.length > 0 ? { aliases } : {}),
 		extension: file.extension,
 		isPdf,
 		frontmatter: isPdf
