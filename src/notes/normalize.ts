@@ -158,7 +158,7 @@ function scanHtmlImages(line: string): Array<{ alt: string; link: string }> {
 	let match: RegExpExecArray | null;
 	while ((match = tagRe.exec(line)) !== null) {
 		const attrs = parseHtmlAttributes(match[0] ?? "");
-		const link = attrs.get("src") ?? "";
+		const link = bestHtmlImageSource(attrs);
 		if (!link) continue;
 		images.push({
 			alt: attrs.get("alt") ?? attrs.get("title") ?? "",
@@ -178,6 +178,56 @@ function parseHtmlAttributes(tag: string): Map<string, string> {
 		if (name) attrs.set(name, value);
 	}
 	return attrs;
+}
+
+function bestHtmlImageSource(attrs: Map<string, string>): string {
+	const directCandidates = [
+		attrs.get("data-src"),
+		attrs.get("data-original"),
+		attrs.get("data-lazy-src"),
+		attrs.get("data-actualsrc"),
+		attrs.get("src"),
+	].filter((value): value is string => !!value?.trim());
+	const direct = directCandidates.find((value) => isUsableImageSource(value));
+	if (direct) return direct;
+
+	const srcset = attrs.get("data-srcset") ?? attrs.get("srcset") ?? "";
+	const srcsetCandidate = bestSrcsetCandidate(srcset);
+	if (srcsetCandidate) return srcsetCandidate;
+
+	return directCandidates[0] ?? "";
+}
+
+function bestSrcsetCandidate(srcset: string): string {
+	const candidates = srcset
+		.split(",")
+		.map((part) => parseSrcsetCandidate(part.trim()))
+		.filter((candidate): candidate is { url: string; score: number } =>
+			!!candidate && isUsableImageSource(candidate.url)
+		)
+		.sort((a, b) => b.score - a.score);
+	return candidates[0]?.url ?? "";
+}
+
+function parseSrcsetCandidate(
+	part: string
+): { url: string; score: number } | null {
+	if (!part) return null;
+	const [url = "", descriptor = ""] = part.split(/\s+/, 2);
+	if (!url) return null;
+	const widthMatch = /^(\d+)w$/i.exec(descriptor);
+	if (widthMatch) return { url, score: Number(widthMatch[1]) };
+	const densityMatch = /^(\d+(?:\.\d+)?)x$/i.exec(descriptor);
+	if (densityMatch) return { url, score: Number(densityMatch[1]) * 1000 };
+	return { url, score: 0 };
+}
+
+function isUsableImageSource(value: string): boolean {
+	const trimmed = value.trim();
+	return !!trimmed &&
+		!/^data:/i.test(trimmed) &&
+		!/^about:blank$/i.test(trimmed) &&
+		!/^#/.test(trimmed);
 }
 
 function parseMarkdownReferenceDefinitions(lines: string[]): Map<string, string> {

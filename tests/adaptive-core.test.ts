@@ -1248,9 +1248,13 @@ Flowchart of Euclid's algorithm.
 <img src="//upload.wikimedia.org/example.png" title="Remote imported figure">
 
 <img src="https://example.com/plot.svg?x=1&amp;y=2" alt="Rate &amp; extent plot">
+
+<img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" data-src="Practice%20Lab/Assets/lazy-whiteboard.png" alt="lazy board">
+
+<img data-srcset="small.png 320w, Practice%20Lab/Assets/large-board.png 1280w" alt="srcset board">
 `);
 
-	assert.equal(refs.length, 8);
+	assert.equal(refs.length, 10);
 	assert.equal(refs[0]?.link, "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/GCD.svg/250px-GCD.svg.png");
 	assert.equal(refs[0]?.alt, "Flowchart");
 	assert.equal(refs[0]?.caption, "Flowchart of Euclid's algorithm.");
@@ -1274,6 +1278,10 @@ Flowchart of Euclid's algorithm.
 	assert.equal(refs[7]?.link, "https://example.com/plot.svg?x=1&y=2");
 	assert.equal(refs[7]?.alt, "Rate & extent plot");
 	assert.equal(refs[7]?.isRemote, true);
+	assert.equal(refs[8]?.link, "Practice Lab/Assets/lazy-whiteboard.png");
+	assert.equal(refs[8]?.alt, "lazy board");
+	assert.equal(refs[9]?.link, "Practice Lab/Assets/large-board.png");
+	assert.equal(refs[9]?.alt, "srcset board");
 });
 
 test("remote image attachments fetch actual pixels for vision-capable prompts", async () => {
