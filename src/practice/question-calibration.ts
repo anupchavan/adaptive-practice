@@ -129,12 +129,35 @@ function isTopicLabel(
 	if (!normalized) return true;
 	return sourceTopics.some((topic) => {
 		const topicKey = normalizeText(topic);
-		return normalized === topicKey || topicKey.includes(normalized) || normalized.includes(topicKey);
+		return isBareTopicLabel(normalized, topicKey);
 	}) || topics.some((topic) =>
 		topicLabelKeys(topic).some((topicKey) =>
-			normalized === topicKey || topicKey.includes(normalized) || normalized.includes(topicKey)
+			isBareTopicLabel(normalized, topicKey)
 		)
 	);
+}
+
+function isBareTopicLabel(candidate: string, topicKey: string): boolean {
+	if (!topicKey) return false;
+	if (candidate === topicKey) return true;
+
+	const candidateTokens = candidate.split(" ").filter(Boolean);
+	const topicTokens = topicKey.split(" ").filter(Boolean);
+	if (candidateTokens.length === 0 || topicTokens.length === 0) return false;
+	const candidateSet = new Set(candidateTokens);
+	const topicSet = new Set(topicTokens);
+
+	const candidateInsideTopic = candidateTokens.every((token) => topicSet.has(token));
+	if (candidateInsideTopic) return true;
+
+	const topicInsideCandidate = topicTokens.every((token) => candidateSet.has(token));
+	if (!topicInsideCandidate) return false;
+	const extras = candidateTokens.filter((token) => !topicSet.has(token));
+	return extras.length > 0 && extras.every(isGenericTopicLabelToken);
+}
+
+function isGenericTopicLabelToken(token: string): boolean {
+	return /^(note|notes|topic|topics|chapter|unit|overview|problem|problems|section|sections|intro|introduction|scratchpad|guide)$/.test(token);
 }
 
 function topicMatchesContext(sourceTopic: string, note: TopicNote): boolean {

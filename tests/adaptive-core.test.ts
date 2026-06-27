@@ -819,6 +819,54 @@ test("question calibration treats aliases as topic labels, not subtopics", () =>
 	assert.deepEqual(question.sourceSubtopics, ["Pivot boundary"]);
 });
 
+test("question calibration preserves alias-prefixed concept subtopics", () => {
+	const topic = makeTopic({
+		title: "Rotated sorted array invariants",
+		aliases: ["Binary search rotation"],
+	});
+	const structure = makeStructure({
+		title: topic.title,
+		headings: [{ heading: "Pivot boundary", level: 2 }],
+		sections: [
+			{
+				heading: "Pivot boundary",
+				level: 2,
+				content: "The minimum stays across the unsorted boundary.",
+				wordCount: 8,
+			},
+		],
+	});
+	const [question] = calibrateQuestionsForPractice(
+		[
+			makeQuestion({
+				questionText: "Why does binary search rotation pivot boundary logic discard the sorted half?",
+				correctAnswer: "Because the pivot boundary keeps the minimum outside the discarded sorted half.",
+				options: [
+					"Because the pivot boundary keeps the minimum outside the discarded sorted half.",
+					"Because duplicates are impossible.",
+					"Because the target was found.",
+					"Because every left half is unsorted.",
+				],
+				sourceTopics: [topic.title],
+				sourceSubtopics: ["Binary search rotation pivot boundary"],
+				difficulty: "medium",
+			}),
+		],
+		[
+			{
+				note: topic,
+				content: structure.cleanedText,
+				history: "",
+				structure,
+			},
+		],
+		[topic]
+	);
+
+	assert.ok(question);
+	assert.deepEqual(question.sourceSubtopics, ["Binary search rotation pivot boundary", "Pivot boundary"]);
+});
+
 test("question calibration can infer subtopics when provider uses an alias source topic", () => {
 	const topic = makeTopic({
 		title: "Rotated sorted array invariants",
