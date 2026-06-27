@@ -54,9 +54,12 @@ import {
 	normalizePracticeMemory,
 	planDailySession,
 	reconcilePracticeMemory,
+	recordDailyReminderAttempt,
 	reminderAttemptCooldownHasPassed,
 	selectDailyTopics,
 	selectPracticeMoreTopics,
+	shouldOfferDailyReminder,
+	suppressDailyReminderForToday,
 	updatePracticeMemoryAfterSession,
 } from "../src/practice/scheduler";
 import { hasPracticedToday } from "../src/practice/daily-status";
@@ -1493,6 +1496,49 @@ test("reminder attempt cooldown retries empty scans without burning the whole da
 	assert.equal(reminderAttemptCooldownHasPassed(0, now), true);
 	assert.equal(reminderAttemptCooldownHasPassed(now - 29 * 60 * 1000, now), false);
 	assert.equal(reminderAttemptCooldownHasPassed(now - 30 * 60 * 1000, now), true);
+});
+
+test("daily reminder attempts can retry until practice or explicit suppression", () => {
+	const now = new Date(2026, 5, 26, 18, 30);
+	const afterCooldown = new Date(now.getTime() + 31 * 60 * 1000);
+	const memory = normalizePracticeMemory(undefined);
+
+	assert.equal(shouldOfferDailyReminder({
+		enabled: true,
+		reminderTime: "18:00",
+		memory,
+		now,
+	}), true);
+
+	const attempted = recordDailyReminderAttempt(memory, now.getTime());
+	assert.equal(attempted.daily.lastReminderDate, "");
+	assert.equal(shouldOfferDailyReminder({
+		enabled: true,
+		reminderTime: "18:00",
+		memory: attempted,
+		now,
+	}), false);
+	assert.equal(shouldOfferDailyReminder({
+		enabled: true,
+		reminderTime: "18:00",
+		memory: attempted,
+		now: afterCooldown,
+	}), true);
+	assert.equal(shouldOfferDailyReminder({
+		enabled: true,
+		reminderTime: "18:00",
+		memory: attempted,
+		now: afterCooldown,
+		hasPracticeDraft: true,
+	}), false);
+
+	const suppressed = suppressDailyReminderForToday(attempted, afterCooldown);
+	assert.equal(shouldOfferDailyReminder({
+		enabled: true,
+		reminderTime: "18:00",
+		memory: suppressed,
+		now: afterCooldown,
+	}), false);
 });
 
 test("updatePracticeMemoryAfterSession shortens spacing for slow recall", () => {

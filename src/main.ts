@@ -22,14 +22,14 @@ import { generateQuestions, finalizeSession } from "./practice/session";
 import { hasPracticedToday as memoryHasPracticedToday } from "./practice/daily-status";
 import {
 	applyPracticeMemoryToTopics,
-	localDateKey,
 	normalizePracticeMemory,
 	planDailySession,
 	reconcilePracticeMemory,
-	reminderAttemptCooldownHasPassed,
-	reminderTimeHasPassed,
+	recordDailyReminderAttempt,
 	selectDailyTopics,
 	selectPracticeMoreTopics,
+	shouldOfferDailyReminder,
+	suppressDailyReminderForToday,
 	updatePracticeMemoryAfterSession,
 } from "./practice/scheduler";
 import { scanVaultSkeleton } from "./practice/indexer";
@@ -50,6 +50,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 	settings: AdaptivePracticeSettings = DEFAULT_SETTINGS;
 	private sessionTopics: TopicNote[] = [];
 	private sessionGenerationInProgress = false;
+	private dailyReminderNotice: Notice | null = null;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -143,6 +144,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 	}
 
 	onunload(): void {
+		this.hideDailyReminderNotice();
 		this.detachPracticeLeaves();
 	}
 
@@ -388,29 +390,34 @@ export default class AdaptivePracticePlugin extends Plugin {
 	}
 
 	private async checkDailyReminder(): Promise<void> {
-		if (!this.settings.dailyPracticeEnabled) return;
 		const now = new Date();
-		const today = localDateKey(now);
-		if (this.settings.practiceMemory.daily.lastReminderDate === today) return;
-		if (this.settings.practiceMemory.daily.lastPracticeDate === today) return;
-		if (!reminderTimeHasPassed(this.settings.dailyReminderTime, now)) return;
-		if (!reminderAttemptCooldownHasPassed(
-			this.settings.practiceMemory.daily.lastReminderAttemptAt,
-			now.getTime()
-		)) return;
+		if (!shouldOfferDailyReminder({
+			enabled: this.settings.dailyPracticeEnabled,
+			reminderTime: this.settings.dailyReminderTime,
+			memory: this.settings.practiceMemory,
+			now,
+			hasPracticeDraft: !!this.settings.practiceDraft,
+			generationInProgress: this.sessionGenerationInProgress,
+			noticeActive: !!this.dailyReminderNotice,
+		})) return;
 
 		const topics = await this.refreshPracticePlan(false);
 		const selection = this.getDailyTopicSelection(topics, now.getTime());
 		const dailyTopics = selection.compatibleTopics;
 
 		if (dailyTopics.length === 0) {
-			this.settings.practiceMemory.daily.lastReminderAttemptAt = now.getTime();
+			this.settings.practiceMemory = recordDailyReminderAttempt(
+				this.settings.practiceMemory,
+				now.getTime()
+			);
 			await this.saveSettings();
 			if (selection.warning) new Notice(selection.warning);
 			return;
 		}
-		this.settings.practiceMemory.daily.lastReminderDate = today;
-		this.settings.practiceMemory.daily.lastReminderAttemptAt = now.getTime();
+		this.settings.practiceMemory = recordDailyReminderAttempt(
+			this.settings.practiceMemory,
+			now.getTime()
+		);
 		await this.saveSettings();
 		this.showDailyPracticeNotice(
 			dailyTopics.length,
@@ -419,16 +426,53 @@ export default class AdaptivePracticePlugin extends Plugin {
 	}
 
 	private showDailyPracticeNotice(topicCount: number, plan: DailySessionPlan): void {
+		this.hideDailyReminderNotice();
 		const notice = new Notice("", 0);
+		this.dailyReminderNotice = notice;
+		this.watchNoticeDismissal(notice);
 		notice.messageEl.empty();
 		notice.messageEl.createSpan({
 			text: `${topicCount} Adaptive Practice topic${topicCount === 1 ? "" : "s"} ready for ${plan.questionCount} ${formatChallengeMode(plan.challengeMode)} questions. `,
 		});
 		const button = notice.messageEl.createEl("button", { text: "Start" });
 		button.addEventListener("click", () => {
-			notice.hide();
+			this.hideDailyReminderNotice(notice);
 			void this.startDailyPractice();
 		});
+		const later = notice.messageEl.createEl("button", { text: "Later" });
+		later.addEventListener("click", () => {
+			this.hideDailyReminderNotice(notice);
+		});
+		const tomorrow = notice.messageEl.createEl("button", { text: "Tomorrow" });
+		tomorrow.addEventListener("click", () => {
+			this.settings.practiceMemory = suppressDailyReminderForToday(
+				this.settings.practiceMemory
+			);
+			void this.saveSettings();
+			this.hideDailyReminderNotice(notice);
+		});
+	}
+
+	private hideDailyReminderNotice(notice = this.dailyReminderNotice): void {
+		if (!notice) return;
+		if (this.dailyReminderNotice === notice) {
+			this.dailyReminderNotice = null;
+		}
+		notice.hide();
+	}
+
+	private watchNoticeDismissal(notice: Notice): void {
+		const parent = notice.containerEl.parentElement;
+		if (!parent) return;
+		const observer = new MutationObserver(() => {
+			if (notice.containerEl.isConnected) return;
+			if (this.dailyReminderNotice === notice) {
+				this.dailyReminderNotice = null;
+			}
+			observer.disconnect();
+		});
+		observer.observe(parent, { childList: true });
+		this.register(() => observer.disconnect());
 	}
 
 	private showResumePracticeNotice(): void {

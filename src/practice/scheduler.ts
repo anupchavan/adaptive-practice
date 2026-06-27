@@ -418,6 +418,51 @@ export function reminderAttemptCooldownHasPassed(
 	return lastAttemptAt <= 0 || now - lastAttemptAt >= cooldownMs;
 }
 
+export function shouldOfferDailyReminder(input: {
+	enabled: boolean;
+	reminderTime: string;
+	memory: PracticeMemory | undefined;
+	now?: Date;
+	hasPracticeDraft?: boolean;
+	generationInProgress?: boolean;
+	noticeActive?: boolean;
+}): boolean {
+	if (!input.enabled) return false;
+	if (input.hasPracticeDraft || input.generationInProgress || input.noticeActive) {
+		return false;
+	}
+
+	const now = input.now ?? new Date();
+	const memory = normalizePracticeMemory(input.memory);
+	const today = localDateKey(now);
+	if (memory.daily.lastPracticeDate === today) return false;
+	if (memory.daily.lastReminderDate === today) return false;
+	if (!reminderTimeHasPassed(input.reminderTime, now)) return false;
+	return reminderAttemptCooldownHasPassed(
+		memory.daily.lastReminderAttemptAt,
+		now.getTime()
+	);
+}
+
+export function recordDailyReminderAttempt(
+	memory: PracticeMemory | undefined,
+	now = Date.now()
+): PracticeMemory {
+	const next = normalizePracticeMemory(memory);
+	next.daily.lastReminderAttemptAt = now;
+	return next;
+}
+
+export function suppressDailyReminderForToday(
+	memory: PracticeMemory | undefined,
+	now = new Date()
+): PracticeMemory {
+	const next = normalizePracticeMemory(memory);
+	next.daily.lastReminderDate = localDateKey(now);
+	next.daily.lastReminderAttemptAt = now.getTime();
+	return next;
+}
+
 function normalizeNoteState(path: string, note: NotePracticeState): NotePracticeState {
 	return {
 		path,
