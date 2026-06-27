@@ -6,6 +6,7 @@ import {
 	SubtopicPracticeState,
 	TopicNote,
 } from "../types";
+import { extractConceptCandidates, normalizeConceptKey } from "../notes/concepts";
 
 const MAX_TOTAL_CONTENT_CHARS = 120_000;
 const MAX_HISTORY_RATIO = 0.25;
@@ -303,18 +304,8 @@ function renderStructure(topic: TopicContext, contentBudget: number, now: number
 }
 
 function renderConceptTargets(structure: NoteStructure): string {
-	const candidates = [
-		...structure.sections
-			.filter((section) => section.heading !== "Body" && section.wordCount > 0)
-			.map((section) => section.heading),
-		...structure.headings.map((heading) => heading.heading),
-		...structure.tags.map((tag) => tag.replace(/^#/, "")),
-		...Object.entries(structure.frontmatter)
-			.filter(([key]) => /topic|concept|chapter|exam|subject|unit|area/i.test(key))
-			.map(([, value]) => value),
-	];
-	const unique = uniqueConcepts(candidates)
-		.filter((concept) => normalizeHeading(concept) !== normalizeHeading(structure.title))
+	const unique = uniqueConcepts(extractConceptCandidates(structure, MAX_CONCEPT_TARGETS * 2))
+		.filter((concept) => normalizeConceptKey(concept) !== normalizeConceptKey(structure.title))
 		.slice(0, MAX_CONCEPT_TARGETS);
 	if (unique.length === 0) return "";
 	return `<concept_targets>\n${unique.map((concept) => `- ${concept}`).join("\n")}\n</concept_targets>`;
@@ -430,7 +421,7 @@ function uniqueConcepts(values: string[]): string[] {
 	const seen = new Set<string>();
 	for (const value of values) {
 		const trimmed = value.trim();
-		const key = normalizeHeading(trimmed);
+		const key = normalizeConceptKey(trimmed);
 		if (!trimmed || !key || seen.has(key)) continue;
 		seen.add(key);
 		out.push(trimmed);

@@ -31,6 +31,7 @@ import {
 } from "../src/notes/history-format";
 import { buildRemotePromptAttachment } from "../src/notes/remote-media";
 import { LocalMediaLink, mergeLocalMediaLink } from "../src/notes/media-links";
+import { extractConceptCandidates } from "../src/notes/concepts";
 import {
 	frontmatterDateMs,
 	normalizeDatePropertyNames,
@@ -650,6 +651,54 @@ test("question calibration infers source subtopics from note headings", () => {
 	assert.ok(question);
 	assert.deepEqual(question.sourceSubtopics, ["First occurrence branch"]);
 	assert.equal(question.difficulty, "easy");
+});
+
+test("question calibration infers source subtopics from hidden body concepts", () => {
+	const topic = makeTopic({ title: "Messy binary-search scratchpad" });
+	const structure = makeStructure({
+		title: topic.title,
+		headings: [],
+		sections: [
+			{
+				heading: "Body",
+				level: 0,
+				content: [
+					"- **Monotonic predicate**: once the condition turns true, every later candidate stays true.",
+					"Pivot boundary trap: using `low = mid` can stall when two values remain.",
+				].join("\n"),
+				wordCount: 22,
+			},
+		],
+	});
+	const [question] = calibrateQuestionsForPractice(
+		[
+			makeQuestion({
+				questionText: "Why does a binary search over a monotonic predicate move toward the first true index instead of stopping at the first true value it sees?",
+				correctAnswer: "Because true values form a suffix, so the first true boundary can still be to the left.",
+				options: [
+					"Because true values form a suffix, so the first true boundary can still be to the left.",
+					"Because every predicate must alternate true and false.",
+					"Because binary search only works on arrays of numbers.",
+					"Because stopping early gives the maximum true index.",
+				],
+				sourceTopics: [topic.title],
+				sourceSubtopics: [],
+				difficulty: "medium",
+			}),
+		],
+		[
+			{
+				note: topic,
+				content: structure.cleanedText,
+				history: "",
+				structure,
+			},
+		],
+		[topic]
+	);
+
+	assert.ok(question);
+	assert.deepEqual(question.sourceSubtopics, ["Monotonic predicate"]);
 });
 
 test("question calibration treats aliases as topic labels, not subtopics", () => {
@@ -2495,6 +2544,43 @@ test("buildPrompt preserves structured metadata and media descriptions", () => {
 	assert.match(prompt.textPrompt, /Hard distractors must be tempting/);
 	assert.equal(prompt.attachments.length, 1);
 	assert.equal(prompt.attachments[0]?.data, imageData);
+});
+
+test("buildPrompt surfaces concept targets hidden in body-only notes", () => {
+	const topic = makeTopic({ title: "Messy binary-search scratchpad" });
+	const structure = makeStructure({
+		title: topic.title,
+		headings: [],
+		sections: [
+			{
+				heading: "Body",
+				level: 0,
+				content: [
+					"- **Monotonic predicate**: once true, every later candidate stays true.",
+					"Pivot boundary trap: `low = mid` can stall when two candidates remain.",
+				].join("\n"),
+				wordCount: 19,
+			},
+		],
+	});
+	const concepts = extractConceptCandidates(structure);
+	const prompt = buildPrompt(
+		[
+			{
+				note: topic,
+				content: structure.cleanedText,
+				history: "",
+				structure,
+			},
+		],
+		3
+	);
+
+	assert.ok(concepts.includes("Monotonic predicate"));
+	assert.ok(concepts.includes("Pivot boundary trap"));
+	assert.match(prompt.textPrompt, /<concept_targets>/);
+	assert.match(prompt.textPrompt, /Monotonic predicate/);
+	assert.match(prompt.textPrompt, /Pivot boundary trap/);
 });
 
 test("buildPrompt includes compact subtopic memory to reduce repetition", () => {

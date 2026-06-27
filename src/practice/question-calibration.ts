@@ -1,6 +1,7 @@
 import { Question, TopicNote } from "../types";
 import { TopicContext } from "../llm/prompt";
 import { normalizeQuestionDifficulty } from "./difficulty-quality";
+import { extractConceptCandidates } from "../notes/concepts";
 
 export function calibrateQuestionsForPractice(
 	questions: Question[],
@@ -75,11 +76,17 @@ export function inferSourceSubtopics(
 	for (const context of contexts) {
 		const headings = context.structure?.headings ?? [];
 		const sections = context.structure?.sections ?? [];
+		const concepts = context.structure
+			? extractConceptCandidates(context.structure, 24)
+			: [];
 		for (const heading of headings) {
 			addHeadingScore(scored, heading.heading, combined, 2);
 		}
 		for (const section of sections) {
 			addHeadingScore(scored, section.heading, combined, section.wordCount > 0 ? 1.5 : 1);
+		}
+		for (const concept of concepts) {
+			addHeadingScore(scored, concept, combined, 2.2);
 		}
 	}
 
