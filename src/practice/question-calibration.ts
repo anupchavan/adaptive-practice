@@ -8,19 +8,20 @@ export function calibrateQuestionsForPractice(
 	topics: TopicNote[]
 ): Question[] {
 	return questions
-		.map((question) => calibrateQuestionForPractice(question, topicContexts))
+		.map((question) => calibrateQuestionForPractice(question, topicContexts, topics))
 		.filter((question) => !isLowConceptRecallQuestion(question, topics));
 }
 
 export function calibrateQuestionForPractice(
 	question: Question,
-	topicContexts: TopicContext[]
+	topicContexts: TopicContext[],
+	topics: TopicNote[] = []
 ): Question {
 	const inferredSubtopics = inferSourceSubtopics(question, topicContexts);
 	const sourceSubtopics = mergeUnique(
 		[...(question.sourceSubtopics ?? []), ...inferredSubtopics]
 	)
-		.filter((subtopic) => !isTopicTitle(subtopic, question.sourceTopics))
+		.filter((subtopic) => !isTopicLabel(subtopic, question.sourceTopics, topics))
 		.slice(0, 6);
 	const calibrated: Question = {
 		...question,
@@ -40,13 +41,14 @@ export function isLowConceptRecallQuestion(
 	if (!directRecall) return false;
 
 	const hasConceptAnchor = (question.sourceSubtopics ?? []).some((subtopic) =>
-		!isTopicTitle(subtopic, question.sourceTopics)
+		!isTopicLabel(subtopic, question.sourceTopics, topics)
 	);
 	if (hasConceptAnchor) return false;
 
 	const titleFramed = topics.some((topic) => {
-		const title = normalizeText(topic.title);
-		return title.length >= 8 && normalizedQuestion.includes(title);
+		return topicLabelKeys(topic).some((title) =>
+			title.length >= 8 && normalizedQuestion.includes(title)
+		);
 	});
 	return titleFramed;
 }
@@ -65,7 +67,7 @@ export function inferSourceSubtopics(
 	const contexts = topicContexts.filter((context) =>
 		question.sourceTopics.length === 0 ||
 		question.sourceTopics.some((topic) =>
-			titlesOverlap(topic, context.note.title)
+			topicMatchesContext(topic, context.note)
 		)
 	);
 	const scored: Array<{ heading: string; score: number }> = [];
@@ -111,13 +113,31 @@ function addHeadingScore(
 	if (score > 0) output.push({ heading, score });
 }
 
-function isTopicTitle(value: string, sourceTopics: string[]): boolean {
+function isTopicLabel(
+	value: string,
+	sourceTopics: string[],
+	topics: TopicNote[]
+): boolean {
 	const normalized = normalizeText(value);
 	if (!normalized) return true;
 	return sourceTopics.some((topic) => {
 		const topicKey = normalizeText(topic);
 		return normalized === topicKey || topicKey.includes(normalized) || normalized.includes(topicKey);
-	});
+	}) || topics.some((topic) =>
+		topicLabelKeys(topic).some((topicKey) =>
+			normalized === topicKey || topicKey.includes(normalized) || normalized.includes(topicKey)
+		)
+	);
+}
+
+function topicMatchesContext(sourceTopic: string, note: TopicNote): boolean {
+	return topicLabelKeys(note).some((label) => titlesOverlap(sourceTopic, label));
+}
+
+function topicLabelKeys(topic: TopicNote): string[] {
+	return [topic.title, ...(topic.aliases ?? [])]
+		.map(normalizeText)
+		.filter(Boolean);
 }
 
 function titlesOverlap(a: string, b: string): boolean {

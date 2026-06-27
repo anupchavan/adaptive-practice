@@ -651,6 +651,102 @@ test("question calibration infers source subtopics from note headings", () => {
 	assert.equal(question.difficulty, "easy");
 });
 
+test("question calibration treats aliases as topic labels, not subtopics", () => {
+	const topic = makeTopic({
+		title: "Rotated sorted array invariants",
+		aliases: ["Binary search rotation"],
+	});
+	const structure = makeStructure({
+		title: topic.title,
+		headings: [{ heading: "Pivot boundary", level: 2 }],
+		sections: [
+			{
+				heading: "Pivot boundary",
+				level: 2,
+				content: "The minimum stays across the unsorted boundary.",
+				wordCount: 8,
+			},
+		],
+	});
+	const [question] = calibrateQuestionsForPractice(
+		[
+			makeQuestion({
+				questionText: "When binary search rotation finds the unsorted boundary, which side can still contain the minimum?",
+				correctAnswer: "The side crossing the pivot boundary.",
+				options: [
+					"The side crossing the pivot boundary.",
+					"Always the left half.",
+					"Always the right half.",
+					"The side with more elements.",
+				],
+				sourceTopics: [topic.title],
+				sourceSubtopics: ["Binary search rotation", "Pivot boundary"],
+				difficulty: "medium",
+			}),
+		],
+		[
+			{
+				note: topic,
+				content: structure.cleanedText,
+				history: "",
+				structure,
+			},
+		],
+		[topic]
+	);
+
+	assert.ok(question);
+	assert.deepEqual(question.sourceSubtopics, ["Pivot boundary"]);
+});
+
+test("question calibration can infer subtopics when provider uses an alias source topic", () => {
+	const topic = makeTopic({
+		title: "Rotated sorted array invariants",
+		aliases: ["Binary search rotation"],
+	});
+	const structure = makeStructure({
+		title: topic.title,
+		headings: [{ heading: "Pivot boundary", level: 2 }],
+		sections: [
+			{
+				heading: "Pivot boundary",
+				level: 2,
+				content: "The boundary condition chooses which sorted half can be discarded.",
+				wordCount: 10,
+			},
+		],
+	});
+	const [question] = calibrateQuestionsForPractice(
+		[
+			makeQuestion({
+				questionText: "In the pivot boundary case, why is one sorted half discarded?",
+				correctAnswer: "Because the minimum cannot be inside that sorted half except at the recorded candidate.",
+				options: [
+					"Because the minimum cannot be inside that sorted half except at the recorded candidate.",
+					"Because binary search always discards the right half.",
+					"Because the array is no longer sorted.",
+					"Because the target was found.",
+				],
+				sourceTopics: ["Binary search rotation"],
+				sourceSubtopics: [],
+				difficulty: "medium",
+			}),
+		],
+		[
+			{
+				note: topic,
+				content: structure.cleanedText,
+				history: "",
+				structure,
+			},
+		],
+		[topic]
+	);
+
+	assert.ok(question);
+	assert.deepEqual(question.sourceSubtopics, ["Pivot boundary"]);
+});
+
 test("provider presets use documented current model IDs", () => {
 	assert.equal(PROVIDER_PRESETS.gemini.model, "gemini-3.5-flash");
 	assert.notEqual(PROVIDER_PRESETS.gemini.model, "gemini-2.0-flash");
@@ -2292,7 +2388,10 @@ test("planDailySession stretches fluent daily review without exceeding bounds", 
 });
 
 test("buildPrompt preserves structured metadata and media descriptions", () => {
-	const topic = makeTopic({ title: "RC transient whiteboard" });
+	const topic = makeTopic({
+		title: "RC transient whiteboard",
+		aliases: ["Capacitor charging board", "First-order circuit sketch"],
+	});
 	const structure = makeStructure({
 		title: topic.title,
 		frontmatter: {
@@ -2355,6 +2454,8 @@ test("buildPrompt preserves structured metadata and media descriptions", () => {
 	);
 
 	assert.match(prompt.textPrompt, /<frontmatter>/);
+	assert.match(prompt.textPrompt, /### Topic: RC transient whiteboard/);
+	assert.match(prompt.textPrompt, /Aliases \(context only; sourceTopics must use the Topic title\): Capacitor charging board, First-order circuit sketch/);
 	assert.match(prompt.textPrompt, /exam: JEE/);
 	assert.match(prompt.textPrompt, /Tags: #physics, #circuits/);
 	assert.match(prompt.textPrompt, /<concept_targets>/);

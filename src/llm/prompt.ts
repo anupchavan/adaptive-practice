@@ -60,7 +60,8 @@ export function buildPrompt(
 	const pdfTopicBlocks = pdfTopics
 		.map((t) => {
 			const reason = t.note.scheduleReason ? `\nSchedule reason: ${t.note.scheduleReason}` : "";
-			return `### Topic: ${t.note.title} (skill: ${t.note.skill}/100) [PDF attached inline]${reason}`;
+			const aliases = renderAliases(t.note);
+			return `### Topic: ${t.note.title} (skill: ${t.note.skill}/100) [PDF attached inline]${aliases}${reason}`;
 		})
 		.join("\n");
 
@@ -197,6 +198,8 @@ function renderTopicBlock(
 ): string {
 	const note = topic.note;
 	const parts = [`### Topic: ${note.title} (skill: ${note.skill}/100)`];
+	const aliases = renderAliases(note);
+	if (aliases) parts.push(aliases.trim());
 	if (note.scheduleReason) parts.push(`Schedule reason: ${note.scheduleReason}`);
 	if (note.createdAt) parts.push(`Created: ${new Date(note.createdAt).toISOString()}`);
 	if (note.updatedAt) parts.push(`Last updated: ${new Date(note.updatedAt).toISOString()}`);
@@ -217,6 +220,15 @@ function renderTopicBlock(
 	}
 
 	return parts.join("\n");
+}
+
+function renderAliases(note: TopicNote): string {
+	const aliases = (note.aliases ?? [])
+		.map((alias) => alias.trim())
+		.filter(Boolean)
+		.slice(0, 8);
+	if (aliases.length === 0) return "";
+	return `\nAliases (context only; sourceTopics must use the Topic title): ${aliases.join(", ")}`;
 }
 
 function renderSubtopicMemory(topic: TopicContext, now: number): string {
