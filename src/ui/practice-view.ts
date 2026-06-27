@@ -37,6 +37,7 @@ export class PracticeView extends ItemView {
 	private questionStartTime = 0;
 	private keyHandler: ((e: KeyboardEvent) => void) | null = null;
 	private savedIndices = new Set<number>();
+	private completed = false;
 
 	constructor(leaf: WorkspaceLeaf) {
 		super(leaf);
@@ -57,6 +58,7 @@ export class PracticeView extends ItemView {
 
 	setPracticeState(state: PracticeState): void {
 		this.state = state;
+		this.completed = false;
 		this.savedIndices.clear();
 		this.renderComponent.load();
 		this.render();
@@ -67,6 +69,9 @@ export class PracticeView extends ItemView {
 	}
 
 	async onClose(): Promise<void> {
+		if (this.hasAnsweredAllQuestions()) {
+			this.finishCompletedSession();
+		}
 		this.removeKeyHandler();
 		this.renderComponent.unload();
 		this.contentEl.empty();
@@ -284,6 +289,18 @@ export class PracticeView extends ItemView {
 			}
 		}
 		return Math.min(last + 1, s.questions.length - 1);
+	}
+
+	private hasAnsweredAllQuestions(): boolean {
+		const s = this.state;
+		return !!s && s.questions.length > 0 && s.results.length >= s.questions.length;
+	}
+
+	private finishCompletedSession(): void {
+		const s = this.state;
+		if (!s || this.completed) return;
+		this.completed = true;
+		s.onComplete(s.results);
 	}
 
 	private renderMainContent(container: HTMLElement): void {
@@ -532,7 +549,7 @@ export class PracticeView extends ItemView {
 		});
 		nextBtn.addEventListener("click", () => {
 			if (isLast) {
-				s.onComplete(s.results);
+				this.finishCompletedSession();
 				this.leaf.detach();
 			} else {
 				s.currentIndex++;

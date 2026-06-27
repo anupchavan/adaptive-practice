@@ -20,6 +20,7 @@ export class QuizModal extends Modal {
 	private questionStartTime = 0;
 	private allowClose = false;
 	private closeConfirmationOpen = false;
+	private completed = false;
 
 	constructor(
 		app: App,
@@ -55,6 +56,11 @@ export class QuizModal extends Modal {
 	}
 
 	close(): void {
+		if (!this.allowClose && this.hasAnsweredAllQuestions()) {
+			this.finishCompletedSession();
+			return;
+		}
+
 		if (this.shouldConfirmClose()) {
 			this.openCloseConfirmation();
 			return;
@@ -100,6 +106,18 @@ export class QuizModal extends Modal {
 			this.questions.length > 0 &&
 			this.results.length < this.questions.length
 		);
+	}
+
+	private hasAnsweredAllQuestions(): boolean {
+		return this.questions.length > 0 && this.results.length >= this.questions.length;
+	}
+
+	private finishCompletedSession(): void {
+		if (this.completed) return;
+		this.completed = true;
+		this.allowClose = true;
+		this.close();
+		this.onComplete(this.results);
 	}
 
 	private openCloseConfirmation(): void {
@@ -312,9 +330,7 @@ export class QuizModal extends Modal {
 	private advance(): void {
 		const isLast = this.currentIndex >= this.questions.length - 1;
 		if (isLast) {
-			this.allowClose = true;
-			this.close();
-			this.onComplete(this.results);
+			this.finishCompletedSession();
 		} else {
 			this.currentIndex++;
 			this.emitStateChange();
