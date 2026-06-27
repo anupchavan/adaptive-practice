@@ -17,6 +17,7 @@ import { QuizModal } from "./ui/quiz-modal";
 import { ResultsModal } from "./ui/results-modal";
 import { PracticeView, PRACTICE_VIEW_TYPE } from "./ui/practice-view";
 import { DashboardView, DASHBOARD_VIEW_TYPE } from "./ui/dashboard-view";
+import { ConfirmationModal } from "./ui/confirmation-modal";
 import { generateQuestions, finalizeSession } from "./practice/session";
 import { hasPracticedToday as memoryHasPracticedToday } from "./practice/daily-status";
 import {
@@ -42,6 +43,7 @@ import {
 	buildPracticeDraft,
 	normalizePracticeDraft,
 	practiceDraftProgress,
+	shouldConfirmPracticeDraftReplacement,
 } from "./practice/draft";
 
 export default class AdaptivePracticePlugin extends Plugin {
@@ -445,7 +447,18 @@ export default class AdaptivePracticePlugin extends Plugin {
 		});
 	}
 
-	private async startSession(config: SessionConfig): Promise<void> {
+	private async startSession(
+		config: SessionConfig,
+		options: { replaceDraft?: boolean } = {}
+	): Promise<void> {
+		if (shouldConfirmPracticeDraftReplacement(
+			this.settings.practiceDraft,
+			options.replaceDraft ?? false
+		)) {
+			this.confirmPracticeDraftReplacement(config);
+			return;
+		}
+
 		const loadingNotice = new Notice(
 			`Generating ${config.questionCount} adaptive question${config.questionCount === 1 ? "" : "s"} from ${config.topics.length} note${config.topics.length === 1 ? "" : "s"}... This can take a little while; the quiz will open when ready.`,
 			0
@@ -535,6 +548,25 @@ export default class AdaptivePracticePlugin extends Plugin {
 				`Error: ${e instanceof Error ? e.message : String(e)}`
 			);
 		}
+	}
+
+	private confirmPracticeDraftReplacement(config: SessionConfig): void {
+		new ConfirmationModal(this.app, {
+			title: "Replace unfinished session?",
+			message: "Starting a new practice session will discard the generated questions saved from your unfinished session.",
+			confirmText: "Start new session",
+			cancelText: "Keep unfinished",
+			destructive: true,
+			onConfirm: () => {
+				void (async () => {
+					await this.clearPracticeDraft();
+					await this.startSession(config, { replaceDraft: true });
+				})();
+			},
+			onCancel: () => {
+				new Notice("Unfinished practice session kept.");
+			},
+		}).open();
 	}
 
 	private providerNeedsApiKey(): boolean {

@@ -79,6 +79,13 @@ export function practiceDraftProgress(draft: PracticeDraft): string {
 	return `${answered} / ${total} answered`;
 }
 
+export function shouldConfirmPracticeDraftReplacement(
+	draft: PracticeDraft | null | undefined,
+	replaceDraft: boolean
+): boolean {
+	return !replaceDraft && !!normalizePracticeDraft(draft);
+}
+
 function normalizeQuestions(input: unknown): Question[] {
 	if (!Array.isArray(input)) return [];
 	return input

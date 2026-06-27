@@ -83,6 +83,7 @@ import {
 	buildPracticeDraft,
 	normalizePracticeDraft,
 	practiceDraftProgress,
+	shouldConfirmPracticeDraftReplacement,
 } from "../src/practice/draft";
 import { folderLabel, stringifyGroupValue } from "../src/ui/topic-groups";
 import { hasBlockMarkdown } from "../src/ui/markdown-detection";
@@ -701,6 +702,36 @@ test("practice drafts drop stale, completed, or malformed sessions", () => {
 	assert.equal(normalizePracticeDraft(completed, now), null);
 	assert.equal(normalizePracticeDraft({ ...valid, questions: [] }, now), null);
 	assert.equal(normalizePracticeDraft({ ...valid, topics: [] }, now), null);
+});
+
+test("practice draft replacement prompts only for valid unfinished drafts", () => {
+	const now = Date.UTC(2026, 5, 27, 12);
+	const topics = [makeTopic()];
+	const questions = [
+		makeQuestion({ id: "q1" }),
+		makeQuestion({ id: "q2" }),
+	];
+	const draft = buildPracticeDraft(
+		questions,
+		[makeResult(questions[0]!, { timeTakenMs: 30_000 })],
+		1,
+		topics,
+		{ topics, questionCount: 2 },
+		now
+	);
+	const completed = buildPracticeDraft(
+		questions,
+		questions.map((question) => makeResult(question, { timeTakenMs: 30_000 })),
+		1,
+		topics,
+		{ topics, questionCount: 2 },
+		now
+	);
+
+	assert.equal(shouldConfirmPracticeDraftReplacement(draft, false), true);
+	assert.equal(shouldConfirmPracticeDraftReplacement(draft, true), false);
+	assert.equal(shouldConfirmPracticeDraftReplacement(completed, false), false);
+	assert.equal(shouldConfirmPracticeDraftReplacement(null, false), false);
 });
 
 test("markdown block detection catches fenced code with indentation", () => {
