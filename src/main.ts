@@ -342,11 +342,23 @@ export default class AdaptivePracticePlugin extends Plugin {
 	}
 
 	getDailyTopics(topics: TopicNote[], now = Date.now()): TopicNote[] {
-		return this.getDailyTopicSelection(
+		return this.getDailyTopicOverview(topics, now).topics;
+	}
+
+	getDailyTopicOverview(
+		topics: TopicNote[],
+		now = Date.now()
+	): { topics: TopicNote[]; warning: string; skippedPdfCount: number } {
+		const selection = this.getDailyTopicSelection(
 			topics,
 			now,
 			this.hasPracticedToday(new Date(now))
-		).compatibleTopics;
+		);
+		return {
+			topics: selection.compatibleTopics,
+			warning: selection.warning,
+			skippedPdfCount: selection.skippedPdfTopics.length,
+		};
 	}
 
 	hasPracticedToday(now = new Date()): boolean {

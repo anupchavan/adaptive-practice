@@ -9,6 +9,7 @@ interface DashboardState {
 	topics: TopicNote[];
 	dailyTopics: TopicNote[];
 	dailyPlan: DailySessionPlan;
+	dailyWarning: string;
 	dailyComplete: boolean;
 	practiceDraft: PracticeDraft | null;
 	loading: boolean;
@@ -24,6 +25,7 @@ export class DashboardView extends ItemView {
 			challengeMode: "steady",
 			reason: "loading",
 		},
+		dailyWarning: "",
 		dailyComplete: false,
 		practiceDraft: null,
 		loading: true,
@@ -63,11 +65,13 @@ export class DashboardView extends ItemView {
 	renderCurrentState(topics = this.state.topics): void {
 		if (this.state.loading) return;
 		const dailyComplete = this.plugin.hasPracticedToday();
-		const dailyTopics = this.plugin.getDailyTopics(topics);
+		const overview = this.plugin.getDailyTopicOverview(topics);
+		const dailyTopics = overview.topics;
 		this.state = {
 			topics,
 			dailyTopics,
 			dailyPlan: this.plugin.getDailySessionPlan(dailyTopics),
+			dailyWarning: overview.warning,
 			dailyComplete,
 			practiceDraft: this.plugin.getPracticeDraft(),
 			loading: false,
@@ -80,11 +84,13 @@ export class DashboardView extends ItemView {
 		this.render();
 		const topics = await this.plugin.refreshPracticePlan(showNotice);
 		const dailyComplete = this.plugin.hasPracticedToday();
-		const dailyTopics = this.plugin.getDailyTopics(topics);
+		const overview = this.plugin.getDailyTopicOverview(topics);
+		const dailyTopics = overview.topics;
 		this.state = {
 			topics,
 			dailyTopics,
 			dailyPlan: this.plugin.getDailySessionPlan(dailyTopics),
+			dailyWarning: overview.warning,
 			dailyComplete,
 			practiceDraft: this.plugin.getPracticeDraft(),
 			loading: false,
@@ -182,6 +188,11 @@ export class DashboardView extends ItemView {
 				: `Today's plan: ${formatChallengeMode(this.state.dailyPlan.challengeMode)} · ${this.state.dailyPlan.reason}`,
 			cls: "ap-dash-plan",
 		});
+		if (this.state.dailyWarning) {
+			const warning = container.createDiv({ cls: "ap-dash-warning" });
+			setIcon(warning.createSpan({ cls: "ap-dash-warning-icon" }), "info");
+			warning.createSpan({ text: this.state.dailyWarning });
+		}
 	}
 
 	private renderDueTopics(container: HTMLElement): void {
