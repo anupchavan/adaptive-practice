@@ -37,7 +37,10 @@ export function normalizePracticeDraft(
 	const createdAt = clampNumber(input["createdAt"], 0, now, now);
 	const updatedAt = clampNumber(input["updatedAt"], 0, now, createdAt);
 	if (now - updatedAt > MAX_DRAFT_AGE_MS) return null;
-	if (hasAnsweredEveryQuestion(questions, results)) return null;
+	const completed = input["completed"] === true;
+	const answeredEveryQuestion = hasAnsweredEveryQuestion(questions, results);
+	if (answeredEveryQuestion && !completed) return null;
+	if (completed && !answeredEveryQuestion) return null;
 
 	const config = normalizeSessionConfig(input["config"], topics, questions.length);
 
@@ -49,6 +52,7 @@ export function normalizePracticeDraft(
 		config,
 		createdAt,
 		updatedAt,
+		...(completed ? { completed: true } : {}),
 	};
 }
 
@@ -82,14 +86,17 @@ export function buildPracticeDraft(
 export function practiceDraftProgress(draft: PracticeDraft): string {
 	const answered = answeredResultCount(draft.results);
 	const total = draft.questions.length;
-	return `${answered} / ${total} answered`;
+	return draft.completed
+		? `${answered} / ${total} answered, ready to save`
+		: `${answered} / ${total} answered`;
 }
 
 export function shouldConfirmPracticeDraftReplacement(
 	draft: PracticeDraft | null | undefined,
 	replaceDraft: boolean
 ): boolean {
-	return !replaceDraft && !!normalizePracticeDraft(draft);
+	const normalized = normalizePracticeDraft(draft);
+	return !replaceDraft && !!normalized && normalized.completed !== true;
 }
 
 function normalizeQuestions(input: unknown): Question[] {

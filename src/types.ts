@@ -266,6 +266,7 @@ export interface PracticeDraft {
 	config: SessionConfig;
 	createdAt: number;
 	updatedAt: number;
+	completed?: true;
 }
 
 export interface TopicNote {

@@ -184,6 +184,15 @@ export default class AdaptivePracticePlugin extends Plugin {
 			await this.clearPracticeDraft();
 			return;
 		}
+		if (draft.completed) {
+			leaves.forEach((leaf) => {
+				leaf.detach();
+			});
+			this.settings.practiceDraft = draft;
+			await this.saveSettings();
+			await this.completeSession(draft.config, draft.results);
+			return;
+		}
 
 		this.settings.practiceDraft = draft;
 		await this.saveSettings();
@@ -443,6 +452,10 @@ export default class AdaptivePracticePlugin extends Plugin {
 			new Notice("No unfinished practice session to resume.");
 			return;
 		}
+		if (draft.completed) {
+			await this.completeSession(draft.config, draft.results);
+			return;
+		}
 		this.settings.practiceDraft = draft;
 		await this.saveSettings();
 		this.renderDashboardViews();
@@ -586,8 +599,12 @@ export default class AdaptivePracticePlugin extends Plugin {
 	}
 
 	private showResumePracticeNotice(): void {
-		const draft = this.settings.practiceDraft;
+		const draft = normalizePracticeDraft(this.settings.practiceDraft);
 		if (!draft) return;
+		if (draft.completed) {
+			void this.completeSession(draft.config, draft.results);
+			return;
+		}
 		const notice = new Notice("", 0);
 		notice.messageEl.empty();
 		notice.messageEl.createSpan({
@@ -874,7 +891,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 		currentIndex: number,
 		topics = config.topics
 	): Promise<void> {
-		if (hasAnsweredEveryQuestion(questions, results)) return;
+		const completed = hasAnsweredEveryQuestion(questions, results);
 		this.settings.practiceDraft = buildPracticeDraft(
 			questions,
 			results,
@@ -883,6 +900,9 @@ export default class AdaptivePracticePlugin extends Plugin {
 			{ ...config, topics },
 			Date.now()
 		);
+		if (completed && this.settings.practiceDraft) {
+			this.settings.practiceDraft.completed = true;
+		}
 		await this.saveSettings();
 		this.renderDashboardViews();
 	}

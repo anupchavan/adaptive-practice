@@ -1218,6 +1218,35 @@ test("practice drafts drop stale, completed, or malformed sessions", () => {
 	assert.equal(normalizePracticeDraft({ ...valid, topics: [] }, now), null);
 });
 
+test("practice drafts can preserve completed sessions until results are saved", () => {
+	const now = Date.UTC(2026, 5, 27, 12);
+	const topics = [makeTopic()];
+	const questions = [makeQuestion({ id: "q1" }), makeQuestion({ id: "q2" })];
+	const completed = {
+		...buildPracticeDraft(
+			questions,
+			questions.map((question) => makeResult(question, { timeTakenMs: 45_000 })),
+			1,
+			topics,
+			{ topics, questionCount: 2, mode: "daily" },
+			now
+		),
+		completed: true as const,
+	};
+	const partialButMarked = {
+		...completed,
+		results: [completed.results[0]!],
+	};
+	const normalized = normalizePracticeDraft(completed, now + 60_000);
+
+	assert.ok(normalized);
+	assert.equal(normalized.completed, true);
+	assert.equal(normalized.config.mode, "daily");
+	assert.match(practiceDraftProgress(normalized), /ready to save/);
+	assert.equal(normalizePracticeDraft(partialButMarked, now), null);
+	assert.equal(shouldConfirmPracticeDraftReplacement(completed, false), false);
+});
+
 test("practice draft replacement prompts only for valid unfinished drafts", () => {
 	const now = Date.UTC(2026, 5, 27, 12);
 	const topics = [makeTopic()];
