@@ -2770,14 +2770,7 @@ test("practice credit status explains daily streak outcomes", () => {
 		now,
 		{ countDailyCredit: true }
 	);
-	const notCounted = updatePracticeMemoryAfterSession(
-		before,
-		[topic],
-		skippedForCredit,
-		[],
-		now,
-		{ countDailyCredit: true }
-	);
+	const notCounted = before;
 	const extra = updatePracticeMemoryAfterSession(
 		counted,
 		[topic],

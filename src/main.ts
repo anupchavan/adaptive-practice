@@ -32,6 +32,7 @@ import {
 	shouldOfferDailyReminder,
 	suppressDailyReminderForToday,
 	updatePracticeMemoryAfterSession,
+	evaluatePracticeSessionMeaningfulness,
 } from "./practice/scheduler";
 import { scanVaultSkeleton } from "./practice/indexer";
 import {
@@ -828,20 +829,28 @@ export default class AdaptivePracticePlugin extends Plugin {
 		try {
 			const completedAt = Date.now();
 			const previousMemory = this.settings.practiceMemory;
-			const deltas = await finalizeSession(
-				this.app,
-				config.topics,
-				results,
-				(path, skill) => this.savePdfSkill(path, skill)
-			);
-			this.settings.practiceMemory = updatePracticeMemoryAfterSession(
-				this.settings.practiceMemory,
-				config.topics,
-				results,
-				deltas,
-				completedAt,
-				{ countDailyCredit: config.mode === "daily" }
-			);
+			const dailyMeaningfulness = config.mode === "daily"
+				? evaluatePracticeSessionMeaningfulness(results)
+				: null;
+			const recordResults = !dailyMeaningfulness || dailyMeaningfulness.meaningful;
+			const deltas = recordResults
+				? await finalizeSession(
+					this.app,
+					config.topics,
+					results,
+					(path, skill) => this.savePdfSkill(path, skill)
+				)
+				: [];
+			if (recordResults) {
+				this.settings.practiceMemory = updatePracticeMemoryAfterSession(
+					this.settings.practiceMemory,
+					config.topics,
+					results,
+					deltas,
+					completedAt,
+					{ countDailyCredit: config.mode === "daily" }
+				);
+			}
 			const practiceCredit = config.mode === "daily"
 				? resolvePracticeCredit(
 					previousMemory,
