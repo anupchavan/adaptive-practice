@@ -43,6 +43,10 @@ import {
 	syncLegacySecretName,
 } from "./practice/provider-secrets";
 import {
+	getSecretSafely,
+	setSecretSafely,
+} from "./practice/secret-storage";
+import {
 	normalizeProviderModels,
 	providerModelsNeedNormalization,
 } from "./practice/provider-models";
@@ -213,19 +217,19 @@ export default class AdaptivePracticePlugin extends Plugin {
 	}
 
 	getApiKey(): string | null {
-		return this.app.secretStorage.getSecret(this.getSecretId());
+		return getSecretSafely(this.app, this.getSecretId());
 	}
 
 	setApiKey(value: string): void {
-		this.app.secretStorage.setSecret(this.getSecretId(), value);
+		setSecretSafely(this.app, this.getSecretId(), value);
 	}
 
 	private async migrateApiKey(): Promise<void> {
 		if (this.settings.geminiApiKey) {
 			const id = PROVIDER_PRESETS.gemini.secretName;
-			const existing = this.app.secretStorage.getSecret(id);
+			const existing = getSecretSafely(this.app, id);
 			if (!existing) {
-				this.app.secretStorage.setSecret(id, this.settings.geminiApiKey);
+				setSecretSafely(this.app, id, this.settings.geminiApiKey);
 			}
 			this.settings.geminiApiKey = "";
 			await this.saveSettings();

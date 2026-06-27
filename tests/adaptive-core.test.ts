@@ -59,6 +59,10 @@ import {
 	syncLegacySecretName,
 } from "../src/practice/provider-secrets";
 import {
+	getSecretSafely,
+	setSecretSafely,
+} from "../src/practice/secret-storage";
+import {
 	migrateProviderModel,
 	normalizeProviderModels,
 	providerModelsNeedNormalization,
@@ -1069,6 +1073,43 @@ test("legacy secret migration avoids carrying a stale Gemini default to another 
 		providerSecretNames: {},
 	};
 	assert.equal(getProviderSecretName(settings), "anthropic-api-key");
+});
+
+test("secret storage helpers fail closed when storage is missing or throws", () => {
+	const secrets = new Map<string, string>();
+	const app = {
+		secretStorage: {
+			getSecret: (id: string) => secrets.get(id) ?? null,
+			setSecret: (id: string, value: string) => { secrets.set(id, value); },
+		},
+	};
+
+	assert.equal(setSecretSafely(app, "adaptive-key", "secret"), true);
+	assert.equal(getSecretSafely(app, "adaptive-key"), "secret");
+	assert.equal(getSecretSafely({}, "adaptive-key"), null);
+	assert.equal(setSecretSafely({}, "adaptive-key", "secret"), false);
+	assert.equal(
+		getSecretSafely({
+			secretStorage: {
+				getSecret: () => {
+					throw new Error("locked");
+				},
+				setSecret: () => undefined,
+			},
+		}, "adaptive-key"),
+		null
+	);
+	assert.equal(
+		setSecretSafely({
+			secretStorage: {
+				getSecret: () => null,
+				setSecret: () => {
+					throw new Error("locked");
+				},
+			},
+		}, "adaptive-key", "secret"),
+		false
+	);
 });
 
 test("default practice view settings keep the question pane on the left", () => {
