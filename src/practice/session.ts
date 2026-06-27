@@ -32,6 +32,7 @@ import {
 	limitUniqueQuestions,
 } from "./question-quality";
 import {
+	prepareGeneratedQuestionsForSession,
 	selectFlowBalancedQuestions,
 	shouldRequestChallengeTopUp,
 } from "./flow-calibration";
@@ -174,7 +175,7 @@ export async function generateQuestions(
 					);
 				}
 			}
-			return firstBatch;
+			return prepareGeneratedQuestionsForSession(firstBatch, config);
 		}
 
 		try {
@@ -196,7 +197,9 @@ export async function generateQuestions(
 				config.challengeMode
 			);
 		} catch (topUpError) {
-			if (firstBatch.length > 0) return firstBatch;
+			if (firstBatch.length > 0) {
+				return prepareGeneratedQuestionsForSession(firstBatch, config);
+			}
 			throw topUpError;
 		}
 	} catch (e) {
@@ -214,14 +217,14 @@ export async function generateQuestions(
 		}
 
 		try {
-			return limitUniqueQuestions(
+			return prepareGeneratedQuestionsForSession(
 				await requestReconciledQuestions(
 					client,
 					buildQuestionTopUpPrompt(prompt, [], config.questionCount),
 					config.topics,
 					topicContexts
 				),
-				config.questionCount
+				config
 			);
 		} catch (retryError) {
 			throw new Error(

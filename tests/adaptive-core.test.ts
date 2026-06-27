@@ -76,6 +76,7 @@ import {
 } from "../src/practice/question-calibration";
 import {
 	selectFlowBalancedQuestions,
+	prepareGeneratedQuestionsForSession,
 	shouldRequestChallengeTopUp,
 } from "../src/practice/flow-calibration";
 import {
@@ -472,6 +473,46 @@ test("flow calibration sequences balanced batches as a ramp instead of an easy b
 
 	assert.deepEqual(earlyDifficulties.slice(0, 3), ["easy", "medium", "hard"]);
 	assert.ok(earlyDifficulties.filter((difficulty) => difficulty === "easy").length <= 2);
+});
+
+test("session preparation flow-orders a complete first provider batch", () => {
+	const topic = makeTopic({ skill: 70 });
+	const rawBatch = [
+		...Array.from({ length: 3 }, (_, index) =>
+			makeQuestion({
+				id: `easy-first-${index}`,
+				questionText: `Easy first ${index}`,
+				correctAnswer: `easy first ${index}`,
+				options: [`easy first ${index}`, "B", "C", "D"],
+				difficulty: "easy",
+			})
+		),
+		makeQuestion({
+			id: "medium-later",
+			questionText: "Medium later",
+			correctAnswer: "medium later",
+			options: ["medium later", "B", "C", "D"],
+			difficulty: "medium",
+		}),
+		makeQuestion({
+			id: "hard-later",
+			questionText: "Hard later",
+			correctAnswer: "hard later",
+			options: ["hard later", "B", "C", "D"],
+			difficulty: "hard",
+		}),
+	];
+
+	const prepared = prepareGeneratedQuestionsForSession(rawBatch, {
+		questionCount: rawBatch.length,
+		topics: [topic],
+		challengeMode: "steady",
+	});
+
+	assert.deepEqual(
+		prepared.slice(0, 3).map((question) => question.difficulty),
+		["easy", "medium", "hard"]
+	);
 });
 
 test("flow navigation pulls harder questions forward after fluent correct answers", () => {

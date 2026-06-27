@@ -1,4 +1,4 @@
-import { DailyChallengeMode, Difficulty, Question, TopicNote } from "../types";
+import { DailyChallengeMode, Difficulty, Question, SessionConfig, TopicNote } from "../types";
 
 export function shouldRequestChallengeTopUp(
 	questions: Question[],
@@ -54,6 +54,19 @@ export function selectFlowBalancedQuestions(
 	take(selected, leftovers, desiredCount - selected.length);
 
 	return sequenceForFlow(selected.slice(0, desiredCount));
+}
+
+export function prepareGeneratedQuestionsForSession(
+	questions: Question[],
+	config: Pick<SessionConfig, "questionCount" | "topics" | "challengeMode">
+): Question[] {
+	return selectFlowBalancedQuestions(
+		limitUniqueQuestions(questions, config.questionCount),
+		[],
+		config.questionCount,
+		config.topics,
+		config.challengeMode
+	);
 }
 
 export function desiredDifficultyCounts(
@@ -158,6 +171,10 @@ function uniqueByStem(questions: Question[]): Question[] {
 		out.push(question);
 	}
 	return out;
+}
+
+function limitUniqueQuestions(questions: Question[], desiredCount: number): Question[] {
+	return uniqueByStem(questions).slice(0, desiredCount);
 }
 
 function take<T>(out: T[], source: T[], count: number): void {
