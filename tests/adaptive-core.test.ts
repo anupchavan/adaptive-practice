@@ -54,6 +54,7 @@ import {
 	reconcilePracticeMemory,
 	reminderAttemptCooldownHasPassed,
 	selectDailyTopics,
+	selectPracticeMoreTopics,
 	updatePracticeMemoryAfterSession,
 } from "../src/practice/scheduler";
 import { hasPracticedToday } from "../src/practice/daily-status";
@@ -1567,6 +1568,61 @@ test("selectDailyTopics moves past freshly imported notes already practiced toda
 	);
 });
 
+test("selectPracticeMoreTopics keeps an extra batch available after due work is done", () => {
+	const now = Date.UTC(2026, 5, 26, 12);
+	const topics = [
+		makeTopic({
+			path: "cs/red-black-trees.md",
+			title: "Red-black trees",
+			skill: 88,
+		}),
+		makeTopic({
+			path: "physics/rolling-motion.md",
+			title: "Rolling motion",
+			skill: 60,
+		}),
+		makeTopic({
+			path: "math/definite-integrals.md",
+			title: "Definite integrals",
+			skill: 74,
+		}),
+	];
+	const memory = normalizePracticeMemory({
+		version: 1,
+		index: {},
+		daily: {
+			lastReminderDate: "",
+			lastReminderAttemptAt: 0,
+			lastPracticeDate: "2026-06-26",
+			streak: 3,
+			lastScanAt: now,
+		},
+		notes: Object.fromEntries(
+			topics.map((topic) => [
+				topic.path,
+				makeNoteState(topic, {
+					attempts: 5,
+					correct: 5,
+					lastPracticedAt: now - 45 * 60 * 1000,
+					dueAt: now + 5 * DAY_MS,
+					lastSessionAccuracy: 0.96,
+					lastSessionFluency: 0.9,
+				}),
+			])
+		),
+	});
+
+	const regular = selectDailyTopics(topics, memory, 3, now);
+	const extra = selectPracticeMoreTopics(topics, memory, 2, now);
+
+	assert.equal(regular.length, 0);
+	assert.deepEqual(
+		extra.map((topic) => topic.title),
+		["Rolling motion", "Definite integrals"]
+	);
+	assert.ok(extra.every((topic) => /extra practice/.test(topic.scheduleReason ?? "")));
+});
+
 test("meaningful daily streak credit ignores skips and speed-clicked answers", () => {
 	const now = Date.UTC(2026, 5, 26, 12);
 	const topic = makeTopic();
@@ -1614,6 +1670,47 @@ test("meaningful daily streak credit ignores skips and speed-clicked answers", (
 	assert.equal(skippedMemory.daily.streak, 0);
 	assert.equal(hasPracticedToday(engagedMemory, new Date(now)), true);
 	assert.equal(engagedMemory.daily.streak, 1);
+});
+
+test("extra practice after a counted daily session does not add another streak day", () => {
+	const now = Date.UTC(2026, 5, 26, 12);
+	const topic = makeTopic();
+	const question = makeQuestion({ sourceTopics: [topic.title] });
+	const memory = normalizePracticeMemory({
+		version: 1,
+		index: {},
+		daily: {
+			lastReminderDate: "2026-06-26",
+			lastReminderAttemptAt: now - 2 * 60 * 60 * 1000,
+			lastPracticeDate: "2026-06-26",
+			streak: 5,
+			lastScanAt: now,
+		},
+		notes: {
+			[topic.path]: makeNoteState(topic, {
+				attempts: 3,
+				correct: 3,
+				lastPracticedAt: now - 60 * 60 * 1000,
+				dueAt: now + 4 * DAY_MS,
+				lastSessionAccuracy: 1,
+				lastSessionFluency: 0.9,
+			}),
+		},
+	});
+
+	const updated = updatePracticeMemoryAfterSession(
+		memory,
+		[topic],
+		[
+			makeResult(question, { isCorrect: true, timeTakenMs: 25_000 }),
+			makeResult(question, { isCorrect: true, timeTakenMs: 30_000 }),
+		],
+		[],
+		now
+	);
+
+	assert.equal(updated.daily.lastPracticeDate, "2026-06-26");
+	assert.equal(updated.daily.streak, 5);
 });
 
 test("planDailySession shortens fragile daily review into a warm-up", () => {

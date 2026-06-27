@@ -28,6 +28,7 @@ import {
 	reminderAttemptCooldownHasPassed,
 	reminderTimeHasPassed,
 	selectDailyTopics,
+	selectPracticeMoreTopics,
 	updatePracticeMemoryAfterSession,
 } from "./practice/scheduler";
 import { scanVaultSkeleton } from "./practice/indexer";
@@ -243,14 +244,22 @@ export default class AdaptivePracticePlugin extends Plugin {
 	}
 
 	getDailyTopics(topics: TopicNote[], now = Date.now()): TopicNote[] {
-		return this.getDailyTopicSelection(topics, now).compatibleTopics;
+		return this.getDailyTopicSelection(
+			topics,
+			now,
+			this.hasPracticedToday(new Date(now))
+		).compatibleTopics;
 	}
 
 	hasPracticedToday(now = new Date()): boolean {
 		return memoryHasPracticedToday(this.settings.practiceMemory, now);
 	}
 
-	private getDailyTopicSelection(topics: TopicNote[], now = Date.now()): {
+	private getDailyTopicSelection(
+		topics: TopicNote[],
+		now = Date.now(),
+		extraPractice = false
+	): {
 		compatibleTopics: TopicNote[];
 		skippedPdfTopics: TopicNote[];
 		warning: string;
@@ -259,12 +268,19 @@ export default class AdaptivePracticePlugin extends Plugin {
 		const candidateLimit = providerCanReadPdfs
 			? this.settings.dailyTopicLimit
 			: Math.min(topics.length, Math.max(this.settings.dailyTopicLimit, this.settings.dailyTopicLimit * 3));
-		const candidates = selectDailyTopics(
-			topics,
-			this.settings.practiceMemory,
-			candidateLimit,
-			now
-		);
+		const candidates = extraPractice
+			? selectPracticeMoreTopics(
+				topics,
+				this.settings.practiceMemory,
+				candidateLimit,
+				now
+			)
+			: selectDailyTopics(
+				topics,
+				this.settings.practiceMemory,
+				candidateLimit,
+				now
+			);
 		const compatibility = splitProviderCompatibleTopics(
 			this.settings.llmProvider,
 			candidates
@@ -279,11 +295,30 @@ export default class AdaptivePracticePlugin extends Plugin {
 	}
 
 	getDailySessionPlan(topics: TopicNote[]): DailySessionPlan {
-		return planDailySession(
+		return this.buildDailySessionPlan(
+			topics,
+			this.hasPracticedToday()
+		);
+	}
+
+	private buildDailySessionPlan(
+		topics: TopicNote[],
+		extraPractice: boolean
+	): DailySessionPlan {
+		const plan = planDailySession(
 			topics,
 			this.settings.practiceMemory,
 			this.settings.dailyQuestionCount
 		);
+		if (!extraPractice) return plan;
+		return {
+			...plan,
+			questionCount: Math.min(
+				plan.questionCount,
+				Math.max(3, Math.ceil(this.settings.dailyQuestionCount / 2))
+			),
+			reason: `extra practice: ${plan.reason}`,
+		};
 	}
 
 	getPracticeDraft(): PracticeDraft | null {
@@ -315,12 +350,20 @@ export default class AdaptivePracticePlugin extends Plugin {
 
 	async startDailyPractice(): Promise<void> {
 		const topics = await this.refreshPracticePlan(false);
-		const selection = this.getDailyTopicSelection(topics);
+		const alreadyPracticedToday = this.hasPracticedToday();
+		const selection = this.getDailyTopicSelection(
+			topics,
+			Date.now(),
+			alreadyPracticedToday
+		);
 		const dailyTopics = selection.compatibleTopics;
-		const plan = this.getDailySessionPlan(dailyTopics);
+		const plan = this.buildDailySessionPlan(
+			dailyTopics,
+			alreadyPracticedToday
+		);
 
 		if (dailyTopics.length === 0) {
-			new Notice(selection.warning || "No daily practice topics are due right now.");
+			new Notice(selection.warning || "No practice topics are available right now.");
 			return;
 		}
 		if (selection.skippedPdfTopics.length > 0) {

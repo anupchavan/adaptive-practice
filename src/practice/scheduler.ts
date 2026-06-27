@@ -171,6 +171,44 @@ export function selectDailyTopics(
 	}));
 }
 
+export function selectPracticeMoreTopics(
+	topics: TopicNote[],
+	memory: PracticeMemory | undefined,
+	limit: number,
+	now = Date.now()
+): TopicNote[] {
+	const reconciled = reconcilePracticeMemory(memory, topics, now);
+	const today = localDateKey(new Date(now));
+	const scored = topics
+		.map((topic, index) => {
+			const item = scoreTopic(topic, reconciled, now);
+			const state = reconciled.notes[topic.path];
+			const practicedToday =
+				!!state?.lastPracticedAt &&
+				localDateKey(new Date(state.lastPracticedAt)) === today;
+			const untouchedBoost = state?.attempts === 0 ? 0.9 : 0;
+			const recentPenalty = practicedToday ? 1.8 : 0;
+			const extraScore = item.score + untouchedBoost - recentPenalty;
+			return {
+				...item,
+				index,
+				extraScore,
+				practicedToday,
+			};
+		})
+		.sort((a, b) => b.extraScore - a.extraScore || a.index - b.index);
+
+	return scored.slice(0, Math.max(1, limit)).map((item) => ({
+		...item.topic,
+		priorityScore: item.extraScore,
+		scheduleReason: item.practicedToday
+			? `extra practice, ${item.reason}`
+			: item.reason,
+		dueAt: reconciled.notes[item.topic.path]?.dueAt,
+		lastPracticedAt: reconciled.notes[item.topic.path]?.lastPracticedAt || undefined,
+	}));
+}
+
 export function planDailySession(
 	topics: TopicNote[],
 	memory: PracticeMemory | undefined,
