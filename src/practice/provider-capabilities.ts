@@ -1,4 +1,5 @@
 import {
+	AdaptivePracticeSettings,
 	LLM_PROVIDER_LABELS,
 	LlmProvider,
 	PROVIDER_PRESETS,
@@ -9,6 +10,28 @@ export interface ProviderTopicCompatibility {
 	compatibleTopics: TopicNote[];
 	skippedPdfTopics: TopicNote[];
 	warning: string;
+}
+
+export interface ProviderAttachmentSupport {
+	includeImages: boolean;
+	includePdfs: boolean;
+}
+
+type ProviderAttachmentSettings = Pick<
+	AdaptivePracticeSettings,
+	"providerSupportsImages"
+>;
+
+export function getProviderAttachmentSupport(
+	provider: LlmProvider,
+	settings: ProviderAttachmentSettings
+): ProviderAttachmentSupport {
+	const preset = PROVIDER_PRESETS[provider];
+	return {
+		includeImages:
+			settings.providerSupportsImages[provider] ?? preset.supportsImages,
+		includePdfs: preset.supportsPdfs,
+	};
 }
 
 export function splitProviderCompatibleTopics(

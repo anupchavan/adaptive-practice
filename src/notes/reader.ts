@@ -22,6 +22,10 @@ import { pdfAttachmentSizeError } from "./attachment-budget";
 import { buildRemotePromptAttachment, RemoteMediaFetchResult } from "./remote-media";
 import { frontmatterDateMs, NoteDatePropertySettings } from "./frontmatter-dates";
 import { sanitizeFrontmatter } from "./frontmatter";
+import {
+	PromptAttachmentOptions,
+	shouldAttachPromptMedia,
+} from "./attachment-policy";
 
 const DEFAULT_SKILL = 50;
 const HISTORY_HEADING = "## Practice history";
@@ -211,13 +215,16 @@ export async function getNoteStructure(
 export async function getPromptAttachments(
 	app: App,
 	structure: NoteStructure,
-	noteTitle: string
+	noteTitle: string,
+	options: PromptAttachmentOptions = {}
 ): Promise<PromptAttachment[]> {
 	const attachments: PromptAttachment[] = [];
 	let totalBytes = 0;
 
 	for (const media of mediaAttachmentOrder(structure.media)) {
 		if (attachments.length >= MAX_INLINE_MEDIA_COUNT) break;
+		if (!shouldAttachPromptMedia(media, options)) continue;
+		if (media.kind !== "image" && media.kind !== "pdf") continue;
 		if (media.source === "remote") {
 			const attachment = await buildRemotePromptAttachment(
 				noteTitle,
@@ -231,7 +238,6 @@ export async function getPromptAttachments(
 			}
 			continue;
 		}
-		if (media.kind !== "image" && media.kind !== "pdf") continue;
 		if (media.mimeType === "image/svg+xml") continue;
 		if (media.size <= 0) continue;
 		if (totalBytes + media.size > MAX_INLINE_MEDIA_BYTES) continue;

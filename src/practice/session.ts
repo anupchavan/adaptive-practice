@@ -25,6 +25,7 @@ import { AnthropicClient } from "../llm/anthropic";
 import { OpenAiCompatibleClient } from "../llm/openai-compatible";
 import { computeSkillDeltas } from "./grader";
 import { reconcileGeneratedQuestions } from "./source-map";
+import { getProviderAttachmentSupport } from "./provider-capabilities";
 import {
 	buildChallengeTopUpPrompt,
 	buildQuestionTopUpPrompt,
@@ -92,6 +93,7 @@ export async function generateQuestions(
 		throw new Error("Choose a model before starting practice.");
 	}
 
+	const attachmentSupport = getProviderAttachmentSupport(provider, settings);
 	const topicContexts: TopicContext[] = await Promise.all(
 		config.topics.map(async (note) => {
 			if (note.isPdf) {
@@ -111,7 +113,12 @@ export async function generateQuestions(
 					settings.practiceMemory.notes[note.path]?.practicedSubtopics ?? {},
 				structure: structure ?? undefined,
 				attachments: structure
-					? await getPromptAttachments(app, structure, note.title)
+					? await getPromptAttachments(
+						app,
+						structure,
+						note.title,
+						attachmentSupport
+					)
 					: [],
 			};
 		})

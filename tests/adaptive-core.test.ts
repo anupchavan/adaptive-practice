@@ -18,6 +18,7 @@ import {
 	parseInternalEmbedReference,
 	parseSkillValue,
 } from "../src/notes/normalize";
+import { shouldAttachPromptMedia } from "../src/notes/attachment-policy";
 import {
 	buildQuestionHistoryBlock,
 	removeQuestionHistoryEntry,
@@ -35,6 +36,7 @@ import {
 	resultFluency,
 } from "../src/practice/grader";
 import {
+	getProviderAttachmentSupport,
 	getProviderPdfWarning,
 	splitProviderCompatibleTopics,
 } from "../src/practice/provider-capabilities";
@@ -841,6 +843,58 @@ test("provider compatibility filters PDF topics for text-only adapters", () => {
 	assert.equal(gemini.compatibleTopics.length, 2);
 	assert.equal(gemini.skippedPdfTopics.length, 0);
 	assert.equal(gemini.warning, "");
+});
+
+test("provider attachment support follows provider capabilities and image override", () => {
+	assert.deepEqual(
+		getProviderAttachmentSupport("gemini", DEFAULT_SETTINGS),
+		{ includeImages: true, includePdfs: true }
+	);
+	assert.deepEqual(
+		getProviderAttachmentSupport("openai", DEFAULT_SETTINGS),
+		{ includeImages: true, includePdfs: false }
+	);
+	assert.deepEqual(
+		getProviderAttachmentSupport("deepseek", DEFAULT_SETTINGS),
+		{ includeImages: false, includePdfs: false }
+	);
+	assert.deepEqual(
+		getProviderAttachmentSupport("openai-compatible", {
+			...DEFAULT_SETTINGS,
+			providerSupportsImages: {
+				"openai-compatible": true,
+			},
+		}),
+		{ includeImages: true, includePdfs: false }
+	);
+});
+
+test("prompt media attachment predicate skips binaries unsupported by provider policy", () => {
+	assert.equal(
+		shouldAttachPromptMedia({ kind: "image", mimeType: "image/png" }, {
+			includeImages: false,
+			includePdfs: true,
+		}),
+		false
+	);
+	assert.equal(
+		shouldAttachPromptMedia({ kind: "pdf", mimeType: "application/pdf" }, {
+			includeImages: true,
+			includePdfs: false,
+		}),
+		false
+	);
+	assert.equal(
+		shouldAttachPromptMedia({ kind: "image", mimeType: "image/webp" }, {
+			includeImages: true,
+			includePdfs: false,
+		}),
+		true
+	);
+	assert.equal(
+		shouldAttachPromptMedia({ kind: "svg", mimeType: "image/svg+xml" }),
+		false
+	);
 });
 
 test("PDF attachment budget reports oversized standalone PDFs before upload", () => {
