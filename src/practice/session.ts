@@ -23,6 +23,7 @@ import { buildPrompt, StructuredPrompt, TopicContext } from "../llm/prompt";
 import { GeminiClient } from "../llm/gemini";
 import { AnthropicClient } from "../llm/anthropic";
 import { OpenAiCompatibleClient } from "../llm/openai-compatible";
+import { OpenAiResponsesClient } from "../llm/openai-responses";
 import { computeSkillDeltas } from "./grader";
 import { reconcileGeneratedQuestions } from "./source-map";
 import { getProviderAttachmentSupport } from "./provider-capabilities";
@@ -60,7 +61,16 @@ function createClient(
 				model: settings.providerModels[provider] || preset.model,
 			});
 		}
-		case "openai":
+		case "openai": {
+			const preset = PROVIDER_PRESETS[provider];
+			return new OpenAiResponsesClient(apiKey, {
+				baseUrl: settings.providerBaseUrls[provider] || preset.baseUrl,
+				model: settings.providerModels[provider] || preset.model,
+				jsonMode: settings.providerJsonModes[provider] || preset.jsonMode,
+				supportsImages:
+					settings.providerSupportsImages[provider] ?? preset.supportsImages,
+			});
+		}
 		case "deepseek":
 		case "qwen":
 		case "openrouter":

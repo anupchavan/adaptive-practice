@@ -91,7 +91,7 @@ export const PROVIDER_PRESETS: Record<LlmProvider, ProviderPreset> = {
 		supportsPdfs: true,
 	},
 	openai: {
-		baseUrl: "https://api.openai.com/v1/chat/completions",
+		baseUrl: "https://api.openai.com/v1/responses",
 		model: "gpt-5.5",
 		secretName: "openai-api-key",
 		jsonMode: "json_schema",

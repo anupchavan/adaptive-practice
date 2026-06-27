@@ -3,8 +3,12 @@ import { Question } from "../types";
 import { StructuredPrompt } from "./prompt";
 import { parseQuestions } from "./parse";
 import { extractProviderErrorDetail, formatProviderError } from "./errors";
-
-export type CompatibleJsonMode = "json_schema" | "json_object" | "prompt_only";
+import {
+	arrayBufferToBase64,
+	CompatibleJsonMode,
+	MAX_OUTPUT_TOKENS,
+	questionSchema,
+} from "./openai-shared";
 
 export interface OpenAiCompatibleConfig {
 	baseUrl: string;
@@ -12,17 +16,6 @@ export interface OpenAiCompatibleConfig {
 	jsonMode: CompatibleJsonMode;
 	supportsImages: boolean;
 	providerLabel: string;
-}
-
-const MAX_OUTPUT_TOKENS = 8192;
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-	const bytes = new Uint8Array(buffer);
-	let binary = "";
-	for (let i = 0; i < bytes.byteLength; i++) {
-		binary += String.fromCharCode(bytes[i]!);
-	}
-	return btoa(binary);
 }
 
 export class OpenAiCompatibleClient {
@@ -149,54 +142,6 @@ export function normalizeChatCompletionsUrl(rawUrl: string): string {
 		return `${trimmed}/chat/completions`;
 	}
 	return `${trimmed}/chat/completions`;
-}
-
-function questionSchema(): Record<string, unknown> {
-	return {
-		type: "object",
-		additionalProperties: false,
-		required: ["questions"],
-		properties: {
-			questions: {
-				type: "array",
-				minItems: 1,
-				items: {
-					type: "object",
-					additionalProperties: false,
-					required: [
-						"id",
-						"type",
-						"questionText",
-						"correctAnswer",
-						"explanation",
-						"sourceTopics",
-						"sourceSubtopics",
-						"difficulty",
-					],
-					properties: {
-						id: { type: "string" },
-						type: { type: "string", enum: ["mcq", "integer", "decimal"] },
-						questionText: { type: "string" },
-						options: {
-							type: "array",
-							items: { type: "string" },
-						},
-						correctAnswer: { type: "string" },
-						explanation: { type: "string" },
-						sourceTopics: {
-							type: "array",
-							items: { type: "string" },
-						},
-						sourceSubtopics: {
-							type: "array",
-							items: { type: "string" },
-						},
-						difficulty: { type: "string", enum: ["easy", "medium", "hard"] },
-					},
-				},
-			},
-		},
-	};
 }
 
 function getChatCompletionText(data: unknown): string {

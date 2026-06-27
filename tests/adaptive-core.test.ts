@@ -6,6 +6,11 @@ import {
 	formatProviderError,
 } from "../src/llm/errors";
 import {
+	buildOpenAiResponsesBody,
+	getOpenAiResponsesText,
+	normalizeOpenAiResponsesUrl,
+} from "../src/llm/openai-responses-format";
+import {
 	formatBytes,
 	MAX_PDF_ATTACHMENT_BYTES,
 	pdfAttachmentSizeError,
@@ -651,6 +656,7 @@ test("provider presets use documented current model IDs", () => {
 	assert.equal(PROVIDER_PRESETS.anthropic.model, "claude-sonnet-4-6");
 	assert.notEqual(PROVIDER_PRESETS.anthropic.model, "claude-sonnet-4-20250514");
 	assert.equal(PROVIDER_PRESETS.openai.model, "gpt-5.5");
+	assert.equal(PROVIDER_PRESETS.openai.baseUrl, "https://api.openai.com/v1/responses");
 	assert.equal(PROVIDER_PRESETS.deepseek.model, "deepseek-v4-flash");
 	assert.equal(PROVIDER_PRESETS.qwen.model, "qwen-plus");
 	assert.equal(PROVIDER_PRESETS.openrouter.model, "openai/gpt-5.4-mini");
@@ -658,6 +664,61 @@ test("provider presets use documented current model IDs", () => {
 	assert.equal(PROVIDER_PRESETS.anthropic.supportsPdfs, true);
 	assert.equal(PROVIDER_PRESETS.openai.supportsPdfs, false);
 	assert.equal(PROVIDER_PRESETS.openrouter.supportsPdfs, false);
+});
+
+test("OpenAI Responses adapter normalizes endpoint and extracts output text", () => {
+	assert.equal(
+		normalizeOpenAiResponsesUrl("https://api.openai.com/v1"),
+		"https://api.openai.com/v1/responses"
+	);
+	assert.equal(
+		normalizeOpenAiResponsesUrl("https://api.openai.com/v1/chat/completions"),
+		"https://api.openai.com/v1/responses"
+	);
+	assert.equal(
+		getOpenAiResponsesText({
+			output: [
+				{
+					type: "message",
+					content: [
+						{
+							type: "output_text",
+							text: "{\"questions\":[]}",
+						},
+					],
+				},
+			],
+		}),
+		"{\"questions\":[]}"
+	);
+});
+
+test("OpenAI Responses adapter builds structured-output request bodies", () => {
+	const body = buildOpenAiResponsesBody(
+		{
+			textPrompt: "Generate questions.",
+			attachments: [],
+		},
+		{
+			baseUrl: PROVIDER_PRESETS.openai.baseUrl,
+			model: PROVIDER_PRESETS.openai.model,
+			jsonMode: "json_schema",
+			supportsImages: true,
+		}
+	);
+	const text = body["text"] as { format: Record<string, unknown> };
+
+	assert.equal(body["model"], "gpt-5.5");
+	assert.equal(body["max_output_tokens"], 8192);
+	assert.deepEqual(body["input"], [
+		{
+			role: "user",
+			content: "Generate questions.",
+		},
+	]);
+	assert.equal(text.format["type"], "json_schema");
+	assert.equal(text.format["name"], "adaptive_practice_questions");
+	assert.ok(text.format["schema"]);
 });
 
 test("provider errors include model and settings guidance", () => {

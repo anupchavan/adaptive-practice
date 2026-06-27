@@ -249,10 +249,13 @@ export class AdaptivePracticeSettingTab extends PluginSettingTab {
 			);
 
 		if (provider === "gemini" || provider === "anthropic") return;
+		const baseUrlDescription = provider === "openai"
+			? "Responses API endpoint or API root. Roots ending in /v1 are expanded automatically."
+			: "Chat completions endpoint or compatible API root. Roots ending in /v1 are expanded automatically.";
 
 		new Setting(containerEl)
 			.setName("Base URL")
-			.setDesc("Chat completions endpoint or compatible API root. Roots ending in /v1 are expanded automatically.")
+			.setDesc(baseUrlDescription)
 			.addText((text) =>
 				text
 					.setPlaceholder(preset.baseUrl)

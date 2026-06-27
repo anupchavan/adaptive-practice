@@ -21,7 +21,7 @@ Open **Settings → Adaptive Practice** and choose a provider, then select or cr
 | --- | --- | --- |
 | Gemini | `gemini-3.5-flash` | Supports image and PDF attachments through the Gemini API. Change the model in settings if your account uses a different Gemini model. |
 | Anthropic | `claude-sonnet-4-6` | Supports image and PDF attachments through the Messages API. Change the model in settings if your account uses a different Claude model. |
-| OpenAI | `https://api.openai.com/v1/chat/completions`, `gpt-5.5` | Uses Chat Completions with JSON schema response format. Change the model in settings if your account uses a different OpenAI model. |
+| OpenAI | `https://api.openai.com/v1/responses`, `gpt-5.5` | Uses the Responses API with structured JSON output. Change the model in settings if your account uses a different OpenAI model. |
 | DeepSeek | `https://api.deepseek.com/chat/completions`, `deepseek-v4-flash` | Uses OpenAI-compatible chat completions with JSON object mode. Change the model in settings if you want the pro route. |
 | Qwen | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions`, `qwen-plus` | Uses Alibaba Cloud Model Studio's OpenAI-compatible interface. Change the model in settings if your region or account uses another Qwen route. |
 | OpenRouter | `https://openrouter.ai/api/v1/chat/completions`, `openai/gpt-5.4-mini` | Uses OpenRouter's OpenAI-compatible route. Change the model to any route you have access to. |

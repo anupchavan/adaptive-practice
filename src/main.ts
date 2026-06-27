@@ -849,6 +849,9 @@ function normalizeSettings(raw: unknown): AdaptivePracticeSettings {
 	);
 	syncLegacySecretName(settings);
 	settings.providerBaseUrls = normalizeProviderStrings(settings.providerBaseUrls);
+	if (settings.providerBaseUrls.openai === "https://api.openai.com/v1/chat/completions") {
+		settings.providerBaseUrls.openai = PROVIDER_PRESETS.openai.baseUrl;
+	}
 	settings.providerModels = normalizeProviderStrings(settings.providerModels);
 	if (settings.providerModels.gemini === "gemini-2.0-flash") {
 		settings.providerModels.gemini = PROVIDER_PRESETS.gemini.model;
