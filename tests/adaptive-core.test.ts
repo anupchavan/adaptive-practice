@@ -614,6 +614,39 @@ test("flow navigation pulls harder questions forward after fluent correct answer
 	assert.equal(questions[2]?.difficulty, "hard");
 });
 
+test("flow navigation steps up after a slow correct easy answer", () => {
+	const questions = [
+		makeQuestion({ id: "q1", difficulty: "easy" }),
+		makeQuestion({ id: "q2", difficulty: "easy" }),
+		makeQuestion({ id: "q3", difficulty: "medium" }),
+		makeQuestion({ id: "q4", difficulty: "hard" }),
+	];
+	const results = [
+		makeResult(questions[0]!, { timeTakenMs: 70_000 }),
+	];
+
+	assert.equal(nextTargetDifficulty(results), "medium");
+	adaptQuestionOrderForFlow(questions, results, 0);
+	assert.equal(questions[1]?.difficulty, "medium");
+});
+
+test("flow navigation escalates after repeated correct medium answers", () => {
+	const questions = [
+		makeQuestion({ id: "q1", difficulty: "medium" }),
+		makeQuestion({ id: "q2", difficulty: "medium" }),
+		makeQuestion({ id: "q3", difficulty: "medium" }),
+		makeQuestion({ id: "q4", difficulty: "hard" }),
+	];
+	const results = [
+		makeResult(questions[0]!, { timeTakenMs: 120_000 }),
+		makeResult(questions[1]!, { timeTakenMs: 130_000 }),
+	];
+
+	assert.equal(nextTargetDifficulty(results), "hard");
+	adaptQuestionOrderForFlow(questions, results, 1);
+	assert.equal(questions[2]?.difficulty, "hard");
+});
+
 test("flow navigation recovers to an easy question after a miss", () => {
 	const questions = [
 		makeQuestion({ id: "q1", difficulty: "medium" }),

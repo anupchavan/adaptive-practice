@@ -31,17 +31,36 @@ export function nextTargetDifficulty(
 	const last = answered[answered.length - 1]!;
 	if (last.skipped || !last.isCorrect) return "easy";
 
-	const recent = answered.slice(-2);
+	const recent = trailingCorrectResults(answered);
+	const recentTwo = recent.slice(-2);
+	const lastDifficulty = last.question.difficulty;
+	const lastFluent = last.timeTakenMs <= expectedTimeMs(last.question);
 	const fluentCorrect =
-		recent.length >= 2 &&
-		recent.every((result) =>
+		recentTwo.length >= 2 &&
+		recentTwo.every((result) =>
 			!result.skipped &&
 			result.isCorrect &&
 			result.timeTakenMs <= expectedTimeMs(result.question) * 0.85
 		);
 	if (fluentCorrect) return "hard";
-	if (last.isCorrect && last.timeTakenMs <= expectedTimeMs(last.question)) {
-		return "medium";
+	if (lastDifficulty === "easy") return "medium";
+	if (lastDifficulty === "medium") {
+		if (recent.length >= 2) return "hard";
+		if (lastFluent) return "medium";
+		return null;
+	}
+	if (lastDifficulty === "hard") {
+		return lastFluent ? "hard" : "medium";
 	}
 	return null;
+}
+
+function trailingCorrectResults(results: QuizResult[]): QuizResult[] {
+	const out: QuizResult[] = [];
+	for (let i = results.length - 1; i >= 0; i--) {
+		const result = results[i]!;
+		if (result.skipped || !result.isCorrect) break;
+		out.unshift(result);
+	}
+	return out;
 }
