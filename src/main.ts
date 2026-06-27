@@ -56,6 +56,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 	private sessionGenerationInProgress = false;
 	private sessionGenerationId = 0;
 	private dailyReminderNotice: Notice | null = null;
+	private unloading = false;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -66,6 +67,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 
 		this.app.workspace.onLayoutReady(() => {
 			void this.restorePracticeViewsAfterReload();
+			void this.restoreDashboardAfterReload();
 			void this.refreshPracticePlan(false);
 			void this.checkDailyReminder();
 		});
@@ -148,6 +150,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 	}
 
 	onunload(): void {
+		this.unloading = true;
 		this.hideDailyReminderNotice();
 		this.detachPracticeLeaves();
 	}
@@ -281,11 +284,25 @@ export default class AdaptivePracticePlugin extends Plugin {
 	}
 
 	async openDashboard(): Promise<void> {
+		await this.setDashboardOpen(true);
 		const leaf = this.app.workspace.getRightLeaf(false) ??
 			this.app.workspace.getLeaf("tab");
 		await leaf.setViewState({ type: DASHBOARD_VIEW_TYPE, active: true });
 		this.app.workspace.rightSplit.expand();
 		await this.app.workspace.revealLeaf(leaf);
+	}
+
+	async setDashboardOpen(open: boolean): Promise<void> {
+		if (!open && this.unloading) return;
+		if (this.settings.dashboardOpen === open) return;
+		this.settings.dashboardOpen = open;
+		await this.saveSettings();
+	}
+
+	private async restoreDashboardAfterReload(): Promise<void> {
+		if (!this.settings.dashboardOpen) return;
+		if (this.app.workspace.getLeavesOfType(DASHBOARD_VIEW_TYPE).length > 0) return;
+		await this.openDashboard();
 	}
 
 	getDailyTopics(topics: TopicNote[], now = Date.now()): TopicNote[] {
@@ -882,6 +899,7 @@ function normalizeSettings(raw: unknown): AdaptivePracticeSettings {
 	if (settings.questionPaneSide !== "left" && settings.questionPaneSide !== "right") {
 		settings.questionPaneSide = DEFAULT_SETTINGS.questionPaneSide;
 	}
+	settings.dashboardOpen = settings.dashboardOpen === true;
 	settings.defaultQuestionCount = clamp(settings.defaultQuestionCount, 5, 30, DEFAULT_SETTINGS.defaultQuestionCount);
 	settings.dailyQuestionCount = clamp(settings.dailyQuestionCount, 3, 20, DEFAULT_SETTINGS.dailyQuestionCount);
 	settings.dailyTopicLimit = clamp(settings.dailyTopicLimit, 1, 12, DEFAULT_SETTINGS.dailyTopicLimit);

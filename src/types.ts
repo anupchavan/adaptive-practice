@@ -147,6 +147,7 @@ export interface AdaptivePracticeSettings {
 	filterRules: FilterGroup;
 	defaultQuestionCount: number;
 	questionPaneSide: "left" | "right";
+	dashboardOpen: boolean;
 	dailyPracticeEnabled: boolean;
 	dailyReminderTime: string;
 	dailyQuestionCount: number;
@@ -224,6 +225,7 @@ export const DEFAULT_SETTINGS: AdaptivePracticeSettings = {
 	filterRules: JSON.parse(JSON.stringify(DEFAULT_FILTER_RULES)) as FilterGroup,
 	defaultQuestionCount: 10,
 	questionPaneSide: "left",
+	dashboardOpen: false,
 	dailyPracticeEnabled: false,
 	dailyReminderTime: "18:00",
 	dailyQuestionCount: 8,

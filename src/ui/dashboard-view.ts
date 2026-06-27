@@ -53,6 +53,7 @@ export class DashboardView extends ItemView {
 
 	async onClose(): Promise<void> {
 		this.contentEl.empty();
+		await this.plugin.setDashboardOpen(false);
 	}
 
 	async refresh(showNotice = false): Promise<void> {

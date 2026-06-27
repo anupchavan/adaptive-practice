@@ -954,6 +954,7 @@ test("legacy secret migration avoids carrying a stale Gemini default to another 
 
 test("default practice view settings keep the question pane on the left", () => {
 	assert.equal(DEFAULT_SETTINGS.questionPaneSide, "left");
+	assert.equal(DEFAULT_SETTINGS.dashboardOpen, false);
 });
 
 test("practice drafts normalize unfinished generated sessions for reload resume", () => {
