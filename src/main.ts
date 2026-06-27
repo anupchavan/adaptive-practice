@@ -243,7 +243,10 @@ export default class AdaptivePracticePlugin extends Plugin {
 
 	async refreshPracticePlan(showNotice: boolean): Promise<TopicNote[]> {
 		if (showNotice) this.practicePlanRefreshNoticeRequested = true;
-		if (this.practicePlanRefresh) return this.practicePlanRefresh;
+		if (this.practicePlanRefresh) {
+			if (showNotice) new Notice("Adaptive practice scan already running...");
+			return this.practicePlanRefresh;
+		}
 
 		this.practicePlanRefresh = this.runPracticePlanRefresh().finally(() => {
 			this.practicePlanRefresh = null;
