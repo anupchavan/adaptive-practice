@@ -1242,9 +1242,13 @@ Flowchart of Euclid's algorithm.
 
 [rotated-diagram]: <Practice Lab/Assets/rotated (case split).svg> "case split"
 [RC board]: Practice%20Lab/Assets/rc-transient-board.png
+
+<img src="Practice%20Lab/Assets/chem-mechanism.png" alt="SN1 mechanism sketch">
+
+<img src="//upload.wikimedia.org/example.png" title="Remote imported figure">
 `);
 
-	assert.equal(refs.length, 5);
+	assert.equal(refs.length, 7);
 	assert.equal(refs[0]?.link, "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/GCD.svg/250px-GCD.svg.png");
 	assert.equal(refs[0]?.alt, "Flowchart");
 	assert.equal(refs[0]?.caption, "Flowchart of Euclid's algorithm.");
@@ -1259,6 +1263,12 @@ Flowchart of Euclid's algorithm.
 	assert.equal(refs[3]?.caption, "");
 	assert.equal(refs[4]?.link, "Practice Lab/Assets/rc-transient-board.png");
 	assert.equal(refs[4]?.alt, "RC board");
+	assert.equal(refs[5]?.link, "Practice Lab/Assets/chem-mechanism.png");
+	assert.equal(refs[5]?.alt, "SN1 mechanism sketch");
+	assert.equal(refs[5]?.isRemote, false);
+	assert.equal(refs[6]?.link, "https://upload.wikimedia.org/example.png");
+	assert.equal(refs[6]?.alt, "Remote imported figure");
+	assert.equal(refs[6]?.isRemote, true);
 });
 
 test("remote image attachments fetch actual pixels for vision-capable prompts", async () => {

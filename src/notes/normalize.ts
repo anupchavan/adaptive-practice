@@ -134,7 +134,10 @@ export function parseMarkdownImageReferences(content: string): MarkdownImageRefe
 
 	for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
 		const line = lines[lineIndex] ?? "";
-		for (const image of scanMarkdownImages(line, referenceDefinitions)) {
+		for (const image of [
+			...scanMarkdownImages(line, referenceDefinitions),
+			...scanHtmlImages(line),
+		]) {
 			const link = normalizeRemoteMarkdownUrl(cleanMarkdownPath(image.link));
 			if (!link) continue;
 			refs.push({
@@ -147,6 +150,34 @@ export function parseMarkdownImageReferences(content: string): MarkdownImageRefe
 	}
 
 	return refs;
+}
+
+function scanHtmlImages(line: string): Array<{ alt: string; link: string }> {
+	const images: Array<{ alt: string; link: string }> = [];
+	const tagRe = /<img\b[^>]*>/gi;
+	let match: RegExpExecArray | null;
+	while ((match = tagRe.exec(line)) !== null) {
+		const attrs = parseHtmlAttributes(match[0] ?? "");
+		const link = attrs.get("src") ?? "";
+		if (!link) continue;
+		images.push({
+			alt: attrs.get("alt") ?? attrs.get("title") ?? "",
+			link,
+		});
+	}
+	return images;
+}
+
+function parseHtmlAttributes(tag: string): Map<string, string> {
+	const attrs = new Map<string, string>();
+	const attrRe = /([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
+	let match: RegExpExecArray | null;
+	while ((match = attrRe.exec(tag)) !== null) {
+		const name = (match[1] ?? "").toLowerCase();
+		const value = match[2] ?? match[3] ?? match[4] ?? "";
+		if (name) attrs.set(name, value);
+	}
+	return attrs;
 }
 
 function parseMarkdownReferenceDefinitions(lines: string[]): Map<string, string> {
