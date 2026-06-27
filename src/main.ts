@@ -64,10 +64,9 @@ export default class AdaptivePracticePlugin extends Plugin {
 		this.registerView(DASHBOARD_VIEW_TYPE, (leaf) => new DashboardView(leaf, this));
 
 		this.app.workspace.onLayoutReady(() => {
-			this.detachPracticeLeaves();
+			void this.restorePracticeViewsAfterReload();
 			void this.refreshPracticePlan(false);
 			void this.checkDailyReminder();
-			this.showResumePracticeNotice();
 		});
 
 		this.registerInterval(window.setInterval(() => {
@@ -156,6 +155,40 @@ export default class AdaptivePracticePlugin extends Plugin {
 		this.app.workspace.getLeavesOfType(PRACTICE_VIEW_TYPE).forEach((leaf) => {
 			leaf.detach();
 		});
+	}
+
+	private async restorePracticeViewsAfterReload(): Promise<void> {
+		const leaves = this.app.workspace.getLeavesOfType(PRACTICE_VIEW_TYPE);
+		if (leaves.length === 0) {
+			this.showResumePracticeNotice();
+			return;
+		}
+
+		const draft = normalizePracticeDraft(this.settings.practiceDraft);
+		if (!draft) {
+			leaves.forEach((leaf) => {
+				leaf.detach();
+			});
+			await this.clearPracticeDraft();
+			return;
+		}
+
+		this.settings.practiceDraft = draft;
+		await this.saveSettings();
+		this.renderDashboardViews();
+		for (const leaf of leaves) {
+			const view = leaf.view;
+			if (view instanceof PracticeView) {
+				this.configurePracticeView(
+					view,
+					draft.questions,
+					draft.results,
+					draft.currentIndex,
+					draft.topics,
+					draft.config
+				);
+			}
+		}
 	}
 
 	getSecretId(): string {
@@ -716,32 +749,50 @@ export default class AdaptivePracticePlugin extends Plugin {
 
 		const view = leaf.view;
 		if (view instanceof PracticeView) {
-			const onComplete = (completedResults: QuizResult[]) => {
-				void this.completeSession(config, completedResults);
-			};
-			view.setPracticeState({
+			this.configurePracticeView(
+				view,
 				questions,
 				results,
 				currentIndex,
 				topics,
-				onComplete,
-				onDiscard: () => this.discardPracticeDraft(),
-				onStateChange: (
-					nextQuestions: Question[],
-					nextResults: QuizResult[],
-					nextIndex: number
-				) => {
-					void this.savePracticeDraft(
-						config,
-						nextQuestions,
-						nextResults,
-						nextIndex,
-						topics
-					);
-				},
-				questionPaneSide: this.settings.questionPaneSide,
-			});
+				config
+			);
 		}
+	}
+
+	private configurePracticeView(
+		view: PracticeView,
+		questions: Question[],
+		results: QuizResult[],
+		currentIndex: number,
+		topics: TopicNote[],
+		config: SessionConfig
+	): void {
+		const onComplete = (completedResults: QuizResult[]) => {
+			void this.completeSession(config, completedResults);
+		};
+		view.setPracticeState({
+			questions,
+			results,
+			currentIndex,
+			topics,
+			onComplete,
+			onDiscard: () => this.discardPracticeDraft(),
+			onStateChange: (
+				nextQuestions: Question[],
+				nextResults: QuizResult[],
+				nextIndex: number
+			) => {
+				void this.savePracticeDraft(
+					config,
+					nextQuestions,
+					nextResults,
+					nextIndex,
+					topics
+				);
+			},
+			questionPaneSide: this.settings.questionPaneSide,
+		});
 	}
 
 	private async savePracticeDraft(
