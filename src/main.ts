@@ -225,6 +225,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 				`Adaptive Practice scanned ${scan.stats.total} notes (${scan.stats.indexed} updated, ${scan.stats.reused} reused). ${dueCount} topic${dueCount === 1 ? "" : "s"} ready.`
 			);
 		}
+		this.renderDashboardViews(indexed);
 		return indexed;
 	}
 
@@ -337,6 +338,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 		}
 		this.settings.practiceDraft = draft;
 		await this.saveSettings();
+		this.renderDashboardViews();
 		await this.openPracticeView(
 			draft.questions,
 			draft.results,
@@ -603,6 +605,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 			);
 			this.settings.practiceDraft = null;
 			await this.saveSettings();
+			this.renderDashboardViews();
 			finalNotice.hide();
 			new ResultsModal(this.app, results, deltas).open();
 		} catch (e) {
@@ -672,12 +675,23 @@ export default class AdaptivePracticePlugin extends Plugin {
 			Date.now()
 		);
 		await this.saveSettings();
+		this.renderDashboardViews();
 	}
 
 	private async clearPracticeDraft(): Promise<void> {
 		if (!this.settings.practiceDraft) return;
 		this.settings.practiceDraft = null;
 		await this.saveSettings();
+		this.renderDashboardViews();
+	}
+
+	private renderDashboardViews(topics?: TopicNote[]): void {
+		this.app.workspace.getLeavesOfType(DASHBOARD_VIEW_TYPE).forEach((leaf) => {
+			const view = leaf.view;
+			if (view instanceof DashboardView) {
+				view.renderCurrentState(topics);
+			}
+		});
 	}
 }
 

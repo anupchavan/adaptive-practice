@@ -55,6 +55,25 @@ export class DashboardView extends ItemView {
 		this.contentEl.empty();
 	}
 
+	async refresh(showNotice = false): Promise<void> {
+		await this.reload(showNotice);
+	}
+
+	renderCurrentState(topics = this.state.topics): void {
+		if (this.state.loading) return;
+		const dailyComplete = this.plugin.hasPracticedToday();
+		const dailyTopics = this.plugin.getDailyTopics(topics);
+		this.state = {
+			topics,
+			dailyTopics,
+			dailyPlan: this.plugin.getDailySessionPlan(dailyTopics),
+			dailyComplete,
+			practiceDraft: this.plugin.getPracticeDraft(),
+			loading: false,
+		};
+		this.render();
+	}
+
 	private async reload(showNotice: boolean): Promise<void> {
 		this.state.loading = true;
 		this.render();
