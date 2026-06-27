@@ -43,7 +43,7 @@ export class QuizModal extends Modal {
 		this.renderComponent.load();
 
 		if (this.onExpand) {
-			this.renderExpandButton();
+			this.renderModalControls();
 		}
 
 		this.renderQuestion();
@@ -62,9 +62,10 @@ export class QuizModal extends Modal {
 		super.close();
 	}
 
-	private renderExpandButton(): void {
-		this.modalEl.querySelector(".ap-expand-button")?.remove();
-		const expandBtn = createEl("button", {
+	private renderModalControls(): void {
+		this.modalEl.querySelector(".ap-quiz-modal-controls")?.remove();
+		const controls = this.modalEl.createDiv({ cls: "ap-quiz-modal-controls" });
+		const expandBtn = controls.createEl("button", {
 			cls: "clickable-icon ap-expand-button",
 			attr: {
 				"aria-label": "Open in full tab",
@@ -83,7 +84,14 @@ export class QuizModal extends Modal {
 			this.close();
 			handler?.(this.questions, this.results, this.currentIndex);
 		});
-		this.modalEl.appendChild(expandBtn);
+
+		const closeButton = this.modalEl.querySelector<HTMLElement>(".modal-close-button");
+		if (closeButton) {
+			closeButton.addClass("ap-quiz-close-button");
+			controls.appendChild(closeButton);
+		}
+
+		this.modalEl.appendChild(controls);
 	}
 
 	private shouldConfirmClose(): boolean {

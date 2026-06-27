@@ -416,11 +416,25 @@
 	max-width: 640px;
 }
 
-.ap-expand-button {
+.ap-quiz-modal-controls {
 	position: absolute;
 	top: 8px;
-	right: 42px;
-	z-index: 20;
+	inset-inline-end: 8px;
+	z-index: 30;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.ap-quiz-modal-controls .modal-close-button {
+	position: static;
+	inset: auto;
+	margin: 0;
+	flex: 0 0 auto;
+}
+
+.ap-expand-button {
+	flex: 0 0 auto;
 	cursor: pointer;
 	color: var(--text-muted);
 	padding: 4px;
@@ -444,6 +458,7 @@
 .ap-expand-button svg {
 	width: 16px;
 	height: 16px;
+	display: block;
 }
 
 .ap-progress {
