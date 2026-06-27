@@ -508,6 +508,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 			new Notice("Practice questions are already generating.");
 			return;
 		}
+		this.hideDailyReminderNotice();
 		if (shouldConfirmPracticeDraftReplacement(
 			this.settings.practiceDraft,
 			options.replaceDraft ?? false
