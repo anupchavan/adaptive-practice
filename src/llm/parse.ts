@@ -48,6 +48,11 @@ function normalizeQuestion(rawItem: unknown, i: number): Question | null {
 		if (q.options.length !== 4 || new Set(q.options).size !== 4) return null;
 		q.correctAnswer = normalizeMcqCorrectAnswer(rawCorrectAnswer, rawOptions, q.options);
 		if (!q.options.includes(q.correctAnswer)) return null;
+		q.options = shuffleMcqOptions(q.options, q.correctAnswer, [
+			q.id,
+			q.questionText,
+			q.correctAnswer,
+		].join("\n"));
 	} else if (q.type === "mcq") {
 		return null;
 	} else if (!isValidNumericQuestion(q)) {
@@ -131,6 +136,50 @@ function normalizeMcqCorrectAnswer(
 	const normalizedAnswer = stripOptionPrefix(rawCorrectAnswer);
 	const exact = normalizedOptions.find((option) => option === normalizedAnswer);
 	return exact ?? normalizedAnswer;
+}
+
+function shuffleMcqOptions(
+	options: string[],
+	correctAnswer: string,
+	seedText: string
+): string[] {
+	const terminalOptions = options.filter(isTerminalOption);
+	const regularOptions = options.filter((option) => !isTerminalOption(option));
+	if (regularOptions.length <= 1) return [...regularOptions, ...terminalOptions];
+
+	const originalCorrectIndex = regularOptions.indexOf(correctAnswer);
+	const shuffled = [...regularOptions];
+	let seed = hashString(seedText);
+	for (let i = shuffled.length - 1; i > 0; i--) {
+		seed = nextSeed(seed);
+		const j = seed % (i + 1);
+		[shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!];
+	}
+
+	if (originalCorrectIndex >= 0 && shuffled.indexOf(correctAnswer) === originalCorrectIndex) {
+		const offset = (hashString(`${seedText}\ncorrect-offset`) % (shuffled.length - 1)) + 1;
+		shuffled.push(...shuffled.splice(0, offset));
+	}
+
+	return [...shuffled, ...terminalOptions];
+}
+
+function isTerminalOption(option: string): boolean {
+	return /^(?:all|none)\s+of\s+(?:the\s+)?(?:above|these|the\s+options)\b/i
+		.test(option.trim());
+}
+
+function hashString(value: string): number {
+	let hash = 2166136261;
+	for (let i = 0; i < value.length; i++) {
+		hash ^= value.charCodeAt(i);
+		hash = Math.imul(hash, 16777619);
+	}
+	return hash >>> 0;
+}
+
+function nextSeed(seed: number): number {
+	return (Math.imul(seed, 1664525) + 1013904223) >>> 0;
 }
 
 function optionLetter(value: string): string | null {

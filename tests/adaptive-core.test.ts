@@ -174,13 +174,14 @@ test("parseQuestions accepts wrapped fenced JSON and normalizes MCQ options", ()
 	const question = questions[0];
 	assert.ok(question);
 	assert.equal(question.id, "rotated-1");
-	assert.deepEqual(question.options, [
+	assert.deepEqual(new Set(question.options), new Set([
 		"left half is always sorted",
 		"one half is always sorted",
 		"neither side can be sorted",
 		"both halves are always sorted",
-	]);
+	]));
 	assert.equal(question.correctAnswer, "one half is always sorted");
+	assert.notEqual(question.options?.indexOf(question.correctAnswer), 1);
 	assert.deepEqual(question.sourceSubtopics, ["pivot invariant"]);
 });
 
@@ -205,16 +206,46 @@ test("parseQuestions extracts JSON from provider chatter and resolves letter ans
 }
 \`\`\`
 
-Hope that helps.`);
+	Hope that helps.`);
 
 	assert.equal(questions.length, 1);
-	assert.deepEqual(questions[0]?.options, [
+	assert.deepEqual(new Set(questions[0]?.options), new Set([
 		"left half",
 		"right half",
 		"both halves",
 		"neither half",
-	]);
+	]));
 	assert.equal(questions[0]?.correctAnswer, "right half");
+	assert.notEqual(questions[0]?.options?.indexOf("right half"), 1);
+});
+
+test("parseQuestions shuffles MCQ options while preserving terminal options", () => {
+	const questions = parseQuestions(JSON.stringify({
+		questions: [
+			{
+				id: "terminal-option",
+				type: "mcq",
+				questionText: "Which statements about binary search invariants are true?",
+				options: [
+					"A. The interval invariant must hold after each update",
+					"B. Midpoint overflow can be avoided with low + floor((high-low)/2)",
+					"C. The algorithm can ignore boundary movement",
+					"D. All of the above",
+				],
+				correctAnswer: "B",
+				explanation: "Only the midpoint overflow statement is true as written.",
+				sourceTopics: ["Binary search"],
+				sourceSubtopics: ["invariants"],
+				difficulty: "medium",
+			},
+		],
+	}));
+
+	assert.equal(questions.length, 1);
+	const options = questions[0]?.options ?? [];
+	assert.equal(options[options.length - 1], "All of the above");
+	assert.equal(questions[0]?.correctAnswer, "Midpoint overflow can be avoided with low + floor((high-low)/2)");
+	assert.notEqual(options.indexOf(questions[0]?.correctAnswer ?? ""), 1);
 });
 
 test("parseQuestions accepts a single question object embedded in text", () => {
@@ -695,6 +726,113 @@ test("question calibration filters title-framed recall without a concept anchor"
 				],
 				sourceTopics: [topic.title],
 				sourceSubtopics: [],
+				difficulty: "medium",
+			}),
+		],
+		[
+			{
+				note: topic,
+				content: structure.cleanedText,
+				history: "",
+				structure,
+			},
+		],
+		[topic]
+	);
+
+	assert.equal(calibrated.length, 0);
+});
+
+test("question calibration filters named problem questions that require title memory", () => {
+	const topic = makeTopic({
+		title: "Koko Eating Bananas",
+		aliases: ["Koko banana piles"],
+	});
+	const structure = makeStructure({
+		title: topic.title,
+		headings: [{ heading: "Feasibility check", level: 2 }],
+		sections: [
+			{
+				heading: "Feasibility check",
+				level: 2,
+				content: "For each speed k, sum ceil(pile / k) across piles and compare to h.",
+				wordCount: 15,
+			},
+		],
+	});
+	const calibrated = calibrateQuestionsForPractice(
+		[
+			makeQuestion({
+				questionText: "The binary search approach for Koko Eating Bananas has time complexity O(log(max) × N). What does the O(N) factor represent?",
+				correctAnswer: "Evaluating feasibility by summing ceil(pile/k) across all piles.",
+				options: [
+					"Sorting the piles.",
+					"Evaluating feasibility by summing ceil(pile/k) across all piles.",
+					"The number of binary-search iterations.",
+					"Finding the maximum pile only.",
+				],
+				sourceTopics: [topic.title],
+				sourceSubtopics: ["Feasibility check"],
+				difficulty: "medium",
+			}),
+			makeQuestion({
+				questionText: "Given piles of bananas and h hours, Koko chooses an eating rate k and the feasibility check sums ceil(pile/k) across every pile. Why does that make each binary-search step O(N)?",
+				correctAnswer: "Because one feasibility test scans all N piles.",
+				options: [
+					"Because one feasibility test scans all N piles.",
+					"Because the piles must be sorted each step.",
+					"Because there are N candidate speeds.",
+					"Because max(pile) is recomputed N times.",
+				],
+				sourceTopics: [topic.title],
+				sourceSubtopics: ["Feasibility check"],
+				difficulty: "medium",
+			}),
+		],
+		[
+			{
+				note: topic,
+				content: structure.cleanedText,
+				history: "",
+				structure,
+			},
+		],
+		[topic]
+	);
+
+	assert.equal(calibrated.length, 1);
+	assert.match(calibrated[0]?.questionText ?? "", /Given piles/);
+});
+
+test("question calibration rejects problem-title framing without the problem setup", () => {
+	const topic = makeTopic({
+		title: "Single Element in Sorted Array",
+	});
+	const structure = makeStructure({
+		title: topic.title,
+		headings: [{ heading: "Index pairing invariant", level: 2 }],
+		sections: [
+			{
+				heading: "Index pairing invariant",
+				level: 2,
+				content: "Before the single element, pairs start at even indices; after it, pairs start at odd indices.",
+				wordCount: 15,
+			},
+		],
+	});
+	const calibrated = calibrateQuestionsForPractice(
+		[
+			makeQuestion({
+				questionText: "For the 'Single Element in Sorted Array' problem, the binary search approach relies on an index-pairing invariant. If mid is even and nums[mid] == nums[mid+1], where is the single element?",
+				correctAnswer: "The single element is in the right half.",
+				options: [
+					"The single element is in the left half.",
+					"The single element is in the right half.",
+					"The single element is exactly at mid.",
+					"More information is needed.",
+				],
+				sourceTopics: [topic.title],
+				sourceSubtopics: ["Index pairing invariant"],
 				difficulty: "medium",
 			}),
 		],

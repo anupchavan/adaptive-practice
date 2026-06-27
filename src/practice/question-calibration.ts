@@ -10,7 +10,10 @@ export function calibrateQuestionsForPractice(
 ): Question[] {
 	return questions
 		.map((question) => calibrateQuestionForPractice(question, topicContexts, topics))
-		.filter((question) => !isLowConceptRecallQuestion(question, topics));
+		.filter((question) =>
+			!isLowConceptRecallQuestion(question, topics) &&
+			!isTitleDependentProblemQuestion(question, topics)
+		);
 }
 
 export function calibrateQuestionForPractice(
@@ -56,6 +59,18 @@ export function isLowConceptRecallQuestion(
 		);
 	});
 	return titleFramed;
+}
+
+export function isTitleDependentProblemQuestion(
+	question: Question,
+	topics: TopicNote[]
+): boolean {
+	const normalizedQuestion = normalizeText(question.questionText);
+	const matchedLabels = topics.flatMap(topicLabelKeys)
+		.filter((label) => label.length >= 8 && normalizedQuestion.includes(label));
+	if (matchedLabels.length === 0) return false;
+	if (!hasNamedProblemFraming(normalizedQuestion, matchedLabels)) return false;
+	return !hasSelfContainedProblemSetup(question.questionText);
 }
 
 export function inferSourceSubtopics(
@@ -262,6 +277,33 @@ function titlesOverlap(a: string, b: string): boolean {
 	const left = normalizeText(a);
 	const right = normalizeText(b);
 	return left === right || left.includes(right) || right.includes(left);
+}
+
+function hasNamedProblemFraming(
+	normalizedQuestion: string,
+	labels: string[]
+): boolean {
+	if (/\bproblem\b/.test(normalizedQuestion)) return true;
+	if (/\b(?:algorithm|approach|solution|complexity)\s+(?:for|of)\b/.test(normalizedQuestion)) {
+		return true;
+	}
+	return labels.some((label) =>
+		normalizedQuestion.includes(`${label} has time complexity`) ||
+		normalizedQuestion.includes(`${label} algorithm`) ||
+		normalizedQuestion.includes(`${label} approach`)
+	);
+}
+
+function hasSelfContainedProblemSetup(questionText: string): boolean {
+	if (/```|~~~|\[[^\]]*,[^\]]*\]|\b(?:nums|arr|array|piles|hours|target|rate|k|h)\s*=/i.test(questionText)) {
+		return true;
+	}
+	const lower = questionText.toLowerCase();
+	const hasGiven = /\b(?:given|you are given|input|suppose|consider)\b/.test(lower);
+	const hasTaskVerb = /\b(?:return|find|search|minimize|maximize|determine|compute|decide|choose)\b/.test(lower);
+	const hasDomainObject = /\b(?:array|list|string|graph|tree|piles?|bananas?|hours?|rate|element|target|subarray|matrix|number|integer)\b/.test(lower);
+	const hasConstraint = /\b(?:where|such that|except|each|every|at most|at least|exactly|distinct|sorted)\b/.test(lower);
+	return hasDomainObject && hasGiven && (hasTaskVerb || hasConstraint);
 }
 
 function mergeUnique(values: string[]): string[] {

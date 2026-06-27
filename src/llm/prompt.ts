@@ -95,6 +95,7 @@ ${feedbackGuidance}
 5. Avoid repeating exact subtopics from past practice unless the learner struggled or the scheduler says the topic is due.
 6. Treat a note title as a source label, not automatically as the concept. Use headings, sections, frontmatter, diagrams, examples, and recurring terms to identify the actual concept being tested.
 7. Ignore clipped webpage junk, navigation labels, cookie banners, and unrelated boilerplate even if it appears in the note.
+8. For notes about named problems, make the question self-contained. Restate the input/goal or concrete setup needed for the reasoning; do not expect the learner to remember a problem statement from the title alone.
 
 Subtopic memory rule: each topic may include structured subtopic memory. Use "revisit" subtopics when they show misses, skips, slow/weak performance, or the topic is due. Avoid "mastered" subtopics unless they are needed as a stepping stone for transfer. Prefer headings or unpracticed sections for fresh questions.
 
