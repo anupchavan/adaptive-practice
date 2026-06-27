@@ -43,8 +43,8 @@ import {
 	syncLegacySecretName,
 } from "./practice/provider-secrets";
 import {
-	hasStaleProviderModels,
 	normalizeProviderModels,
+	providerModelsNeedNormalization,
 } from "./practice/provider-models";
 import {
 	buildPracticeDraft,
@@ -235,7 +235,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 	async loadSettings(): Promise<void> {
 		const raw: unknown = await this.loadData();
 		this.settings = normalizeSettings(raw);
-		if (rawHasStaleProviderModels(raw)) {
+		if (rawProviderModelsNeedNormalization(raw)) {
 			await this.saveSettings();
 		}
 	}
@@ -945,10 +945,10 @@ function getProviderBaseUrl(settings: AdaptivePracticeSettings): string {
 		PROVIDER_PRESETS[settings.llmProvider].baseUrl;
 }
 
-function rawHasStaleProviderModels(raw: unknown): boolean {
+function rawProviderModelsNeedNormalization(raw: unknown): boolean {
 	if (!raw || typeof raw !== "object") return false;
 	const providerModels = (raw as Partial<AdaptivePracticeSettings>).providerModels;
-	return hasStaleProviderModels(providerModels);
+	return providerModelsNeedNormalization(providerModels);
 }
 
 function stringSetting(value: unknown, fallback: string): string {

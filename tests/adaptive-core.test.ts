@@ -59,9 +59,10 @@ import {
 	syncLegacySecretName,
 } from "../src/practice/provider-secrets";
 import {
-	hasStaleProviderModels,
 	migrateProviderModel,
 	normalizeProviderModels,
+	providerModelsNeedNormalization,
+	setProviderModelOverride,
 } from "../src/practice/provider-models";
 import {
 	isMeaningfulPracticeSession,
@@ -879,11 +880,11 @@ test("provider model migration repairs stale saved defaults without changing cus
 	);
 	assert.equal(
 		migrateProviderModel("deepseek", "deepseek-reasoner"),
-		PROVIDER_PRESETS.deepseek.model
+		"deepseek-reasoner"
 	);
 	assert.equal(
 		migrateProviderModel("qwen", "qwen-plus"),
-		PROVIDER_PRESETS.qwen.model
+		"qwen-plus"
 	);
 	assert.equal(
 		migrateProviderModel("openai-compatible", "my-local-model"),
@@ -897,19 +898,38 @@ test("provider model migration repairs stale saved defaults without changing cus
 			unknown: "ignored",
 		}),
 		{
-			anthropic: PROVIDER_PRESETS.anthropic.model,
-			qwen: PROVIDER_PRESETS.qwen.model,
+			qwen: "qwen-plus",
 			"openai-compatible": "local/teacher",
 		}
 	);
 	assert.equal(
-		hasStaleProviderModels({ anthropic: "claude-sonnet-4-20250514" }),
+		providerModelsNeedNormalization({ anthropic: "claude-sonnet-4-20250514" }),
 		true
 	);
 	assert.equal(
-		hasStaleProviderModels({ anthropic: PROVIDER_PRESETS.anthropic.model }),
+		providerModelsNeedNormalization({ anthropic: PROVIDER_PRESETS.anthropic.model }),
+		true
+	);
+	assert.equal(
+		providerModelsNeedNormalization({ qwen: "qwen-plus" }),
 		false
 	);
+});
+
+test("provider model overrides are sparse and resettable", () => {
+	const models: AdaptivePracticeSettings["providerModels"] = {};
+
+	setProviderModelOverride(models, "anthropic", PROVIDER_PRESETS.anthropic.model);
+	assert.deepEqual(models, {});
+
+	setProviderModelOverride(models, "anthropic", "claude-sonnet-4-20250514");
+	assert.deepEqual(models, {});
+
+	setProviderModelOverride(models, "anthropic", "custom-claude-router");
+	assert.deepEqual(models, { anthropic: "custom-claude-router" });
+
+	setProviderModelOverride(models, "anthropic", "");
+	assert.deepEqual(models, {});
 });
 
 test("OpenAI Responses adapter normalizes endpoint and extracts output text", () => {

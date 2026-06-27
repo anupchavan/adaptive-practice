@@ -6,21 +6,8 @@ import {
 } from "../types";
 
 const LEGACY_PROVIDER_MODELS: Partial<Record<LlmProvider, Record<string, string>>> = {
-	gemini: {
-		"gemini-2.0-flash": PROVIDER_PRESETS.gemini.model,
-	},
 	anthropic: {
 		"claude-sonnet-4-20250514": PROVIDER_PRESETS.anthropic.model,
-	},
-	deepseek: {
-		"deepseek-chat": PROVIDER_PRESETS.deepseek.model,
-		"deepseek-reasoner": PROVIDER_PRESETS.deepseek.model,
-	},
-	qwen: {
-		"qwen-plus": PROVIDER_PRESETS.qwen.model,
-	},
-	openrouter: {
-		"openai/gpt-4o-mini": PROVIDER_PRESETS.openrouter.model,
 	},
 };
 
@@ -32,7 +19,7 @@ export function normalizeProviderModels(
 	for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
 		if (key in LLM_PROVIDER_LABELS && typeof value === "string") {
 			const provider = key as LlmProvider;
-			output[provider] = migrateProviderModel(provider, value);
+			setProviderModelOverride(output, provider, value);
 		}
 	}
 	return output;
@@ -47,12 +34,31 @@ export function migrateProviderModel(
 	return LEGACY_PROVIDER_MODELS[provider]?.[trimmed] ?? trimmed;
 }
 
-export function hasStaleProviderModels(input: unknown): boolean {
+export function setProviderModelOverride(
+	models: AdaptivePracticeSettings["providerModels"],
+	provider: LlmProvider,
+	model: string
+): void {
+	const migrated = migrateProviderModel(provider, model);
+	if (!migrated || migrated === PROVIDER_PRESETS[provider].model) {
+		delete models[provider];
+		return;
+	}
+	models[provider] = migrated;
+}
+
+export function providerModelsNeedNormalization(input: unknown): boolean {
 	if (!input || typeof input !== "object") return false;
-	for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
-		if (!(key in LLM_PROVIDER_LABELS) || typeof value !== "string") continue;
+	const rawEntries = Object.entries(input as Record<string, unknown>)
+		.filter(([key, value]) => key in LLM_PROVIDER_LABELS && typeof value === "string")
+		.map(([key, value]) => [key, (value as string).trim()] as const);
+	const normalized = normalizeProviderModels(input);
+	const normalizedEntries = Object.entries(normalized)
+		.map(([key, value]) => [key, value] as const);
+	if (rawEntries.length !== normalizedEntries.length) return true;
+	for (const [key, value] of rawEntries) {
 		const provider = key as LlmProvider;
-		if (migrateProviderModel(provider, value) !== value.trim()) return true;
+		if (normalized[provider] !== value) return true;
 	}
 	return false;
 }

@@ -12,6 +12,7 @@ import {
 	setProviderSecretName,
 	syncLegacySecretName,
 } from "./practice/provider-secrets";
+import { setProviderModelOverride } from "./practice/provider-models";
 
 export class AdaptivePracticeSettingTab extends PluginSettingTab {
 	plugin: AdaptivePracticePlugin;
@@ -243,8 +244,23 @@ export class AdaptivePracticeSettingTab extends PluginSettingTab {
 					.setPlaceholder(preset.model || "model-name")
 					.setValue(this.plugin.settings.providerModels[provider] || preset.model)
 					.onChange(async (value) => {
-						this.plugin.settings.providerModels[provider] = value.trim();
+						setProviderModelOverride(
+							this.plugin.settings.providerModels,
+							provider,
+							value
+						);
 						await this.plugin.saveSettings();
+					})
+			)
+			.addButton((button) =>
+				button
+					.setButtonText("Use default")
+					.setTooltip(`Use ${preset.model || "the provider default"}`)
+					.setDisabled(!this.plugin.settings.providerModels[provider])
+					.onClick(async () => {
+						delete this.plugin.settings.providerModels[provider];
+						await this.plugin.saveSettings();
+						this.display();
 					})
 			);
 
