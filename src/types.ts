@@ -153,6 +153,7 @@ export interface AdaptivePracticeSettings {
 	dailyTopicLimit: number;
 	pdfSkills: Record<string, number>;
 	practiceMemory: PracticeMemory;
+	practiceDraft: PracticeDraft | null;
 }
 
 export interface DailyPracticeState {
@@ -229,6 +230,7 @@ export const DEFAULT_SETTINGS: AdaptivePracticeSettings = {
 	dailyTopicLimit: 6,
 	pdfSkills: {},
 	practiceMemory: JSON.parse(JSON.stringify(DEFAULT_PRACTICE_MEMORY)) as PracticeMemory,
+	practiceDraft: null,
 };
 
 export type QuestionType = "mcq" | "integer" | "decimal";
@@ -252,6 +254,16 @@ export interface QuizResult {
 	isCorrect: boolean;
 	skipped: boolean;
 	timeTakenMs: number;
+}
+
+export interface PracticeDraft {
+	questions: Question[];
+	results: QuizResult[];
+	currentIndex: number;
+	topics: TopicNote[];
+	config: SessionConfig;
+	createdAt: number;
+	updatedAt: number;
 }
 
 export interface TopicNote {

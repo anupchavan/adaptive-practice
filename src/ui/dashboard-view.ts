@@ -1,6 +1,7 @@
 import { ItemView, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import type AdaptivePracticePlugin from "../main";
-import { DailySessionPlan, NoteIndexEntry, NotePracticeState, TopicNote } from "../types";
+import { DailySessionPlan, NoteIndexEntry, NotePracticeState, PracticeDraft, TopicNote } from "../types";
+import { practiceDraftProgress } from "../practice/draft";
 
 export const DASHBOARD_VIEW_TYPE = "adaptive-practice-dashboard-view";
 
@@ -9,6 +10,7 @@ interface DashboardState {
 	dailyTopics: TopicNote[];
 	dailyPlan: DailySessionPlan;
 	dailyComplete: boolean;
+	practiceDraft: PracticeDraft | null;
 	loading: boolean;
 }
 
@@ -23,6 +25,7 @@ export class DashboardView extends ItemView {
 			reason: "loading",
 		},
 		dailyComplete: false,
+		practiceDraft: null,
 		loading: true,
 	};
 
@@ -63,6 +66,7 @@ export class DashboardView extends ItemView {
 			dailyTopics,
 			dailyPlan: this.plugin.getDailySessionPlan(dailyTopics),
 			dailyComplete,
+			practiceDraft: this.plugin.getPracticeDraft(),
 			loading: false,
 		};
 		this.render();
@@ -123,9 +127,19 @@ export class DashboardView extends ItemView {
 
 	private renderActions(container: HTMLElement): void {
 		const actions = container.createDiv({ cls: "ap-dash-actions" });
+		if (this.state.practiceDraft) {
+			const resume = actions.createEl("button", {
+				text: "Resume practice",
+				cls: "mod-cta",
+			});
+			resume.addEventListener("click", () => {
+				void this.plugin.resumePracticeDraft();
+			});
+		}
+
 		const startDaily = actions.createEl("button", {
 			text: this.state.dailyComplete ? "Practice more" : "Start daily",
-			cls: "mod-cta",
+			cls: this.state.practiceDraft ? "" : "mod-cta",
 		});
 		startDaily.disabled = this.state.dailyTopics.length === 0;
 		startDaily.addEventListener("click", () => {
@@ -141,7 +155,9 @@ export class DashboardView extends ItemView {
 		});
 
 		container.createDiv({
-			text: this.state.dailyComplete
+			text: this.state.practiceDraft
+				? `Unfinished session: ${practiceDraftProgress(this.state.practiceDraft)}.`
+				: this.state.dailyComplete
 				? "Daily practice counted today. You can still take another limited batch if you want more reps."
 				: `Today's plan: ${formatChallengeMode(this.state.dailyPlan.challengeMode)} · ${this.state.dailyPlan.reason}`,
 			cls: "ap-dash-plan",

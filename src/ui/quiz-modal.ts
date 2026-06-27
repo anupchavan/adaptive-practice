@@ -11,6 +11,8 @@ export class QuizModal extends Modal {
 	private currentIndex = 0;
 	private onComplete: (results: QuizResult[]) => void;
 	private onExpand: ((questions: Question[], results: QuizResult[], currentIndex: number) => void) | null;
+	private onStateChange: ((questions: Question[], results: QuizResult[], currentIndex: number) => void) | null;
+	private onAbort: (() => void) | null;
 	private renderComponent: Component;
 
 	private selectedAnswer = "";
@@ -23,12 +25,16 @@ export class QuizModal extends Modal {
 		app: App,
 		questions: Question[],
 		onComplete: (results: QuizResult[]) => void,
-		onExpand?: (questions: Question[], results: QuizResult[], currentIndex: number) => void
+		onExpand?: (questions: Question[], results: QuizResult[], currentIndex: number) => void,
+		onStateChange?: (questions: Question[], results: QuizResult[], currentIndex: number) => void,
+		onAbort?: () => void
 	) {
 		super(app);
 		this.questions = questions;
 		this.onComplete = onComplete;
 		this.onExpand = onExpand ?? null;
+		this.onStateChange = onStateChange ?? null;
+		this.onAbort = onAbort ?? null;
 		this.renderComponent = new Component();
 	}
 
@@ -100,6 +106,7 @@ export class QuizModal extends Modal {
 			onConfirm: () => {
 				this.allowClose = true;
 				this.closeConfirmationOpen = false;
+				this.onAbort?.();
 				this.close();
 			},
 			onCancel: () => {
@@ -166,6 +173,7 @@ export class QuizModal extends Modal {
 				timeTakenMs: elapsed,
 			});
 			adaptQuestionOrderForFlow(this.questions, this.results, this.currentIndex);
+			this.emitStateChange();
 			this.advance();
 		});
 
@@ -189,6 +197,7 @@ export class QuizModal extends Modal {
 				timeTakenMs: elapsed,
 			});
 			adaptQuestionOrderForFlow(this.questions, this.results, this.currentIndex);
+			this.emitStateChange();
 
 			this.showFeedback(feedbackEl, isCorrect, q);
 			checkBtn.remove();
@@ -300,8 +309,13 @@ export class QuizModal extends Modal {
 			this.onComplete(this.results);
 		} else {
 			this.currentIndex++;
+			this.emitStateChange();
 			this.renderQuestion();
 		}
+	}
+
+	private emitStateChange(): void {
+		this.onStateChange?.(this.questions, this.results, this.currentIndex);
 	}
 
 	private renderMarkdown(md: string, el: HTMLElement): void {

@@ -21,6 +21,7 @@ interface PracticeState {
 	currentIndex: number;
 	topics: TopicNote[];
 	onComplete: (results: QuizResult[]) => void;
+	onStateChange?: (questions: Question[], results: QuizResult[], currentIndex: number) => void;
 	questionPaneSide: "left" | "right";
 }
 
@@ -129,10 +130,12 @@ export class PracticeView extends ItemView {
 		if (e.key === "ArrowRight" && s.currentIndex < furthest) {
 			e.preventDefault();
 			s.currentIndex++;
+			this.emitStateChange();
 			this.render();
 		} else if (e.key === "ArrowLeft" && s.currentIndex > 0) {
 			e.preventDefault();
 			s.currentIndex--;
+			this.emitStateChange();
 			this.render();
 		}
 	}
@@ -203,6 +206,7 @@ export class PracticeView extends ItemView {
 				cell.addClass("ap-pv-grid-clickable");
 				cell.addEventListener("click", () => {
 					s.currentIndex = i;
+					this.emitStateChange();
 					this.render();
 				});
 			}
@@ -304,6 +308,7 @@ export class PracticeView extends ItemView {
 				this.state!.results,
 				this.state!.currentIndex
 			);
+			this.emitStateChange();
 			this.render();
 		});
 
@@ -331,6 +336,7 @@ export class PracticeView extends ItemView {
 				this.state!.results,
 				this.state!.currentIndex
 			);
+			this.emitStateChange();
 			this.render();
 		});
 
@@ -485,9 +491,16 @@ export class PracticeView extends ItemView {
 				this.leaf.detach();
 			} else {
 				s.currentIndex++;
+				this.emitStateChange();
 				this.render();
 			}
 		});
+	}
+
+	private emitStateChange(): void {
+		const s = this.state;
+		if (!s?.onStateChange) return;
+		s.onStateChange(s.questions, s.results, s.currentIndex);
 	}
 
 	private renderSaveButtonContent(btn: HTMLElement, isSaved: boolean): void {

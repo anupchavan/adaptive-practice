@@ -5,6 +5,7 @@ import {
 	LLM_PROVIDER_LABELS,
 	PROVIDER_PRESETS,
 	DailySessionPlan,
+	PracticeDraft,
 	Question,
 	QuizResult,
 	SessionConfig,
@@ -36,6 +37,11 @@ import {
 	normalizeProviderSecretNames,
 	syncLegacySecretName,
 } from "./practice/provider-secrets";
+import {
+	buildPracticeDraft,
+	normalizePracticeDraft,
+	practiceDraftProgress,
+} from "./practice/draft";
 
 export default class AdaptivePracticePlugin extends Plugin {
 	settings: AdaptivePracticeSettings = DEFAULT_SETTINGS;
@@ -52,6 +58,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 			this.detachPracticeLeaves();
 			void this.refreshPracticePlan(false);
 			void this.checkDailyReminder();
+			this.showResumePracticeNotice();
 		});
 
 		this.registerInterval(window.setInterval(() => {
@@ -89,6 +96,16 @@ export default class AdaptivePracticePlugin extends Plugin {
 			name: "Start daily practice",
 			callback: () => {
 				void this.startDailyPractice();
+			},
+		});
+
+		this.addCommand({
+			id: "resume-practice-session",
+			name: "Resume unfinished practice session",
+			checkCallback: (checking) => {
+				if (!this.settings.practiceDraft) return false;
+				if (!checking) void this.resumePracticeDraft();
+				return true;
 			},
 		});
 
@@ -269,6 +286,33 @@ export default class AdaptivePracticePlugin extends Plugin {
 		);
 	}
 
+	getPracticeDraft(): PracticeDraft | null {
+		return this.settings.practiceDraft;
+	}
+
+	async resumePracticeDraft(): Promise<void> {
+		const draft = normalizePracticeDraft(this.settings.practiceDraft);
+		if (!draft) {
+			await this.clearPracticeDraft();
+			new Notice("No unfinished practice session to resume.");
+			return;
+		}
+		this.settings.practiceDraft = draft;
+		await this.saveSettings();
+		await this.openPracticeView(
+			draft.questions,
+			draft.results,
+			draft.currentIndex,
+			draft.topics,
+			draft.config
+		);
+	}
+
+	async discardPracticeDraft(): Promise<void> {
+		await this.clearPracticeDraft();
+		new Notice("Unfinished practice session discarded.");
+	}
+
 	async startDailyPractice(): Promise<void> {
 		const topics = await this.refreshPracticePlan(false);
 		const selection = this.getDailyTopicSelection(topics);
@@ -338,6 +382,26 @@ export default class AdaptivePracticePlugin extends Plugin {
 		});
 	}
 
+	private showResumePracticeNotice(): void {
+		const draft = this.settings.practiceDraft;
+		if (!draft) return;
+		const notice = new Notice("", 0);
+		notice.messageEl.empty();
+		notice.messageEl.createSpan({
+			text: `Unfinished Adaptive Practice session (${practiceDraftProgress(draft)}). `,
+		});
+		const resume = notice.messageEl.createEl("button", { text: "Resume" });
+		resume.addEventListener("click", () => {
+			notice.hide();
+			void this.resumePracticeDraft();
+		});
+		const discard = notice.messageEl.createEl("button", { text: "Discard" });
+		discard.addEventListener("click", () => {
+			notice.hide();
+			void this.discardPracticeDraft();
+		});
+	}
+
 	private async startSession(config: SessionConfig): Promise<void> {
 		const loadingNotice = new Notice(
 			`Generating ${config.questionCount} adaptive question${config.questionCount === 1 ? "" : "s"} from ${config.topics.length} note${config.topics.length === 1 ? "" : "s"}... This can take a little while; the quiz will open when ready.`,
@@ -389,6 +453,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 			}
 
 			shuffle(questions);
+			await this.savePracticeDraft(config, questions, [], 0);
 
 			const usedTopics = new Set(
 				questions.flatMap((q) => q.sourceTopics)
@@ -406,10 +471,21 @@ export default class AdaptivePracticePlugin extends Plugin {
 			};
 
 			const onExpand = (qs: Question[], results: QuizResult[], currentIndex: number) => {
-				void this.openPracticeView(qs, results, currentIndex, config.topics, onComplete);
+				void this.openPracticeView(qs, results, currentIndex, config.topics, config);
 			};
 
-			new QuizModal(this.app, questions, onComplete, onExpand).open();
+			const onStateChange = (
+				qs: Question[],
+				results: QuizResult[],
+				currentIndex: number
+			) => {
+				void this.savePracticeDraft(config, qs, results, currentIndex);
+			};
+			const onAbort = () => {
+				void this.clearPracticeDraft();
+			};
+
+			new QuizModal(this.app, questions, onComplete, onExpand, onStateChange, onAbort).open();
 		} catch (e) {
 			loadingNotice.hide();
 			new Notice(
@@ -442,6 +518,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 				results,
 				deltas
 			);
+			this.settings.practiceDraft = null;
 			await this.saveSettings();
 			finalNotice.hide();
 			new ResultsModal(this.app, results, deltas).open();
@@ -458,23 +535,65 @@ export default class AdaptivePracticePlugin extends Plugin {
 		results: QuizResult[],
 		currentIndex: number,
 		topics: TopicNote[],
-		onComplete: (results: QuizResult[]) => void
+		config: SessionConfig
 	): Promise<void> {
+		await this.savePracticeDraft(config, questions, results, currentIndex, topics);
 		const leaf = this.app.workspace.getLeaf("tab");
 		await leaf.setViewState({ type: PRACTICE_VIEW_TYPE, active: true });
 		await this.app.workspace.revealLeaf(leaf);
 
 		const view = leaf.view;
 		if (view instanceof PracticeView) {
+			const onComplete = (completedResults: QuizResult[]) => {
+				void this.completeSession(config, completedResults);
+			};
 			view.setPracticeState({
 				questions,
 				results,
 				currentIndex,
 				topics,
 				onComplete,
+				onStateChange: (
+					nextQuestions: Question[],
+					nextResults: QuizResult[],
+					nextIndex: number
+				) => {
+					void this.savePracticeDraft(
+						config,
+						nextQuestions,
+						nextResults,
+						nextIndex,
+						topics
+					);
+				},
 				questionPaneSide: this.settings.questionPaneSide,
 			});
 		}
+	}
+
+	private async savePracticeDraft(
+		config: SessionConfig,
+		questions: Question[],
+		results: QuizResult[],
+		currentIndex: number,
+		topics = config.topics
+	): Promise<void> {
+		if (results.length >= questions.length) return;
+		this.settings.practiceDraft = buildPracticeDraft(
+			questions,
+			results,
+			currentIndex,
+			topics,
+			{ ...config, topics },
+			Date.now()
+		);
+		await this.saveSettings();
+	}
+
+	private async clearPracticeDraft(): Promise<void> {
+		if (!this.settings.practiceDraft) return;
+		this.settings.practiceDraft = null;
+		await this.saveSettings();
 	}
 }
 
@@ -535,6 +654,7 @@ function normalizeSettings(raw: unknown): AdaptivePracticeSettings {
 	settings.dailyQuestionCount = clamp(settings.dailyQuestionCount, 3, 20, DEFAULT_SETTINGS.dailyQuestionCount);
 	settings.dailyTopicLimit = clamp(settings.dailyTopicLimit, 1, 12, DEFAULT_SETTINGS.dailyTopicLimit);
 	settings.practiceMemory = normalizePracticeMemory(settings.practiceMemory);
+	settings.practiceDraft = normalizePracticeDraft(settings.practiceDraft);
 	return settings;
 }
 

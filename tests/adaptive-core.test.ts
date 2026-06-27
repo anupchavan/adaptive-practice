@@ -76,6 +76,11 @@ import {
 	adaptQuestionOrderForFlow,
 	nextTargetDifficulty,
 } from "../src/practice/flow-navigation";
+import {
+	buildPracticeDraft,
+	normalizePracticeDraft,
+	practiceDraftProgress,
+} from "../src/practice/draft";
 import { folderLabel, stringifyGroupValue } from "../src/ui/topic-groups";
 import { hasBlockMarkdown } from "../src/ui/markdown-detection";
 import {
@@ -635,6 +640,64 @@ test("legacy secret migration avoids carrying a stale Gemini default to another 
 
 test("default practice view settings keep the question pane on the left", () => {
 	assert.equal(DEFAULT_SETTINGS.questionPaneSide, "left");
+});
+
+test("practice drafts normalize unfinished generated sessions for reload resume", () => {
+	const now = Date.UTC(2026, 5, 27, 12);
+	const topics = [makeTopic({ title: "Rotated binary search" })];
+	const questions = [
+		makeQuestion({ id: "q1", sourceTopics: [topics[0]!.title] }),
+		makeQuestion({ id: "q2", sourceTopics: [topics[0]!.title] }),
+	];
+	const draft = buildPracticeDraft(
+		questions,
+		[makeResult(questions[0]!, { timeTakenMs: 45_000 })],
+		99,
+		topics,
+		{
+			topics,
+			questionCount: 2,
+			mode: "daily",
+			challengeMode: "stretch",
+			challengeReason: "fluent recall",
+		},
+		now
+	);
+	const normalized = normalizePracticeDraft(draft, now + 60_000);
+
+	assert.ok(normalized);
+	assert.equal(normalized.currentIndex, 1);
+	assert.equal(normalized.results.length, 1);
+	assert.equal(normalized.config.mode, "daily");
+	assert.equal(normalized.config.challengeMode, "stretch");
+	assert.equal(practiceDraftProgress(normalized), "1 / 2 answered");
+});
+
+test("practice drafts drop stale, completed, or malformed sessions", () => {
+	const now = Date.UTC(2026, 5, 27, 12);
+	const topics = [makeTopic()];
+	const questions = [makeQuestion({ id: "q1" })];
+	const valid = buildPracticeDraft(
+		questions,
+		[],
+		0,
+		topics,
+		{ topics, questionCount: 1 },
+		now
+	);
+	const completed = buildPracticeDraft(
+		questions,
+		[makeResult(questions[0]!)],
+		0,
+		topics,
+		{ topics, questionCount: 1 },
+		now
+	);
+
+	assert.equal(normalizePracticeDraft(valid, now + 8 * DAY_MS), null);
+	assert.equal(normalizePracticeDraft(completed, now), null);
+	assert.equal(normalizePracticeDraft({ ...valid, questions: [] }, now), null);
+	assert.equal(normalizePracticeDraft({ ...valid, topics: [] }, now), null);
 });
 
 test("markdown block detection catches fenced code with indentation", () => {
