@@ -57,6 +57,8 @@ export default class AdaptivePracticePlugin extends Plugin {
 	private sessionGenerationId = 0;
 	private dailyReminderNotice: Notice | null = null;
 	private unloading = false;
+	private practicePlanRefresh: Promise<TopicNote[]> | null = null;
+	private practicePlanRefreshNoticeRequested = false;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -240,6 +242,17 @@ export default class AdaptivePracticePlugin extends Plugin {
 	}
 
 	async refreshPracticePlan(showNotice: boolean): Promise<TopicNote[]> {
+		if (showNotice) this.practicePlanRefreshNoticeRequested = true;
+		if (this.practicePlanRefresh) return this.practicePlanRefresh;
+
+		this.practicePlanRefresh = this.runPracticePlanRefresh().finally(() => {
+			this.practicePlanRefresh = null;
+			this.practicePlanRefreshNoticeRequested = false;
+		});
+		return this.practicePlanRefresh;
+	}
+
+	private async runPracticePlanRefresh(): Promise<TopicNote[]> {
 		const scan = await scanVaultSkeleton(
 			this.app,
 			this.settings.practiceFolder,
@@ -263,7 +276,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 			this.settings.practiceMemory,
 			now
 		);
-		if (showNotice) {
+		if (this.practicePlanRefreshNoticeRequested) {
 			const dueCount = selectDailyTopics(
 				indexed,
 				this.settings.practiceMemory,
