@@ -127,7 +127,7 @@ export class DashboardView extends ItemView {
 		const copy = header.createDiv();
 		copy.createEl("h2", { text: "Adaptive practice" });
 		copy.createDiv({
-			text: "Daily review, due notes, and vault scan status",
+			text: "Daily review and due notes",
 			cls: "ap-dash-subtitle",
 		});
 	}
@@ -135,19 +135,23 @@ export class DashboardView extends ItemView {
 	private renderStats(container: HTMLElement): void {
 		const memory = this.plugin.settings.practiceMemory;
 		const stats = container.createDiv({ cls: "ap-dash-stats" });
-		this.renderStat(stats, "Streak", `${memory.daily.streak}`);
 		this.renderStat(
 			stats,
-			this.state.dailyComplete ? "Today" : "Due notes",
-			this.state.dailyComplete ? "Done" : `${this.state.dailyTopics.length}`
+			"Streak",
+			`${memory.daily.streak}`,
+			this.state.dailyComplete ? "ap-dash-stat-streak-done" : "ap-dash-stat-streak-due"
+		);
+		this.renderStat(
+			stats,
+			"Due notes",
+			`${this.state.dailyTopics.length}`
 		);
 		this.renderStat(stats, "Plan", `${this.state.dailyPlan.questionCount}`);
-		this.renderStat(stats, "Indexed", `${Object.keys(memory.index).length}`);
-		this.renderStat(stats, "Scanned", formatRelativeTime(memory.daily.lastScanAt));
 	}
 
-	private renderStat(container: HTMLElement, label: string, value: string): void {
+	private renderStat(container: HTMLElement, label: string, value: string, extraClass?: string): void {
 		const stat = container.createDiv({ cls: "ap-dash-stat" });
+		if (extraClass) stat.addClass(extraClass);
 		stat.createDiv({ text: value, cls: "ap-dash-stat-value" });
 		stat.createDiv({ text: label, cls: "ap-dash-stat-label" });
 	}
@@ -279,18 +283,6 @@ export class DashboardView extends ItemView {
 	private getPracticeState(topic: TopicNote): NotePracticeState | null {
 		return this.plugin.settings.practiceMemory.notes[topic.path] ?? null;
 	}
-}
-
-function formatRelativeTime(timestamp: number): string {
-	if (!timestamp) return "Never";
-	const diffMs = Date.now() - timestamp;
-	const diffMinutes = Math.max(0, Math.round(diffMs / 60000));
-	if (diffMinutes < 1) return "Now";
-	if (diffMinutes < 60) return `${diffMinutes}m ago`;
-	const diffHours = Math.round(diffMinutes / 60);
-	if (diffHours < 24) return `${diffHours}h ago`;
-	const diffDays = Math.round(diffHours / 24);
-	return `${diffDays}d ago`;
 }
 
 function formatDueText(dueAt: number | undefined): string {

@@ -39,6 +39,7 @@ export class PracticeView extends ItemView {
 	private keyHandler: ((e: KeyboardEvent) => void) | null = null;
 	private savedIndices = new Set<number>();
 	private completed = false;
+	hoverPopover = null;
 
 	constructor(leaf: WorkspaceLeaf) {
 		super(leaf);
@@ -185,7 +186,7 @@ export class PracticeView extends ItemView {
 				const summary = header.createEl("div", { cls: "ap-pv-sidebar-topic ap-pv-topic-clickable" });
 				summary.setText(`${topicNames.slice(0, MAX_VISIBLE_TOPICS).join(", ")} +${topicNames.length - MAX_VISIBLE_TOPICS} more`);
 				summary.addEventListener("click", () => {
-					new TopicListModal(this.app, topicNames).open();
+					new TopicListModal(this.app, this.sessionTopicsForTitles(topicNames)).open();
 				});
 			}
 		}
@@ -674,25 +675,30 @@ export class PracticeView extends ItemView {
 	}
 
 	private renderMarkdown(md: string, el: HTMLElement): void {
-		el.addEventListener(
-			"click",
-			(event) => {
-				const target = event.target;
-				if (!(target instanceof HTMLElement)) return;
-				if (target.closest("a.internal-link")) {
-					this.emitStateChange();
-				}
-			},
-			{ capture: true }
+		renderMarkdown(this.app, md, el, this.renderComponent, {
+			sourcePath: this.state?.topics[0]?.path ?? "",
+			hoverParent: this,
+			onInternalLinkClick: () => this.emitStateChange(),
+		});
+	}
+
+	private sessionTopicsForTitles(titles: string[]): TopicNote[] {
+		const topics = this.state?.topics ?? [];
+		return titles.map((title) =>
+			topics.find((topic) => topic.title === title) ?? {
+				path: "",
+				title,
+				skill: 0,
+				isPdf: false,
+			}
 		);
-		renderMarkdown(this.app, md, el, this.renderComponent);
 	}
 }
 
 class TopicListModal extends Modal {
-	private topics: string[];
+	private topics: TopicNote[];
 
-	constructor(app: App, topics: string[]) {
+	constructor(app: App, topics: TopicNote[]) {
 		super(app);
 		this.topics = topics;
 	}
@@ -702,11 +708,20 @@ class TopicListModal extends Modal {
 		contentEl.empty();
 		contentEl.addClass("ap-topic-list-modal");
 
-		contentEl.createEl("h3", { text: "Topics in this session" });
+		this.setTitle("Topics in this session");
 
 		const list = contentEl.createDiv({ cls: "ap-topic-list-items" });
-		for (const t of this.topics) {
-			list.createDiv({ text: t, cls: "ap-topic-list-item" });
+		for (const topic of this.topics) {
+			const item = list.createEl("button", {
+				text: topic.title,
+				cls: "ap-topic-list-item",
+			});
+			item.disabled = !topic.path;
+			item.addEventListener("click", () => {
+				if (!topic.path) return;
+				void this.app.workspace.openLinkText(topic.path, "", "tab");
+				this.close();
+			});
 		}
 	}
 

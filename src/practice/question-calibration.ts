@@ -12,7 +12,8 @@ export function calibrateQuestionsForPractice(
 		.map((question) => calibrateQuestionForPractice(question, topicContexts, topics))
 		.filter((question) =>
 			!isLowConceptRecallQuestion(question, topics) &&
-			!isTitleDependentProblemQuestion(question, topics)
+			!isTitleDependentProblemQuestion(question, topics) &&
+			!isMissingVisualReferenceQuestion(question)
 		)
 		.map((question) => linkSourceTopicMentions(question, topics));
 }
@@ -72,6 +73,15 @@ export function isTitleDependentProblemQuestion(
 	if (matchedLabels.length === 0) return false;
 	if (!hasNamedProblemFraming(normalizedQuestion, matchedLabels)) return false;
 	return !hasSelfContainedProblemSetup(question.questionText);
+}
+
+export function isMissingVisualReferenceQuestion(question: Question): boolean {
+	const normalizedQuestion = normalizeText(question.questionText);
+	const refersToShownVisual =
+		/\b(?:diagram|figure|image|screenshot|svg|whiteboard|chart|graph)\b/.test(normalizedQuestion) &&
+		/\b(?:shown|above|below|following|pictured|illustrated|in the image|in the diagram)\b/.test(normalizedQuestion);
+	if (!refersToShownVisual) return false;
+	return !hasInlineVisual(question.questionText);
 }
 
 export function inferSourceSubtopics(
@@ -434,6 +444,10 @@ function hasSelfContainedProblemSetup(questionText: string): boolean {
 	const hasDomainObject = /\b(?:array|list|string|graph|tree|piles?|bananas?|hours?|rate|element|target|subarray|matrix|number|integer)\b/.test(lower);
 	const hasConstraint = /\b(?:where|such that|except|each|every|at most|at least|exactly|distinct|sorted)\b/.test(lower);
 	return hasDomainObject && hasGiven && (hasTaskVerb || hasConstraint);
+}
+
+function hasInlineVisual(markdown: string): boolean {
+	return /!\[[^\]]*]\([^)]+\)|!\[\[[^\]]+]]|<svg\b/i.test(markdown);
 }
 
 function mergeUnique(values: string[]): string[] {

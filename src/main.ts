@@ -14,11 +14,11 @@ import {
 } from "./types";
 import { AdaptivePracticeSettingTab } from "./settings";
 import { SetupModal } from "./ui/setup-modal";
-import { QuizModal } from "./ui/quiz-modal";
 import { ResultsModal } from "./ui/results-modal";
 import { PracticeView, PRACTICE_VIEW_TYPE } from "./ui/practice-view";
 import { DashboardView, DASHBOARD_VIEW_TYPE } from "./ui/dashboard-view";
 import { ConfirmationModal } from "./ui/confirmation-modal";
+import { ADAPTIVE_PRACTICE_HOVER_SOURCE } from "./ui/markdown";
 import { generateQuestions, finalizeSession } from "./practice/session";
 import { hasPracticedToday as memoryHasPracticedToday } from "./practice/daily-status";
 import { resolvePracticeCredit } from "./practice/daily-credit";
@@ -81,6 +81,10 @@ export default class AdaptivePracticePlugin extends Plugin {
 
 		this.registerView(PRACTICE_VIEW_TYPE, (leaf) => new PracticeView(leaf));
 		this.registerView(DASHBOARD_VIEW_TYPE, (leaf) => new DashboardView(leaf, this));
+		this.registerHoverLinkSource(ADAPTIVE_PRACTICE_HOVER_SOURCE, {
+			display: "Adaptive Practice",
+			defaultMod: false,
+		});
 
 		this.app.workspace.onLayoutReady(() => {
 			void this.restoreWorkspaceAfterReload();
@@ -741,26 +745,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 				`${questions.length} questions generated from ${usedCount} / ${selectedCount} selected notes.`
 			);
 
-			const onComplete = (results: QuizResult[]) => {
-				void this.completeSession(config, results);
-			};
-
-			const onExpand = (qs: Question[], results: QuizResult[], currentIndex: number) => {
-				void this.openPracticeView(qs, results, currentIndex, config.topics, config);
-			};
-
-			const onStateChange = (
-				qs: Question[],
-				results: QuizResult[],
-				currentIndex: number
-			) => {
-				void this.savePracticeDraft(config, qs, results, currentIndex);
-			};
-			const onAbort = () => {
-				void this.clearPracticeDraft();
-			};
-
-			new QuizModal(this.app, questions, onComplete, onExpand, onStateChange, onAbort).open();
+			await this.openPracticeView(questions, [], 0, config.topics, config);
 		} catch (e) {
 			if (this.isStaleGeneration(generationId, canceled)) return;
 			loadingNotice.hide();
@@ -781,7 +766,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 		const notice = new Notice("", 0);
 		notice.messageEl.empty();
 		notice.messageEl.createSpan({
-			text: `Generating ${config.questionCount} adaptive question${config.questionCount === 1 ? "" : "s"} from ${config.topics.length} note${config.topics.length === 1 ? "" : "s"}... This can take a little while; the quiz will open when ready. `,
+			text: `Generating ${config.questionCount} adaptive question${config.questionCount === 1 ? "" : "s"} from ${config.topics.length} note${config.topics.length === 1 ? "" : "s"}... This can take a little while; the practice tab will open when ready. `,
 		});
 		const cancel = notice.messageEl.createEl("button", { text: "Cancel" });
 		cancel.addEventListener("click", onCancel);

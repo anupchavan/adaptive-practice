@@ -902,6 +902,52 @@ test("question calibration links accepted source title mentions to Obsidian wiki
 	assert.doesNotMatch(question.questionText, /\*\*First and Last Occurrence\*\*/);
 });
 
+test("question calibration rejects visual questions when no visual is included", () => {
+	const topic = makeTopic({
+		title: "Virtual memory",
+	});
+	const structure = makeStructure({
+		title: topic.title,
+		headings: [{ heading: "Address translation", level: 2 }],
+		sections: [
+			{
+				heading: "Address translation",
+				level: 2,
+				content: "Virtual addresses are translated to physical frames through page tables.",
+				wordCount: 11,
+			},
+		],
+	});
+	const calibrated = calibrateQuestionsForPractice(
+		[
+			makeQuestion({
+				questionText: "According to the virtual memory diagram shown, what is the primary purpose of this mapping mechanism?",
+				correctAnswer: "To translate process virtual addresses to physical memory frames.",
+				options: [
+					"To translate process virtual addresses to physical memory frames.",
+					"To encrypt every memory address.",
+					"To assign process IDs to RAM addresses.",
+					"To cache CPU instructions.",
+				],
+				sourceTopics: [topic.title],
+				sourceSubtopics: ["Address translation"],
+				difficulty: "easy",
+			}),
+		],
+		[
+			{
+				note: topic,
+				content: structure.cleanedText,
+				history: "",
+				structure,
+			},
+		],
+		[topic]
+	);
+
+	assert.equal(calibrated.length, 0);
+});
+
 test("question calibration infers source subtopics from note headings", () => {
 	const topic = makeTopic({ title: "Binary search variants" });
 	const structure = makeStructure({

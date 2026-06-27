@@ -297,7 +297,7 @@
 
 .ap-dash-stats {
 	display: grid;
-	grid-template-columns: repeat(4, minmax(0, 1fr));
+	grid-template-columns: repeat(3, minmax(0, 1fr));
 	gap: 8px;
 	margin-bottom: 14px;
 }
@@ -308,6 +308,26 @@
 	padding: 10px;
 	min-width: 0;
 	background: var(--background-primary);
+}
+
+.ap-dash-stat-streak-done {
+	border-color: rgba(var(--color-green-rgb), 0.35);
+	background: rgba(var(--color-green-rgb), 0.08);
+}
+
+.ap-dash-stat-streak-done .ap-dash-stat-value,
+.ap-dash-stat-streak-done .ap-dash-stat-label {
+	color: var(--color-green);
+}
+
+.ap-dash-stat-streak-due {
+	border-color: rgba(var(--color-yellow-rgb), 0.35);
+	background: rgba(var(--color-yellow-rgb), 0.08);
+}
+
+.ap-dash-stat-streak-due .ap-dash-stat-value,
+.ap-dash-stat-streak-due .ap-dash-stat-label {
+	color: var(--color-yellow);
 }
 
 .ap-dash-stat-value {
@@ -656,6 +676,12 @@
 .ap-rendered-markdown {
 	min-width: 0;
 	overflow-wrap: anywhere;
+	user-select: text;
+	cursor: text;
+}
+
+.ap-rendered-markdown a.internal-link {
+	cursor: pointer;
 }
 
 .ap-rendered-markdown pre {
@@ -1003,6 +1029,7 @@
 .ap-practice-view {
 	height: 100%;
 	overflow: hidden;
+	user-select: text;
 }
 
 .ap-pv-wrapper {
@@ -1281,6 +1308,7 @@
 	transition: all 0.15s ease;
 	background: var(--background-primary);
 	position: relative;
+	user-select: text;
 }
 
 .ap-pv-option-has-block {
@@ -1331,6 +1359,7 @@
 	color: var(--text-muted);
 	background: var(--background-primary);
 	transition: all 0.15s ease;
+	user-select: none;
 }
 
 .ap-pv-letter-correct {
@@ -1669,10 +1698,6 @@
 
 /* ── Topic list modal ── */
 
-.ap-topic-list-modal h3 {
-	margin: 0 0 12px 0;
-}
-
 .ap-topic-list-items {
 	display: flex;
 	flex-direction: column;
@@ -1682,14 +1707,26 @@
 }
 
 .ap-topic-list-item {
+	width: 100%;
 	padding: 6px 10px;
 	border-radius: 6px;
 	font-size: var(--font-ui-small);
 	color: var(--text-normal);
+	background: var(--background-secondary);
+	border: 1px solid transparent;
+	cursor: pointer;
+	text-align: left;
+	font-family: inherit;
 }
 
 .ap-topic-list-item:hover {
 	background: var(--background-modifier-hover);
+	border-color: var(--background-modifier-border-hover);
+}
+
+.ap-topic-list-item:disabled {
+	cursor: default;
+	opacity: 0.65;
 }
 
 /* ── Responsive: stack sidebar on narrow views ── */
