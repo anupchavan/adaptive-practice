@@ -553,6 +553,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 				currentIndex,
 				topics,
 				onComplete,
+				onDiscard: () => this.discardPracticeDraft(),
 				onStateChange: (
 					nextQuestions: Question[],
 					nextResults: QuizResult[],

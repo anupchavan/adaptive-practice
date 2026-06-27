@@ -11,6 +11,7 @@ import { Question, QuizResult, TopicNote } from "../types";
 import { checkAnswer } from "../practice/grader";
 import { adaptQuestionOrderForFlow } from "../practice/flow-navigation";
 import { appendSingleQuestion, removeSingleQuestion } from "../notes/writer";
+import { ConfirmationModal } from "./confirmation-modal";
 import { hasBlockMarkdown, renderMarkdown } from "./markdown";
 
 export const PRACTICE_VIEW_TYPE = "adaptive-practice-view";
@@ -21,6 +22,7 @@ interface PracticeState {
 	currentIndex: number;
 	topics: TopicNote[];
 	onComplete: (results: QuizResult[]) => void;
+	onDiscard?: () => void | Promise<void>;
 	onStateChange?: (questions: Question[], results: QuizResult[], currentIndex: number) => void;
 	questionPaneSide: "left" | "right";
 }
@@ -220,12 +222,55 @@ export class PracticeView extends ItemView {
 		this.addStatRow(stats, "Right answers", `${correct}`, "ap-pv-stat-correct");
 		this.addStatRow(stats, "Wrong answers", `${wrong}`, "ap-pv-stat-wrong");
 		this.addStatRow(stats, "Skipped", `${skipped}`, "ap-pv-stat-skipped");
+
+		this.renderSessionActions(container);
 	}
 
 	private addStatRow(container: HTMLElement, label: string, value: string, cls: string): void {
 		const row = container.createDiv({ cls: "ap-pv-stat-row" });
 		row.createEl("span", { text: label, cls: "ap-pv-stat-label" });
 		row.createEl("span", { text: value, cls: `ap-pv-stat-value ${cls}` });
+	}
+
+	private renderSessionActions(container: HTMLElement): void {
+		const s = this.state!;
+		const actions = container.createDiv({ cls: "ap-pv-session-actions" });
+
+		const finishLater = actions.createEl("button", {
+			text: "Finish later",
+			cls: "ap-pv-sidebar-button",
+		});
+		finishLater.addEventListener("click", () => {
+			this.emitStateChange();
+			new Notice("Practice session saved.");
+			void this.leaf.detach();
+		});
+
+		if (!s.onDiscard) return;
+
+		const discard = actions.createEl("button", {
+			text: "Discard session",
+			cls: "ap-pv-sidebar-button ap-pv-sidebar-button-danger",
+		});
+		discard.addEventListener("click", () => {
+			new ConfirmationModal(this.app, {
+				title: "Discard practice session?",
+				message: "Generated questions and answers from this unfinished session will be discarded.",
+				confirmText: "Discard",
+				cancelText: "Keep practicing",
+				destructive: true,
+				onConfirm: () => {
+					void (async () => {
+						try {
+							await s.onDiscard?.();
+							this.leaf.detach();
+						} catch (e) {
+							new Notice(`Failed to discard: ${e instanceof Error ? e.message : String(e)}`);
+						}
+					})();
+				},
+			}).open();
+		});
 	}
 
 	private getFurthestReachableIndex(): number {

@@ -1014,6 +1014,36 @@
 	font-weight: 600;
 }
 
+.ap-pv-session-actions {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding-top: 12px;
+	margin-top: -4px;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.ap-pv-sidebar-button {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	min-height: 32px;
+	padding: 6px 10px;
+	border-radius: 6px;
+	font-size: var(--font-ui-small);
+	font-weight: 500;
+	justify-content: center;
+}
+
+.ap-pv-sidebar-button-danger {
+	color: var(--text-error);
+}
+
+.ap-pv-sidebar-button-danger:hover {
+	border-color: var(--text-error);
+	color: var(--text-error);
+}
+
 /* .ap-pv-stat-correct {
 	color: rgba(var(--color-green-rgb), 0.45);
 }
