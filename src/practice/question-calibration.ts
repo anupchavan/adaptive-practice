@@ -20,7 +20,11 @@ export function calibrateQuestionForPractice(
 ): Question {
 	const inferredSubtopics = inferSourceSubtopics(question, topicContexts);
 	const sourceSubtopics = mergeUnique(
-		[...(question.sourceSubtopics ?? []), ...inferredSubtopics]
+		[...inferredSubtopics, ...(question.sourceSubtopics ?? [])]
+			.map((subtopic) =>
+				canonicalizeSourceSubtopic(subtopic, question.sourceTopics, topics)
+			)
+			.filter((subtopic): subtopic is string => !!subtopic)
 	)
 		.filter((subtopic) => !isTopicLabel(subtopic, question.sourceTopics, topics))
 		.slice(0, 6);
@@ -137,6 +141,66 @@ function isTopicLabel(
 	);
 }
 
+function canonicalizeSourceSubtopic(
+	value: string,
+	sourceTopics: string[],
+	topics: TopicNote[]
+): string | null {
+	const trimmed = value.trim();
+	const normalized = normalizeText(trimmed);
+	if (!normalized) return null;
+	const labels = [
+		...sourceTopics.map(normalizeText),
+		...topics.flatMap(topicLabelKeys),
+	].filter(Boolean);
+
+	for (const label of labels) {
+		const withoutLabel = removeTopicLabel(trimmed, normalized, label);
+		if (withoutLabel === null) continue;
+		const cleaned = withoutLabel.trim();
+		if (
+			!cleaned ||
+			isGenericLabelRemainder(cleaned) ||
+			isTopicLabel(cleaned, sourceTopics, topics)
+		) {
+			return null;
+		}
+		return cleaned;
+	}
+	return trimmed;
+}
+
+function removeTopicLabel(
+	original: string,
+	normalized: string,
+	topicKey: string
+): string | null {
+	if (!isBareTopicLabel(normalized, topicKey) && !normalized.includes(topicKey)) {
+		return null;
+	}
+	const originalTokens = original
+		.replace(/[^A-Za-z0-9]+/g, " ")
+		.trim()
+		.split(/\s+/)
+		.filter(Boolean);
+	const candidateTokens = normalized.split(" ").filter(Boolean);
+	const topicTokens = topicKey.split(" ").filter(Boolean);
+	if (candidateTokens.length === 0 || topicTokens.length === 0) return null;
+	if (candidateTokens.every((token) => topicTokens.includes(token))) return "";
+
+	if (startsWithTokens(candidateTokens, topicTokens)) {
+		return trimConnectorTokens(originalTokens.slice(topicTokens.length)).join(" ");
+	}
+	if (endsWithTokens(candidateTokens, topicTokens)) {
+		return trimConnectorTokens(originalTokens.slice(0, -topicTokens.length)).join(" ");
+	}
+
+	const topicSet = new Set(topicTokens);
+	return trimConnectorTokens(originalTokens
+		.filter((_, index) => !topicSet.has(candidateTokens[index] ?? ""))
+	).join(" ");
+}
+
 function isBareTopicLabel(candidate: string, topicKey: string): boolean {
 	if (!topicKey) return false;
 	if (candidate === topicKey) return true;
@@ -158,6 +222,30 @@ function isBareTopicLabel(candidate: string, topicKey: string): boolean {
 
 function isGenericTopicLabelToken(token: string): boolean {
 	return /^(note|notes|topic|topics|chapter|unit|overview|problem|problems|section|sections|intro|introduction|scratchpad|guide)$/.test(token);
+}
+
+function isGenericLabelRemainder(value: string): boolean {
+	const tokens = normalizeText(value).split(" ").filter(Boolean);
+	return tokens.length > 0 && tokens.every(isGenericTopicLabelToken);
+}
+
+function trimConnectorTokens(tokens: string[]): string[] {
+	const connector = /^(in|for|of|on|about|from|the|a|an)$/i;
+	let start = 0;
+	let end = tokens.length;
+	while (start < end && connector.test(tokens[start]!)) start++;
+	while (end > start && connector.test(tokens[end - 1]!)) end--;
+	return tokens.slice(start, end);
+}
+
+function startsWithTokens(candidate: string[], prefix: string[]): boolean {
+	return prefix.every((token, index) => candidate[index] === token);
+}
+
+function endsWithTokens(candidate: string[], suffix: string[]): boolean {
+	const offset = candidate.length - suffix.length;
+	if (offset < 0) return false;
+	return suffix.every((token, index) => candidate[offset + index] === token);
 }
 
 function topicMatchesContext(sourceTopic: string, note: TopicNote): boolean {

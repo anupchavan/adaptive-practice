@@ -800,7 +800,7 @@ test("question calibration treats aliases as topic labels, not subtopics", () =>
 					"The side with more elements.",
 				],
 				sourceTopics: [topic.title],
-				sourceSubtopics: ["Binary search rotation", "Pivot boundary"],
+				sourceSubtopics: ["Binary search rotation", "Binary search rotation overview", "Pivot boundary"],
 				difficulty: "medium",
 			}),
 		],
@@ -819,7 +819,7 @@ test("question calibration treats aliases as topic labels, not subtopics", () =>
 	assert.deepEqual(question.sourceSubtopics, ["Pivot boundary"]);
 });
 
-test("question calibration preserves alias-prefixed concept subtopics", () => {
+test("question calibration canonicalizes alias-prefixed concept subtopics", () => {
 	const topic = makeTopic({
 		title: "Rotated sorted array invariants",
 		aliases: ["Binary search rotation"],
@@ -864,7 +864,7 @@ test("question calibration preserves alias-prefixed concept subtopics", () => {
 	);
 
 	assert.ok(question);
-	assert.deepEqual(question.sourceSubtopics, ["Binary search rotation pivot boundary", "Pivot boundary"]);
+	assert.deepEqual(question.sourceSubtopics, ["Pivot boundary"]);
 });
 
 test("question calibration can infer subtopics when provider uses an alias source topic", () => {
