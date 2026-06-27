@@ -244,6 +244,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 		const leaf = this.app.workspace.getRightLeaf(false) ??
 			this.app.workspace.getLeaf("tab");
 		await leaf.setViewState({ type: DASHBOARD_VIEW_TYPE, active: true });
+		this.app.workspace.rightSplit.expand();
 		await this.app.workspace.revealLeaf(leaf);
 	}
 
