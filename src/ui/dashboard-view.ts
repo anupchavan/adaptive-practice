@@ -50,12 +50,13 @@ export class DashboardView extends ItemView {
 
 	async onOpen(): Promise<void> {
 		this.contentEl.addClass("ap-dashboard-view");
+		await this.plugin.setDashboardOpen(true);
 		await this.reload(false);
 	}
 
 	async onClose(): Promise<void> {
 		this.contentEl.empty();
-		await this.plugin.setDashboardOpen(false);
+		this.plugin.scheduleDashboardOpenSync();
 	}
 
 	async refresh(showNotice = false): Promise<void> {

@@ -68,6 +68,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 	private unloading = false;
 	private practicePlanRefresh: Promise<TopicNote[]> | null = null;
 	private practicePlanRefreshNoticeRequested = false;
+	private dashboardOpenSyncTimer: number | null = null;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -79,6 +80,10 @@ export default class AdaptivePracticePlugin extends Plugin {
 		this.app.workspace.onLayoutReady(() => {
 			void this.restoreWorkspaceAfterReload();
 		});
+
+		this.registerEvent(this.app.workspace.on("layout-change", () => {
+			this.scheduleDashboardOpenSync();
+		}));
 
 		this.registerInterval(window.setInterval(() => {
 			void this.checkDailyReminder();
@@ -122,7 +127,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 			id: "resume-practice-session",
 			name: "Resume unfinished practice session",
 			checkCallback: (checking) => {
-				if (!this.settings.practiceDraft) return false;
+				if (!this.getPracticeDraft()) return false;
 				if (!checking) void this.resumePracticeDraft();
 				return true;
 			},
@@ -159,6 +164,10 @@ export default class AdaptivePracticePlugin extends Plugin {
 
 	onunload(): void {
 		this.unloading = true;
+		if (this.dashboardOpenSyncTimer !== null) {
+			window.clearTimeout(this.dashboardOpenSyncTimer);
+			this.dashboardOpenSyncTimer = null;
+		}
 		this.hideDailyReminderNotice();
 		this.detachPracticeLeaves();
 	}
@@ -343,6 +352,23 @@ export default class AdaptivePracticePlugin extends Plugin {
 		await this.saveSettings();
 	}
 
+	scheduleDashboardOpenSync(delayMs = 750): void {
+		if (this.dashboardOpenSyncTimer !== null) {
+			window.clearTimeout(this.dashboardOpenSyncTimer);
+		}
+		this.dashboardOpenSyncTimer = window.setTimeout(() => {
+			this.dashboardOpenSyncTimer = null;
+			void this.syncDashboardOpenState();
+		}, delayMs);
+	}
+
+	private async syncDashboardOpenState(): Promise<void> {
+		if (this.unloading) return;
+		await this.setDashboardOpen(
+			this.app.workspace.getLeavesOfType(DASHBOARD_VIEW_TYPE).length > 0
+		);
+	}
+
 	private async restoreDashboardAfterReload(): Promise<boolean> {
 		if (this.app.workspace.getLeavesOfType(DASHBOARD_VIEW_TYPE).length > 0) return true;
 		if (!this.settings.dashboardOpen) return false;
@@ -442,7 +468,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 	}
 
 	getPracticeDraft(): PracticeDraft | null {
-		return this.settings.practiceDraft;
+		return normalizePracticeDraft(this.settings.practiceDraft);
 	}
 
 	async resumePracticeDraft(): Promise<void> {
@@ -514,7 +540,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 			reminderTime: this.settings.dailyReminderTime,
 			memory: this.settings.practiceMemory,
 			now,
-			hasPracticeDraft: !!this.settings.practiceDraft,
+			hasPracticeDraft: !!this.getPracticeDraft(),
 			generationInProgress: this.sessionGenerationInProgress,
 			noticeActive: !!this.dailyReminderNotice,
 		})) return;
