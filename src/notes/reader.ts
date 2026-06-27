@@ -26,6 +26,7 @@ import {
 	PromptAttachmentOptions,
 	shouldAttachPromptMedia,
 } from "./attachment-policy";
+import { noteDisplayTitle } from "./titles";
 
 const DEFAULT_SKILL = 50;
 const HISTORY_HEADING = "## Practice history";
@@ -63,6 +64,7 @@ export function fileToTopicNote(
 	const cache = pdf ? null : app.metadataCache.getFileCache(f);
 	const frontmatter = cache?.frontmatter as Record<string, unknown> | undefined;
 	const timestamps = noteTimestamps(f, frontmatter, dateProperties);
+	const title = pdf ? f.basename : noteDisplayTitle(frontmatter, f.basename);
 	let skill: number;
 	if (pdf) {
 		const stored = pdfSkills[f.path];
@@ -72,7 +74,7 @@ export function fileToTopicNote(
 	}
 	return {
 		path: f.path,
-		title: f.basename,
+		title,
 		skill,
 		isPdf: pdf,
 		createdAt: timestamps.createdAt,
@@ -107,10 +109,11 @@ export function buildNoteIndexEntry(
 		? undefined
 		: cache?.frontmatter as Record<string, unknown> | undefined;
 	const timestamps = noteTimestamps(file, frontmatter, dateProperties);
+	const title = isPdf ? file.basename : noteDisplayTitle(frontmatter, file.basename);
 
 	return {
 		path: file.path,
-		title: file.basename,
+		title,
 		extension: file.extension,
 		isPdf,
 		frontmatter: isPdf
@@ -191,6 +194,7 @@ export async function getNoteStructure(
 	const raw = await app.vault.read(file);
 	const cache = app.metadataCache.getFileCache(file);
 	const frontmatter = cache?.frontmatter as Record<string, unknown> | undefined;
+	const title = noteDisplayTitle(frontmatter, file.basename);
 	const body = stripFrontmatter(raw);
 	const withoutHistory = stripPracticeHistory(body);
 	const cleanedText = cleanNoteText(withoutHistory);
@@ -199,7 +203,7 @@ export async function getNoteStructure(
 
 	return {
 		path: file.path,
-		title: file.basename,
+		title,
 		frontmatter: sanitizeFrontmatter(frontmatter),
 		tags: collectTags(cache),
 		links: collectLinks(cache),

@@ -23,6 +23,7 @@ import {
 	parseInternalEmbedReference,
 	parseSkillValue,
 } from "../src/notes/normalize";
+import { noteDisplayTitle } from "../src/notes/titles";
 import { shouldAttachPromptMedia } from "../src/notes/attachment-policy";
 import {
 	buildQuestionHistoryBlock,
@@ -1226,6 +1227,38 @@ test("note media parsers handle Obsidian aliases, anchors, sizes, and encoded pa
 	);
 });
 
+test("note display titles prefer frontmatter title and aliases", () => {
+	assert.equal(
+		noteDisplayTitle(
+			{
+				title: "Rotated sorted array invariants",
+				aliases: ["Binary search rotation"],
+			},
+			"rotated-array-lab"
+		),
+		"Rotated sorted array invariants"
+	);
+	assert.equal(
+		noteDisplayTitle(
+			{
+				aliases: ["", "[[RC transient intuition]]"],
+			},
+			"rc-transient-half-page"
+		),
+		"RC transient intuition"
+	);
+	assert.equal(
+		noteDisplayTitle(
+			{
+				title: " ".repeat(4),
+				aliases: "Charging curve, capacitor current",
+			},
+			"capacitor-note"
+		),
+		"Charging curve"
+	);
+});
+
 test("markdown image parser captures remote URLs and nearby captions", () => {
 	const refs = parseMarkdownImageReferences(`
 ![Flowchart](//upload.wikimedia.org/wikipedia/commons/thumb/5/5e/GCD.svg/250px-GCD.svg.png)
@@ -1515,6 +1548,22 @@ test("reconcileGeneratedQuestions maps source paths and short titles to selected
 		rc.title,
 	]);
 	assert.deepEqual(questions[0]?.sourceSubtopics, ["pivot invariant"]);
+});
+
+test("reconcileSourceTopics matches filename aliases after frontmatter title changes", () => {
+	const topic = makeTopic({
+		path: "Practice Lab/CS/rotated-array-lab.md",
+		title: "Rotated sorted array invariants",
+	});
+
+	assert.deepEqual(
+		reconcileSourceTopics(["rotated-array-lab"], [topic]),
+		[topic.title]
+	);
+	assert.deepEqual(
+		reconcileSourceTopics(["Practice Lab/CS/rotated-array-lab.md"], [topic]),
+		[topic.title]
+	);
 });
 
 test("reconcileSourceTopics uses conservative fallbacks for missing sources", () => {
