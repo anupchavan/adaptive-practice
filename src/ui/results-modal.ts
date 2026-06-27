@@ -1,4 +1,5 @@
 import { App, Component, Modal } from "obsidian";
+import { PracticeCredit } from "../practice/daily-credit";
 import { averageFluency } from "../practice/grader";
 import { QuizResult, SkillDelta } from "../types";
 import { hasBlockMarkdown, renderMarkdown } from "./markdown";
@@ -6,12 +7,14 @@ import { hasBlockMarkdown, renderMarkdown } from "./markdown";
 export class ResultsModal extends Modal {
 	private results: QuizResult[];
 	private deltas: SkillDelta[];
+	private practiceCredit: PracticeCredit;
 	private renderComponent: Component;
 
-	constructor(app: App, results: QuizResult[], deltas: SkillDelta[]) {
+	constructor(app: App, results: QuizResult[], deltas: SkillDelta[], practiceCredit: PracticeCredit) {
 		super(app);
 		this.results = results;
 		this.deltas = deltas;
+		this.practiceCredit = practiceCredit;
 		this.renderComponent = new Component();
 	}
 
@@ -49,6 +52,7 @@ export class ResultsModal extends Modal {
 			text: `Fluency: ${Math.round(fluency * 100)}%`,
 			cls: "ap-results-stat",
 		});
+		this.renderPracticeCredit(contentEl);
 
 		// Skill changes
 		if (this.deltas.length > 0) {
@@ -120,6 +124,20 @@ export class ResultsModal extends Modal {
 			? row.createDiv({ cls: "ap-review-value-block" })
 			: row.createSpan({ cls: "ap-review-value-inline" });
 		this.renderMarkdown(markdown, value);
+	}
+
+	private renderPracticeCredit(container: HTMLElement): void {
+		const banner = container.createDiv({
+			cls: `ap-results-credit ap-results-credit-${this.practiceCredit.status}`,
+		});
+		banner.createDiv({
+			text: this.practiceCredit.title,
+			cls: "ap-results-credit-title",
+		});
+		banner.createDiv({
+			text: this.practiceCredit.detail,
+			cls: "ap-results-credit-detail",
+		});
 	}
 
 	private renderMarkdown(markdown: string, el: HTMLElement): void {

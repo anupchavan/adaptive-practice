@@ -20,6 +20,7 @@ import { DashboardView, DASHBOARD_VIEW_TYPE } from "./ui/dashboard-view";
 import { ConfirmationModal } from "./ui/confirmation-modal";
 import { generateQuestions, finalizeSession } from "./practice/session";
 import { hasPracticedToday as memoryHasPracticedToday } from "./practice/daily-status";
+import { resolvePracticeCredit } from "./practice/daily-credit";
 import {
 	applyPracticeMemoryToTopics,
 	normalizePracticeMemory,
@@ -825,6 +826,8 @@ export default class AdaptivePracticePlugin extends Plugin {
 	): Promise<void> {
 		const finalNotice = new Notice("Saving results\u2026", 0);
 		try {
+			const completedAt = Date.now();
+			const previousMemory = this.settings.practiceMemory;
 			const deltas = await finalizeSession(
 				this.app,
 				config.topics,
@@ -835,13 +838,19 @@ export default class AdaptivePracticePlugin extends Plugin {
 				this.settings.practiceMemory,
 				config.topics,
 				results,
-				deltas
+				deltas,
+				completedAt
+			);
+			const practiceCredit = resolvePracticeCredit(
+				previousMemory,
+				this.settings.practiceMemory,
+				new Date(completedAt)
 			);
 			this.settings.practiceDraft = null;
 			await this.saveSettings();
 			this.renderDashboardViews();
 			finalNotice.hide();
-			new ResultsModal(this.app, results, deltas).open();
+			new ResultsModal(this.app, results, deltas, practiceCredit).open();
 		} catch (e) {
 			finalNotice.hide();
 			new Notice(

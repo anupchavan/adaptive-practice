@@ -85,6 +85,7 @@ import {
 	suppressDailyReminderForToday,
 	updatePracticeMemoryAfterSession,
 } from "../src/practice/scheduler";
+import { resolvePracticeCredit } from "../src/practice/daily-credit";
 import { hasPracticedToday } from "../src/practice/daily-status";
 import {
 	reconcileGeneratedQuestions,
@@ -2628,6 +2629,53 @@ test("meaningful daily streak credit ignores skips and speed-clicked answers", (
 	assert.equal(skippedMemory.daily.streak, 0);
 	assert.equal(hasPracticedToday(engagedMemory, new Date(now)), true);
 	assert.equal(engagedMemory.daily.streak, 1);
+});
+
+test("practice credit status explains daily streak outcomes", () => {
+	const now = Date.UTC(2026, 5, 26, 12);
+	const topic = makeTopic();
+	const question = makeQuestion({ sourceTopics: [topic.title] });
+	const before = normalizePracticeMemory(undefined);
+	const counted = updatePracticeMemoryAfterSession(
+		before,
+		[topic],
+		[
+			makeResult(question, { isCorrect: true, timeTakenMs: 20_000 }),
+			makeResult(question, { isCorrect: true, timeTakenMs: 25_000 }),
+		],
+		[],
+		now
+	);
+	const notCounted = updatePracticeMemoryAfterSession(
+		before,
+		[topic],
+		[
+			makeResult(question, { isCorrect: false, skipped: true, timeTakenMs: 2_000 }),
+			makeResult(question, { isCorrect: false, skipped: true, timeTakenMs: 2_000 }),
+		],
+		[],
+		now
+	);
+	const extra = updatePracticeMemoryAfterSession(
+		counted,
+		[topic],
+		[makeResult(question, { isCorrect: true, timeTakenMs: 30_000 })],
+		[],
+		now + 60_000
+	);
+
+	assert.equal(
+		resolvePracticeCredit(before, counted, new Date(now)).status,
+		"counted"
+	);
+	assert.equal(
+		resolvePracticeCredit(before, notCounted, new Date(now)).status,
+		"not-counted"
+	);
+	assert.equal(
+		resolvePracticeCredit(counted, extra, new Date(now + 60_000)).status,
+		"already-counted"
+	);
 });
 
 test("extra practice after a counted daily session does not add another streak day", () => {

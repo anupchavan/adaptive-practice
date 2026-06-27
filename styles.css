@@ -799,6 +799,43 @@
 	font-size: var(--font-ui-small);
 }
 
+.ap-results-credit {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 8px;
+	margin: 0 0 1em;
+	padding: 10px 12px;
+	background: var(--background-secondary);
+}
+
+.ap-results-credit-counted {
+	border-color: rgba(var(--color-green-rgb), 0.28);
+	background: rgba(var(--color-green-rgb), 0.08);
+}
+
+.ap-results-credit-not-counted {
+	border-color: rgba(var(--color-yellow-rgb), 0.3);
+	background: rgba(var(--color-yellow-rgb), 0.08);
+}
+
+.ap-results-credit-title {
+	font-weight: 600;
+	margin-bottom: 2px;
+}
+
+.ap-results-credit-counted .ap-results-credit-title {
+	color: rgba(var(--color-green-rgb), 0.75);
+}
+
+.ap-results-credit-not-counted .ap-results-credit-title {
+	color: rgba(var(--color-yellow-rgb), 0.85);
+}
+
+.ap-results-credit-detail {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	line-height: 1.4;
+}
+
 .ap-skill-changes {
 	margin-bottom: 1em;
 }
