@@ -11,6 +11,7 @@ import {
 	TopicNote,
 } from "../types";
 import { expectedTimeMs, resultFluency } from "./grader";
+import { reconcileSourceTopics } from "./source-map";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const REMINDER_RETRY_COOLDOWN_MS = 30 * 60 * 1000;
@@ -716,9 +717,10 @@ function collectSessionStats(
 	const byPath = new Map<string, SessionTopicStats>();
 
 	for (const result of results) {
-		const sourceTopics = result.question.sourceTopics.length > 0
-			? result.question.sourceTopics
-			: topics.map((topic) => topic.title);
+		const sourceTopics = reconcileSourceTopics(
+			result.question.sourceTopics,
+			topics
+		);
 		for (const title of sourceTopics) {
 			const topic = byTitle.get(title);
 			if (!topic) continue;

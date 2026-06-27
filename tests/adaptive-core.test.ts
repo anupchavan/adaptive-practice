@@ -1675,6 +1675,33 @@ test("updatePracticeMemoryAfterSession shortens spacing for slow recall", () => 
 	assert.equal(slowState.averageTimeMs, 180_000);
 });
 
+test("updatePracticeMemoryAfterSession reconciles saved path source topics", () => {
+	const now = Date.UTC(2026, 5, 26, 12);
+	const topic = makeTopic({
+		path: "Practice Lab/CS/Rotated Binary Search - messy lab note.md",
+		title: "Rotated Binary Search - messy lab note",
+		skill: 50,
+	});
+	const question = makeQuestion({
+		sourceTopics: [topic.path],
+		sourceSubtopics: ["pivot invariant"],
+	});
+
+	const memory = updatePracticeMemoryAfterSession(
+		undefined,
+		[topic],
+		[makeResult(question, { isCorrect: true, timeTakenMs: 45_000 })],
+		[],
+		now
+	);
+	const state = memory.notes[topic.path]!;
+
+	assert.equal(state.attempts, 1);
+	assert.equal(state.correct, 1);
+	assert.equal(state.practicedSubtopics["pivot invariant"]?.attempts, 1);
+	assert.equal(state.lastPracticedAt, now);
+});
+
 test("selectDailyTopics can surface fragile slow-recall notes before they are due", () => {
 	const now = Date.UTC(2026, 5, 26, 12);
 	const fragile = makeTopic({
