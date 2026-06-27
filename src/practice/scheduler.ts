@@ -248,9 +248,19 @@ export function planDailySession(
 		),
 		0
 	);
+	const averageCorrectStreak = average(
+		practiced.map((state) => state.correctStreak),
+		0
+	);
+	const strongRecentPerformance =
+		practiced.length > 0 &&
+		averageAccuracy >= 0.9 &&
+		averageFluency >= 0.72 &&
+		skipPressure < 0.08 &&
+		averageCorrectStreak >= 3;
 
 	const fragile =
-		averageSkill < 45 ||
+		(averageSkill < 45 && !strongRecentPerformance) ||
 		averageAccuracy < 0.62 ||
 		averageFluency < 0.48 ||
 		skipPressure >= 0.18 ||
@@ -286,6 +296,19 @@ export function planDailySession(
 			questionCount: Math.min(20, baseCount + Math.max(1, Math.round(baseCount * 0.25))),
 			challengeMode: "stretch",
 			reason: "strong recent accuracy and fluency",
+		};
+	}
+
+	const momentumStretch =
+		strongRecentPerformance &&
+		newRatio < 0.55 &&
+		(averageSkill >= 45 || averageCorrectStreak >= 4);
+
+	if (momentumStretch) {
+		return {
+			questionCount: Math.min(20, baseCount + Math.max(1, Math.round(baseCount * 0.15))),
+			challengeMode: "stretch",
+			reason: "recent correct streak and fluent answers",
 		};
 	}
 

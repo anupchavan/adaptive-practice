@@ -2537,6 +2537,36 @@ test("planDailySession stretches fluent daily review without exceeding bounds", 
 	assert.match(plan.reason, /strong recent accuracy/);
 });
 
+test("planDailySession escalates after a fluent correct streak before skill catches up", () => {
+	const topic = makeTopic({ skill: 52 });
+	const memory = normalizePracticeMemory({
+		version: 1,
+		index: {},
+		daily: {
+			lastReminderDate: "",
+			lastReminderAttemptAt: 0,
+			lastPracticeDate: "",
+			streak: 0,
+			lastScanAt: 0,
+		},
+		notes: {
+			[topic.path]: makeNoteState(topic, {
+				attempts: 5,
+				correct: 5,
+				correctStreak: 5,
+				lastSessionAccuracy: 1,
+				lastSessionFluency: 0.78,
+			}),
+		},
+	});
+
+	const plan = planDailySession([topic], memory, 8);
+
+	assert.equal(plan.challengeMode, "stretch");
+	assert.equal(plan.questionCount, 9);
+	assert.match(plan.reason, /correct streak/);
+});
+
 test("buildPrompt preserves structured metadata and media descriptions", () => {
 	const topic = makeTopic({
 		title: "RC transient whiteboard",
