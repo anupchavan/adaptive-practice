@@ -3,16 +3,8 @@ import { isIntegerLike, parseNumericAnswer } from "../practice/numeric-answer";
 import { normalizeQuestionDifficulty } from "../practice/difficulty-quality";
 
 export function parseQuestions(raw: string): Question[] {
-	const cleaned = extractJsonPayload(raw);
-
-	const parsed: unknown = JSON.parse(cleaned);
-	const questions = Array.isArray(parsed)
-		? parsed
-		: isRecord(parsed) && Array.isArray(parsed["questions"])
-			? parsed["questions"]
-			: isRecord(parsed) && looksLikeQuestion(parsed)
-				? [parsed]
-			: null;
+	const parsed = parseQuestionPayload(raw);
+	const questions = extractQuestionItems(parsed);
 
 	if (!questions) {
 		throw new Error("LLM response is not a JSON question array");
@@ -21,6 +13,44 @@ export function parseQuestions(raw: string): Question[] {
 	return questions
 		.map((rawItem: unknown, i: number) => normalizeQuestion(rawItem, i))
 		.filter((question): question is Question => question !== null);
+}
+
+function parseQuestionPayload(raw: string): unknown {
+	const candidates = extractJsonCandidates(raw);
+	let parsedNonQuestionPayload = false;
+	let firstSyntaxError = "";
+
+	for (const candidate of candidates) {
+		try {
+			const parsed: unknown = JSON.parse(candidate);
+			if (extractQuestionItems(parsed)) return parsed;
+			parsedNonQuestionPayload = true;
+		} catch (e) {
+			if (!firstSyntaxError && e instanceof Error) {
+				firstSyntaxError = e.message;
+			}
+		}
+	}
+
+	if (parsedNonQuestionPayload) {
+		throw new Error("LLM response is not a JSON question array");
+	}
+
+	throw new SyntaxError(
+		`LLM response did not contain valid JSON questions${
+			firstSyntaxError ? `: ${firstSyntaxError}` : ""
+		}`
+	);
+}
+
+function extractQuestionItems(parsed: unknown): unknown[] | null {
+	return Array.isArray(parsed)
+		? parsed
+		: isRecord(parsed) && Array.isArray(parsed["questions"])
+			? parsed["questions"]
+			: isRecord(parsed) && looksLikeQuestion(parsed)
+				? [parsed]
+				: null;
 }
 
 function normalizeQuestion(rawItem: unknown, i: number): Question | null {
@@ -70,14 +100,51 @@ function isValidNumericQuestion(question: Question): boolean {
 	return true;
 }
 
-function extractJsonPayload(raw: string): string {
+function extractJsonCandidates(raw: string): string[] {
 	const trimmed = raw.trim().replace(/^\uFEFF/, "");
-	const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(trimmed);
-	if (fence?.[1]) return fence[1].trim();
-	return findFirstBalancedJson(trimmed) ?? trimmed;
+	const candidates: string[] = [];
+	const seen = new Set<string>();
+
+	const addCandidate = (candidate: string): void => {
+		const normalized = candidate.trim().replace(/^\uFEFF/, "");
+		if (!normalized || seen.has(normalized)) return;
+		seen.add(normalized);
+		candidates.push(normalized);
+	};
+
+	if (startsJson(trimmed)) addCandidate(trimmed);
+
+	const fencePattern = /```([^\n`]*)\n?([\s\S]*?)```/g;
+	let fence: RegExpExecArray | null;
+	while ((fence = fencePattern.exec(trimmed)) !== null) {
+		const language = (fence[1] ?? "").trim().toLowerCase();
+		const body = (fence[2] ?? "").trim();
+		if (!body) continue;
+
+		const isJsonFence = language === "json" || language === "jsonc";
+		if (!isJsonFence && language && !startsJson(body)) continue;
+
+		for (const candidate of findBalancedJsonCandidates(body)) {
+			addCandidate(candidate);
+		}
+		if (startsJson(body)) addCandidate(body);
+	}
+
+	for (const candidate of findBalancedJsonCandidates(trimmed)) {
+		addCandidate(candidate);
+	}
+
+	if (candidates.length === 0) addCandidate(trimmed);
+	return candidates;
 }
 
-function findFirstBalancedJson(input: string): string | null {
+function startsJson(input: string): boolean {
+	const first = input.trimStart()[0];
+	return first === "{" || first === "[";
+}
+
+function findBalancedJsonCandidates(input: string): string[] {
+	const candidates: string[] = [];
 	for (let start = 0; start < input.length; start++) {
 		const first = input[start];
 		if (first !== "{" && first !== "[") continue;
@@ -105,11 +172,14 @@ function findFirstBalancedJson(input: string): string | null {
 				stack.push("]");
 			} else if (char === stack[stack.length - 1]) {
 				stack.pop();
-				if (stack.length === 0) return input.slice(start, i + 1);
+				if (stack.length === 0) {
+					candidates.push(input.slice(start, i + 1));
+					break;
+				}
 			}
 		}
 	}
-	return null;
+	return candidates;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

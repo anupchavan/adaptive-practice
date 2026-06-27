@@ -219,6 +219,43 @@ test("parseQuestions extracts JSON from provider chatter and resolves letter ans
 	assert.notEqual(questions[0]?.options?.indexOf("right half"), 1);
 });
 
+test("parseQuestions skips non-JSON code fences before the question payload", () => {
+	const payload = JSON.stringify({
+		questions: [
+			{
+				id: "verilog-fence",
+				type: "mcq",
+				questionText: "What does the continuous assignment do?",
+				options: [
+					"A. Drives y from a and b",
+					"B. Stores y on a clock edge",
+					"C. Declares a module input",
+					"D. Resets y asynchronously",
+				],
+				correctAnswer: "A",
+				explanation: "A continuous assign drives a wire from the expression.",
+				sourceTopics: ["Verilog"],
+				sourceSubtopics: ["continuous assignment"],
+				difficulty: "easy",
+			},
+		],
+	});
+
+	const questions = parseQuestions(`Example code:
+
+\`\`\`verilog
+assign y = a & b;
+\`\`\`
+
+Question JSON:
+${payload}
+`);
+
+	assert.equal(questions.length, 1);
+	assert.equal(questions[0]?.id, "verilog-fence");
+	assert.equal(questions[0]?.correctAnswer, "Drives y from a and b");
+});
+
 test("parseQuestions shuffles MCQ options while preserving terminal options", () => {
 	const questions = parseQuestions(JSON.stringify({
 		questions: [
