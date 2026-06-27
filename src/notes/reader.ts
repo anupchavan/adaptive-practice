@@ -27,6 +27,7 @@ import {
 	shouldAttachPromptMedia,
 } from "./attachment-policy";
 import { noteDisplayAliases, noteDisplayTitle } from "./titles";
+import { LocalMediaLink, mergeLocalMediaLink } from "./media-links";
 
 const DEFAULT_SKILL = 50;
 const HISTORY_HEADING = "## Practice history";
@@ -423,7 +424,7 @@ async function collectMediaReferences(
 	raw: string,
 	cache: CachedMetadata | null
 ): Promise<NoteMediaReference[]> {
-	const links = new Map<string, { path: string; alt: string }>();
+	const links = new Map<string, LocalMediaLink>();
 	const remoteLinks = new Map<string, NoteMediaReference>();
 
 	for (const embed of cache?.embeds ?? []) {
@@ -459,12 +460,19 @@ async function collectMediaReferences(
 				url,
 			});
 		} else {
-			addResolvedMediaLink(app, sourceFile, links, markdownImage.link, markdownImage.alt);
+			addResolvedMediaLink(
+				app,
+				sourceFile,
+				links,
+				markdownImage.link,
+				markdownImage.alt,
+				markdownImage.caption
+			);
 		}
 	}
 
 	const media: NoteMediaReference[] = [...remoteLinks.values()];
-	for (const { path, alt } of links.values()) {
+	for (const { path, alt, caption } of links.values()) {
 		const file = app.vault.getAbstractFileByPath(path);
 		if (!(file instanceof TFile)) continue;
 		const mimeType = mimeTypeForExtension(file.extension);
@@ -478,6 +486,7 @@ async function collectMediaReferences(
 			size: file.stat.size,
 			source: "local",
 		};
+		if (caption) ref.caption = caption;
 		if (kind === "svg" && file.stat.size <= MAX_SVG_TEXT_CHARS) {
 			ref.svgText = await app.vault.read(file);
 		}
@@ -489,16 +498,21 @@ async function collectMediaReferences(
 function addResolvedMediaLink(
 	app: App,
 	sourceFile: TFile,
-	links: Map<string, { path: string; alt: string }>,
+	links: Map<string, LocalMediaLink>,
 	link: string,
-	alt: string
+	alt: string,
+	caption = ""
 ): void {
 	if (!link || isRemoteMediaUrl(link)) return;
 	const dest = app.metadataCache.getFirstLinkpathDest(link, sourceFile.path);
 	if (!(dest instanceof TFile)) return;
 	const mimeType = mimeTypeForExtension(dest.extension);
 	if (mediaKindForMime(mimeType) === "unknown") return;
-	links.set(dest.path, { path: dest.path, alt });
+	mergeLocalMediaLink(links, {
+		path: dest.path,
+		alt,
+		...(caption.trim() ? { caption: caption.trim() } : {}),
+	});
 }
 
 function isRemoteMediaUrl(link: string): boolean {

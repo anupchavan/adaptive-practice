@@ -30,6 +30,7 @@ import {
 	removeQuestionHistoryEntry,
 } from "../src/notes/history-format";
 import { buildRemotePromptAttachment } from "../src/notes/remote-media";
+import { LocalMediaLink, mergeLocalMediaLink } from "../src/notes/media-links";
 import {
 	frontmatterDateMs,
 	normalizeDatePropertyNames,
@@ -1440,6 +1441,30 @@ Flowchart of Euclid's algorithm.
 	assert.equal(refs[8]?.alt, "lazy board");
 	assert.equal(refs[9]?.link, "Practice Lab/Assets/large-board.png");
 	assert.equal(refs[9]?.alt, "srcset board");
+});
+
+test("local media link merging preserves captions and better alt text", () => {
+	const links = new Map<string, LocalMediaLink>();
+	mergeLocalMediaLink(links, {
+		path: "Practice Lab/Assets/cache-whiteboard.png",
+		alt: "Practice Lab/Assets/cache-whiteboard.png",
+	});
+	mergeLocalMediaLink(links, {
+		path: "Practice Lab/Assets/cache-whiteboard.png",
+		alt: "cache state sketch",
+		caption: "Whiteboard showing valid, dirty, and tag bits.",
+	});
+	mergeLocalMediaLink(links, {
+		path: "Practice Lab/Assets/cache-whiteboard.png",
+		alt: "Practice Lab/Assets/cache-whiteboard.png",
+		caption: "Less helpful duplicate caption.",
+	});
+
+	assert.deepEqual(links.get("Practice Lab/Assets/cache-whiteboard.png"), {
+		path: "Practice Lab/Assets/cache-whiteboard.png",
+		alt: "cache state sketch",
+		caption: "Whiteboard showing valid, dirty, and tag bits.",
+	});
 });
 
 test("remote image attachments fetch actual pixels for vision-capable prompts", async () => {
