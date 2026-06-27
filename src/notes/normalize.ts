@@ -130,18 +130,15 @@ export function cleanMarkdownPath(path: string): string {
 export function parseMarkdownImageReferences(content: string): MarkdownImageReference[] {
 	const lines = content.replace(/\r\n/g, "\n").split("\n");
 	const refs: MarkdownImageReference[] = [];
-	const markdownImageRe = /!\[([^\]]*)\]\(([^)]+)\)/g;
 
 	for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
 		const line = lines[lineIndex] ?? "";
-		markdownImageRe.lastIndex = 0;
-		let match: RegExpExecArray | null;
-		while ((match = markdownImageRe.exec(line)) !== null) {
-			const link = normalizeRemoteMarkdownUrl(cleanMarkdownPath(match[2] ?? ""));
+		for (const image of scanMarkdownImages(line)) {
+			const link = normalizeRemoteMarkdownUrl(cleanMarkdownPath(image.link));
 			if (!link) continue;
 			refs.push({
 				link,
-				alt: (match[1] ?? "").trim() || link,
+				alt: image.alt.trim() || link,
 				caption: findNearbyImageCaption(lines, lineIndex),
 				isRemote: isRemoteMarkdownUrl(link),
 			});
@@ -149,6 +146,56 @@ export function parseMarkdownImageReferences(content: string): MarkdownImageRefe
 	}
 
 	return refs;
+}
+
+function scanMarkdownImages(line: string): Array<{ alt: string; link: string }> {
+	const images: Array<{ alt: string; link: string }> = [];
+	let cursor = 0;
+	while (cursor < line.length) {
+		const start = line.indexOf("![", cursor);
+		if (start === -1) break;
+		const altEnd = line.indexOf("](", start + 2);
+		if (altEnd === -1) break;
+		const destination = readMarkdownDestination(line, altEnd + 2);
+		if (!destination) {
+			cursor = altEnd + 2;
+			continue;
+		}
+		images.push({
+			alt: line.slice(start + 2, altEnd),
+			link: destination.value,
+		});
+		cursor = destination.end + 1;
+	}
+	return images;
+}
+
+function readMarkdownDestination(
+	line: string,
+	start: number
+): { value: string; end: number } | null {
+	let depth = 0;
+	for (let index = start; index < line.length; index++) {
+		const char = line[index];
+		if (char === "\\") {
+			index++;
+			continue;
+		}
+		if (char === "(") {
+			depth++;
+			continue;
+		}
+		if (char === ")") {
+			if (depth === 0) {
+				return {
+					value: line.slice(start, index),
+					end: index,
+				};
+			}
+			depth--;
+		}
+	}
+	return null;
 }
 
 export function parseSkillValue(value: unknown, fallback = DEFAULT_SKILL): number {

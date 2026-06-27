@@ -1233,15 +1233,20 @@ test("markdown image parser captures remote URLs and nearby captions", () => {
 Flowchart of Euclid's algorithm.
 
 ![local whiteboard](Practice%20Lab/Assets/cache-whiteboard.png "whiteboard")
+
+![heap cases](Practice Lab/Assets/heap (annotated).png "heap")
 `);
 
-	assert.equal(refs.length, 2);
+	assert.equal(refs.length, 3);
 	assert.equal(refs[0]?.link, "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/GCD.svg/250px-GCD.svg.png");
 	assert.equal(refs[0]?.alt, "Flowchart");
 	assert.equal(refs[0]?.caption, "Flowchart of Euclid's algorithm.");
 	assert.equal(refs[0]?.isRemote, true);
 	assert.equal(refs[1]?.link, "Practice Lab/Assets/cache-whiteboard.png");
 	assert.equal(refs[1]?.isRemote, false);
+	assert.equal(refs[2]?.link, "Practice Lab/Assets/heap (annotated).png");
+	assert.equal(refs[2]?.alt, "heap cases");
+	assert.equal(refs[2]?.isRemote, false);
 });
 
 test("remote image attachments fetch actual pixels for vision-capable prompts", async () => {
