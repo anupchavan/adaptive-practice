@@ -71,6 +71,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 	private practicePlanRefresh: Promise<TopicNote[]> | null = null;
 	private practicePlanRefreshNoticeRequested = false;
 	private dashboardOpenSyncTimer: number | null = null;
+	private workspaceRestoreComplete = false;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -224,12 +225,16 @@ export default class AdaptivePracticePlugin extends Plugin {
 	}
 
 	private async restoreWorkspaceAfterReload(): Promise<void> {
-		await this.restorePracticeViewsAfterReload();
-		const dashboardWillScan = await this.restoreDashboardAfterReload();
-		if (!dashboardWillScan) {
-			await this.refreshPracticePlan(false);
+		try {
+			await this.restorePracticeViewsAfterReload();
+			const dashboardWillScan = await this.restoreDashboardAfterReload();
+			if (!dashboardWillScan) {
+				await this.refreshPracticePlan(false);
+			}
+			await this.checkDailyReminder();
+		} finally {
+			this.workspaceRestoreComplete = true;
 		}
-		await this.checkDailyReminder();
 	}
 
 	getSecretId(): string {
@@ -355,6 +360,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 	}
 
 	scheduleDashboardOpenSync(delayMs = 750): void {
+		if (!this.workspaceRestoreComplete || this.unloading) return;
 		if (this.dashboardOpenSyncTimer !== null) {
 			window.clearTimeout(this.dashboardOpenSyncTimer);
 		}
