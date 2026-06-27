@@ -287,13 +287,21 @@ function renderStructure(topic: TopicContext, contentBudget: number, now: number
 		parts.push(`Links: ${structure.links.slice(0, 30).join(", ")}`);
 	}
 	if (structure.headings.length > 0) {
+		const outlineLimit = Math.max(
+			6,
+			Math.min(MAX_OUTLINE_ITEMS, Math.floor(contentBudget / 180) || 6)
+		);
 		const outline = structure.headings
-			.slice(0, MAX_OUTLINE_ITEMS)
+			.slice(0, outlineLimit)
 			.map((heading) => `${"  ".repeat(Math.max(0, heading.level - 1))}- ${heading.heading}`)
 			.join("\n");
-		parts.push(`<outline>\n${outline}\n</outline>`);
+		const omitted = structure.headings.length - outlineLimit;
+		const omittedLine = omitted > 0
+			? `\n[...${omitted} additional outline items omitted]`
+			: "";
+		parts.push(`<outline>\n${outline}${omittedLine}\n</outline>`);
 	}
-	const concepts = renderConceptTargets(structure);
+	const concepts = renderConceptTargets(structure, contentBudget);
 	if (concepts) parts.push(concepts);
 	if (structure.media.length > 0) {
 		parts.push(renderMedia(structure.media));
@@ -303,19 +311,30 @@ function renderStructure(topic: TopicContext, contentBudget: number, now: number
 	return parts.join("\n");
 }
 
-function renderConceptTargets(structure: NoteStructure): string {
-	const unique = uniqueConcepts(extractConceptCandidates(structure, MAX_CONCEPT_TARGETS * 2))
+function renderConceptTargets(structure: NoteStructure, contentBudget: number): string {
+	const conceptLimit = Math.max(
+		4,
+		Math.min(MAX_CONCEPT_TARGETS, Math.floor(contentBudget / 140) || 4)
+	);
+	const unique = uniqueConcepts(extractConceptCandidates(structure, conceptLimit * 2))
 		.filter((concept) => normalizeConceptKey(concept) !== normalizeConceptKey(structure.title))
-		.slice(0, MAX_CONCEPT_TARGETS);
+		.slice(0, conceptLimit);
 	if (unique.length === 0) return "";
 	return `<concept_targets>\n${unique.map((concept) => `- ${concept}`).join("\n")}\n</concept_targets>`;
 }
 
 function renderSections(topic: TopicContext, contentBudget: number, now: number): string {
 	const structure = topic.structure!;
-	const selected = selectSectionsForPrompt(topic, now);
+	const sectionLimit = Math.max(
+		1,
+		Math.min(
+			MAX_RENDERED_SECTIONS,
+			Math.floor(contentBudget / MIN_SECTION_CHARS) || 1
+		)
+	);
+	const selected = selectSectionsForPrompt(topic, now, sectionLimit);
 	const sectionBudget = Math.max(
-		MIN_SECTION_CHARS,
+		1,
 		Math.floor(contentBudget / Math.max(1, selected.length))
 	);
 	const renderedSections = selected
@@ -337,15 +356,18 @@ function renderSections(topic: TopicContext, contentBudget: number, now: number)
 
 function selectSectionsForPrompt(
 	topic: TopicContext,
-	now: number
+	now: number,
+	maxRenderedSections = MAX_RENDERED_SECTIONS
 ): NoteStructure["sections"] {
 	const sections = topic.structure?.sections ?? [];
-	if (sections.length <= MAX_RENDERED_SECTIONS) return sections;
+	if (sections.length <= maxRenderedSections) return sections;
 
 	const selected = new Map<number, NoteStructure["sections"][number]>();
 	const add = (index: number): void => {
 		const section = sections[index];
-		if (section) selected.set(index, section);
+		if (section && (selected.has(index) || selected.size < maxRenderedSections)) {
+			selected.set(index, section);
+		}
 	};
 
 	add(0);
@@ -356,7 +378,7 @@ function selectSectionsForPrompt(
 		add(nonEmpty[0]!.index);
 	}
 
-	const prioritySlots = Math.max(1, Math.floor(MAX_RENDERED_SECTIONS / 3));
+	const prioritySlots = Math.max(1, Math.floor(maxRenderedSections / 3));
 	const prioritized = sections
 		.map((section, index) => ({
 			index,
@@ -369,14 +391,14 @@ function selectSectionsForPrompt(
 		add(index);
 	}
 
-	const slots = Math.max(1, MAX_RENDERED_SECTIONS - selected.size);
+	const slots = Math.max(1, maxRenderedSections - selected.size);
 	const denominator = Math.max(1, slots - 1);
 	for (let i = 0; i < slots; i++) {
 		const index = Math.round((i * (sections.length - 1)) / denominator);
 		add(index);
 	}
 
-	for (let i = 0; selected.size < MAX_RENDERED_SECTIONS && i < sections.length; i++) {
+	for (let i = 0; selected.size < maxRenderedSections && i < sections.length; i++) {
 		add(i);
 	}
 

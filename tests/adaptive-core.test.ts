@@ -2974,6 +2974,45 @@ test("buildPrompt bounds excerpts for notes with many sections", () => {
 	assert.doesNotMatch(prompt.textPrompt, /Section 150 detail(?: Section 150 detail){120}/);
 });
 
+test("buildPrompt keeps huge manual selections inside the global excerpt budget", () => {
+	const contexts = Array.from({ length: 120 }, (_, topicIndex) => {
+		const title = `Manual batch note ${topicIndex + 1}`;
+		const sections = Array.from({ length: 30 }, (_, sectionIndex) => {
+			const sectionNumber = sectionIndex + 1;
+			const content = `Topic ${topicIndex + 1} section ${sectionNumber} detail `.repeat(80);
+			return {
+				heading: `Section ${sectionNumber}`,
+				level: 2,
+				content,
+				wordCount: content.trim().split(/\s+/).length,
+			};
+		});
+		const structure = makeStructure({
+			title,
+			headings: sections.map((section) => ({
+				heading: section.heading,
+				level: section.level,
+			})),
+			sections,
+			cleanedText: sections.map((section) => section.content).join("\n\n"),
+		});
+		return {
+			note: makeTopic({
+				path: `batch/note-${topicIndex + 1}.md`,
+				title,
+			}),
+			content: structure.cleanedText,
+			history: "",
+			structure,
+		};
+	});
+	const prompt = buildPrompt(contexts, 20);
+
+	assert.ok(prompt.textPrompt.length < 180_000);
+	assert.match(prompt.textPrompt, /additional sections omitted/);
+	assert.doesNotMatch(prompt.textPrompt, /Topic 1 section 15 detail(?: Topic 1 section 15 detail){40}/);
+});
+
 test("buildPrompt prioritizes weak subtopic sections in long notes", () => {
 	const topic = makeTopic({ title: "Messy mechanics notebook" });
 	const sections = Array.from({ length: 40 }, (_, index) => {
