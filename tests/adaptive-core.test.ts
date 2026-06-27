@@ -374,6 +374,58 @@ test("parseQuestions independently marks one-step algorithm branch checks as eas
 	assert.equal(questions[0]?.difficulty, "easy");
 });
 
+test("parseQuestions downgrades edge-case update recall despite hard wording", () => {
+	const questions = parseQuestions(JSON.stringify({
+		questions: [
+			{
+				id: "direct-edge-update",
+				type: "mcq",
+				questionText: "In the duplicate edge case when `nums[low] == nums[mid] == nums[high]`, what boundary update is safe?",
+				options: [
+					"Increment low and decrement high",
+					"Return false immediately",
+					"Set high = mid - 1 only",
+					"Set low = mid only",
+				],
+				correctAnswer: "Increment low and decrement high",
+				explanation: "Equal boundaries hide the sorted half, so shrinking both ends is the safe fallback.",
+				sourceTopics: ["Rotated binary search"],
+				sourceSubtopics: ["duplicate edge case"],
+				difficulty: "hard",
+			},
+		],
+	}));
+
+	assert.equal(questions.length, 1);
+	assert.equal(questions[0]?.difficulty, "easy");
+});
+
+test("parseQuestions downgrades direct complexity recall to medium", () => {
+	const questions = parseQuestions(JSON.stringify({
+		questions: [
+			{
+				id: "complexity-recall",
+				type: "mcq",
+				questionText: "What is the worst-case time complexity of rotated sorted array search with duplicates?",
+				options: [
+					"$O(\\log n)$",
+					"$O(n)$",
+					"$O(n \\log n)$",
+					"$O(1)$",
+				],
+				correctAnswer: "$O(n)$",
+				explanation: "Duplicate trimming can shrink the interval one element at a time.",
+				sourceTopics: ["Rotated binary search"],
+				sourceSubtopics: ["duplicate worst-case complexity"],
+				difficulty: "hard",
+			},
+		],
+	}));
+
+	assert.equal(questions.length, 1);
+	assert.equal(questions[0]?.difficulty, "medium");
+});
+
 test("parseQuestions preserves hard labels for transfer and edge-case reasoning", () => {
 	const questions = parseQuestions(JSON.stringify({
 		questions: [

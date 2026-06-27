@@ -89,10 +89,20 @@ export function estimateQuestionDifficulty(
 		hasModelingOrDerivation,
 		hasTransferTrap,
 	].filter(Boolean).length;
+	const substantialReasoningMoves = [
+		hasMultiStepTrace(combined),
+		hasFailureModeReasoning(combined),
+		hasComplexityReasoning(combined),
+		hasComparisonOrTradeoff,
+		hasModelingOrDerivation,
+		hasTransferReasoning(combined),
+	].filter(Boolean).length;
 
 	if (
+		!directOneStep &&
 		score >= 5 &&
 		reasoningCategories >= 2 &&
+		substantialReasoningMoves >= 2 &&
 		(hasMultiCondition || hasWhyOrExplain || hasComplexityAnalysis || hasProofOrFailureMode)
 	) {
 		return { difficulty: "hard", score, reasons };
@@ -115,9 +125,35 @@ function countMatches(value: string, pattern: RegExp): number {
 }
 
 function isDirectOneStepQuestion(lowerQuestion: string): boolean {
+	if (
+		lowerQuestion.length >= 140 &&
+		/\b(why|explain|derive|prove|counterexample|compare|construct)\b/.test(lowerQuestion)
+	) {
+		return false;
+	}
 	return /\b(what does it do|what is the returned|what is returned|which element is recorded|which half is eliminated|which half|who introduced|who discovered|which option|what is the name|which statement is true|select the correct)\b/.test(lowerQuestion) ||
+		/\b(what|which)\s+(?:boundary\s+)?update\b/.test(lowerQuestion) ||
+		/\bwhat\s+update\s+(?:is|remains)\s+safe\b/.test(lowerQuestion) ||
+		/\bwhat\s+is\s+the\s+(?:worst[- ]case|best[- ]case|average[- ]case|time|space)\s+complexity\b/.test(lowerQuestion) ||
+		/\bwhich\s+(?:branch|condition|case)\b/.test(lowerQuestion) ||
 		/\bwhen\b.+\bwhat does\b/.test(lowerQuestion) ||
 		/\bafter\b.+\bwhat is the returned\b/.test(lowerQuestion);
+}
+
+function hasMultiStepTrace(combined: string): boolean {
+	return /\b(trace|dry run|simulate|step through|after two|two iterations|multiple iterations|state after)\b/.test(combined);
+}
+
+function hasFailureModeReasoning(combined: string): boolean {
+	return /\b(counterexample|prove|proof|invariant|failure mode|violat(?:e|es|ing)|breaks?|edge case|corner case|boundary condition)\b/.test(combined);
+}
+
+function hasComplexityReasoning(combined: string): boolean {
+	return /\b(derive|why|because|degrade|amortized|recurrence|worst[- ]case.+when|forces? .+\b(?:linear|logarithmic|quadratic|o\())\b/i.test(combined);
+}
+
+function hasTransferReasoning(combined: string): boolean {
+	return /\b(new setting|variant|modified|construct|duplicate-heavy|debug|symptom|hidden condition|ambiguous|trap|subtle)\b/.test(combined);
 }
 
 function hasTitleFraming(question: QuestionDifficultyInput): boolean {
