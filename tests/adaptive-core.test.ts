@@ -36,6 +36,7 @@ import {
 	resultFluency,
 } from "../src/practice/grader";
 import {
+	dailyTopicCandidateLimitForProvider,
 	getProviderAttachmentSupport,
 	getProviderPdfWarning,
 	splitProviderCompatibleTopics,
@@ -965,6 +966,12 @@ test("provider compatibility filters PDF topics for text-only adapters", () => {
 	assert.equal(gemini.compatibleTopics.length, 2);
 	assert.equal(gemini.skippedPdfTopics.length, 0);
 	assert.equal(gemini.warning, "");
+});
+
+test("provider daily candidate limits search past due PDFs for text-only adapters", () => {
+	assert.equal(dailyTopicCandidateLimitForProvider("gemini", 400, 6), 6);
+	assert.equal(dailyTopicCandidateLimitForProvider("openai", 400, 6), 400);
+	assert.equal(dailyTopicCandidateLimitForProvider("deepseek", 5, 6), 5);
 });
 
 test("provider attachment support follows provider capabilities and image override", () => {

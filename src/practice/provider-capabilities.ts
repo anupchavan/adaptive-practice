@@ -55,6 +55,18 @@ export function splitProviderCompatibleTopics(
 	};
 }
 
+export function dailyTopicCandidateLimitForProvider(
+	provider: LlmProvider,
+	totalTopics: number,
+	dailyTopicLimit: number
+): number {
+	const safeDailyLimit = Math.max(1, dailyTopicLimit);
+	if (PROVIDER_PRESETS[provider].supportsPdfs) {
+		return Math.min(totalTopics, safeDailyLimit);
+	}
+	return totalTopics;
+}
+
 export function getProviderPdfWarning(
 	provider: LlmProvider,
 	topics: TopicNote[]

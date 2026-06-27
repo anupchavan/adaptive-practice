@@ -33,7 +33,10 @@ import {
 	updatePracticeMemoryAfterSession,
 } from "./practice/scheduler";
 import { scanVaultSkeleton } from "./practice/indexer";
-import { splitProviderCompatibleTopics } from "./practice/provider-capabilities";
+import {
+	dailyTopicCandidateLimitForProvider,
+	splitProviderCompatibleTopics,
+} from "./practice/provider-capabilities";
 import {
 	getProviderSecretId,
 	normalizeProviderSecretNames,
@@ -272,10 +275,11 @@ export default class AdaptivePracticePlugin extends Plugin {
 		skippedPdfTopics: TopicNote[];
 		warning: string;
 	} {
-		const providerCanReadPdfs = PROVIDER_PRESETS[this.settings.llmProvider].supportsPdfs;
-		const candidateLimit = providerCanReadPdfs
-			? this.settings.dailyTopicLimit
-			: Math.min(topics.length, Math.max(this.settings.dailyTopicLimit, this.settings.dailyTopicLimit * 3));
+		const candidateLimit = dailyTopicCandidateLimitForProvider(
+			this.settings.llmProvider,
+			topics.length,
+			this.settings.dailyTopicLimit
+		);
 		const candidates = extraPractice
 			? selectPracticeMoreTopics(
 				topics,
