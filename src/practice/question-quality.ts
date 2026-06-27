@@ -80,7 +80,8 @@ Requirements:
 - Ask about underlying concepts, invariants, mechanisms, failure modes, proofs, traces, calculations, or transfer.
 - Do not frame the note title as the concept. Avoid stems like "In the <note title> problem, what does it do?" unless the question then forces transfer.
 - Each question must include concrete "sourceSubtopics" naming the section, concept, invariant, mechanism, or trap being tested.
-- At least half should require two or more reasoning moves.
+- At least half should require two or more substantial reasoning moves, such as tracing multiple states plus explaining an invariant, deriving complexity from a failure mode, constructing a counterexample, debugging from symptoms, or comparing two implementation choices.
+- Do not label direct update recall, direct complexity recall, single-iteration traces, or one-branch checks as hard.
 
 Under-challenging stems to avoid duplicating:
 ${easyStems || "None listed; still avoid one-step recall."}

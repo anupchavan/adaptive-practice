@@ -78,6 +78,7 @@ import {
 	resolveQuestionTargetTopics,
 } from "../src/practice/source-map";
 import {
+	buildChallengeTopUpPrompt,
 	buildQuestionTopUpPrompt,
 	mergeQuestionBatches,
 } from "../src/practice/question-quality";
@@ -1923,6 +1924,28 @@ test("question quality gate builds a strict top-up prompt for missing questions"
 	assert.match(prompt.textPrompt, /Why is duplicate trimming linear/);
 	assert.match(prompt.textPrompt, /A{80}/);
 	assert.ok(prompt.textPrompt.length < 2000);
+});
+
+test("question quality gate asks challenge retries for genuinely hard questions", () => {
+	const prompt = buildChallengeTopUpPrompt(
+		{
+			textPrompt: "Generate exactly 8 questions now.",
+			attachments: [],
+		},
+		[
+			makeQuestion({
+				questionText: "What boundary update is safe?",
+				correctAnswer: "shrink both ends",
+				difficulty: "easy",
+			}),
+		],
+		8
+	);
+
+	assert.match(prompt.textPrompt, /two or more substantial reasoning moves/);
+	assert.match(prompt.textPrompt, /direct update recall/);
+	assert.match(prompt.textPrompt, /direct complexity recall/);
+	assert.match(prompt.textPrompt, /one-branch checks/);
 });
 
 test("normalizePracticeMemory backfills fluency fields for older saved data", () => {
