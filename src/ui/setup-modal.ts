@@ -167,7 +167,7 @@ export class SetupModal extends Modal {
 			const searchInput = controls.createEl("input", {
 				type: "search",
 				cls: "ap-topic-search",
-				placeholder: "Search title or path",
+				placeholder: "Search title, alias, or path",
 			});
 			searchInput.value = this.searchQuery;
 
@@ -304,6 +304,10 @@ export class SetupModal extends Modal {
 			titleEl.createSpan({ text: group, cls: "ap-topic-group-badge" });
 		}
 		main.createDiv({ text: topic.path, cls: "ap-topic-path" });
+		const aliases = displayAliases(topic);
+		if (aliases) {
+			main.createDiv({ text: aliases, cls: "ap-topic-aliases" });
+		}
 
 		const meta = row.createDiv({ cls: "ap-topic-meta" });
 		const skillBadge = meta.createDiv({ cls: "ap-skill-badge" });
@@ -357,7 +361,10 @@ export class SetupModal extends Modal {
 			return (
 				topic.title.toLowerCase().includes(query) ||
 				topic.path.toLowerCase().includes(query) ||
-				group.toLowerCase().includes(query)
+				group.toLowerCase().includes(query) ||
+				(topic.aliases ?? []).some((alias) =>
+					alias.toLowerCase().includes(query)
+				)
 			);
 		});
 	}
@@ -462,4 +469,13 @@ function formatDueText(dueAt: number | undefined): string {
 	if (diffHours < 24) return `due in ${diffHours}h`;
 	const diffDays = Math.ceil(diffHours / 24);
 	return `due in ${diffDays}d`;
+}
+
+function displayAliases(topic: TopicNote): string {
+	const aliases = (topic.aliases ?? [])
+		.map((alias) => alias.trim())
+		.filter(Boolean)
+		.slice(0, 3);
+	if (aliases.length === 0) return "";
+	return `Aliases: ${aliases.join(", ")}`;
 }

@@ -119,16 +119,22 @@
 }
 
 .ap-topic-path,
+.ap-topic-aliases,
 .ap-topic-status,
 .ap-topic-list-note {
 	font-size: var(--font-smallest);
 	color: var(--text-muted);
 }
 
-.ap-topic-path {
+.ap-topic-path,
+.ap-topic-aliases {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.ap-topic-aliases {
+	color: var(--text-faint);
 }
 
 .ap-topic-meta {
