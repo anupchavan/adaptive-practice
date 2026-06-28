@@ -506,7 +506,6 @@ export default class AdaptivePracticePlugin extends Plugin {
 
 	async discardPracticeDraft(): Promise<void> {
 		await this.clearPracticeDraft();
-		new Notice("Unfinished practice session discarded.");
 	}
 
 	async startDailyPractice(): Promise<void> {
@@ -642,16 +641,19 @@ export default class AdaptivePracticePlugin extends Plugin {
 			return;
 		}
 		const notice = new Notice("", 0);
+		notice.messageEl.addClass("ap-resume-practice-notice");
 		notice.messageEl.empty();
 		notice.messageEl.createSpan({
-			text: `Unfinished Adaptive Practice session (${practiceDraftProgress(draft)}). `,
+			text: `Adaptive Practice: Unfinished practice session (${practiceDraftProgress(draft)}). `,
 		});
-		const resume = notice.messageEl.createEl("button", { text: "Resume" });
+		const actions = notice.messageEl.createEl("div");
+		actions.addClass("ap-resume-practice-notice-actions");
+		const resume = actions.createEl("button", { text: "Resume" });
 		resume.addEventListener("click", () => {
 			notice.hide();
 			void this.resumePracticeDraft();
 		});
-		const discard = notice.messageEl.createEl("button", { text: "Discard" });
+		const discard = actions.createEl("button", { text: "Discard" });
 		discard.addEventListener("click", () => {
 			notice.hide();
 			void this.discardPracticeDraft();
