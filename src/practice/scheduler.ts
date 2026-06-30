@@ -391,13 +391,18 @@ export function updatePracticeMemoryAfterSession(
 		const sessionFluency = stats.fluencySum / stats.attempts;
 		const sessionAverageTime = stats.totalTimeMs / stats.attempts;
 		const skipRate = stats.skipped / stats.attempts;
-		const intervalDays = nextIntervalDays(
+		const elapsedDays = state.lastPracticedAt > 0
+			? Math.max(0, (now - state.lastPracticedAt) / MS_PER_DAY)
+			: 0;
+		const newStability = nextStabilityDays(
+			state.stabilityDays,
+			elapsedDays,
 			skill,
 			sessionRate,
-			state.correctStreak,
 			sessionFluency,
 			skipRate
 		);
+		const intervalDays = Math.max(1, Math.round(intervalForRetention(newStability)));
 
 		state.skill = skill;
 		state.attempts += stats.attempts;
@@ -408,7 +413,9 @@ export function updatePracticeMemoryAfterSession(
 				? state.correctStreak + stats.attempts
 				: Math.max(0, state.correctStreak - (stats.attempts - stats.correct));
 		state.lastPracticedAt = now;
-		state.stabilityDays = intervalDays;
+		// Persist the compounding FSRS stability (float) so intervals can expand
+		// across reviews instead of being recomputed from scratch each time.
+		state.stabilityDays = newStability;
 		state.dueAt = now + intervalDays * MS_PER_DAY;
 		state.averageTimeMs = state.averageTimeMs > 0
 			? state.averageTimeMs * 0.65 + sessionAverageTime * 0.35
@@ -841,7 +848,15 @@ function collectSessionStats(
 	topics: TopicNote[],
 	results: QuizResult[]
 ): Map<string, SessionTopicStats> {
-	const byTitle = new Map(topics.map((topic) => [topic.title, topic]));
+	// Titles are not unique in Obsidian, so map each title to every topic that
+	// carries it and attribute results by path. This keeps two same-titled notes
+	// from corrupting each other's learning state.
+	const titleToTopics = new Map<string, TopicNote[]>();
+	for (const topic of topics) {
+		const list = titleToTopics.get(topic.title) ?? [];
+		list.push(topic);
+		titleToTopics.set(topic.title, list);
+	}
 	const byPath = new Map<string, SessionTopicStats>();
 
 	for (const result of compactQuizResults(results)) {
@@ -850,52 +865,116 @@ function collectSessionStats(
 			topics
 		);
 		for (const title of sourceTopics) {
-			const topic = byTitle.get(title);
-			if (!topic) continue;
-			const stats = byPath.get(topic.path) ?? {
-				attempts: 0,
-				correct: 0,
-				skipped: 0,
-				totalTimeMs: 0,
-				fluencySum: 0,
-				subtopics: new Map<string, { attempts: number; correct: number }>(),
-			};
-			stats.attempts += 1;
-			if (result.isCorrect) stats.correct += 1;
-			if (result.skipped) stats.skipped += 1;
-			stats.totalTimeMs += result.timeTakenMs;
-			stats.fluencySum += resultFluency(result);
-			for (const subtopic of result.question.sourceSubtopics ?? []) {
-				const existing = stats.subtopics.get(subtopic) ?? { attempts: 0, correct: 0 };
-				existing.attempts += 1;
-				if (result.isCorrect) existing.correct += 1;
-				stats.subtopics.set(subtopic, existing);
+			for (const topic of titleToTopics.get(title) ?? []) {
+				const stats = byPath.get(topic.path) ?? {
+					attempts: 0,
+					correct: 0,
+					skipped: 0,
+					totalTimeMs: 0,
+					fluencySum: 0,
+					subtopics: new Map<string, { attempts: number; correct: number }>(),
+				};
+				stats.attempts += 1;
+				if (result.isCorrect) stats.correct += 1;
+				if (result.skipped) stats.skipped += 1;
+				stats.totalTimeMs += result.timeTakenMs;
+				stats.fluencySum += resultFluency(result);
+				for (const subtopic of result.question.sourceSubtopics ?? []) {
+					const existing = stats.subtopics.get(subtopic) ?? { attempts: 0, correct: 0 };
+					existing.attempts += 1;
+					if (result.isCorrect) existing.correct += 1;
+					stats.subtopics.set(subtopic, existing);
+				}
+				byPath.set(topic.path, stats);
 			}
-			byPath.set(topic.path, stats);
 		}
 	}
 
 	return byPath;
 }
 
-function nextIntervalDays(
+// --- FSRS-style spaced repetition (difficulty / stability / retrievability) ---
+//
+// Grounded in the Free Spaced Repetition Scheduler's power forgetting curve and
+// DSR model, simplified to fixed interpretable constants (no per-user training):
+//   - Retrievability decays as a power law: R(t) = (1 + FACTOR·t/S)^DECAY, so
+//     R(S) = TARGET by construction.
+//   - Stability COMPOUNDS on success (the spacing effect: a successful recall of
+//     an overdue/low-R item strengthens memory more), and resets low on a lapse
+//     so a forgotten note resurfaces within a few days regardless of prior S.
+//   - Difficulty is derived from the note's skill and damps growth for hard notes.
+// This replaces the previous ungrounded magic-number buckets whose `stabilityDays`
+// never compounded, so mature notes were re-asked roughly every 1–3 weeks forever.
+
+const FSRS_DECAY = -0.5;
+const FSRS_FACTOR = 19 / 81; // makes R(S) == DEFAULT_TARGET_RETENTION
+export const DEFAULT_TARGET_RETENTION = 0.9;
+const MIN_STABILITY_DAYS = 0.5;
+const LAPSE_STABILITY_CAP_DAYS = 3;
+const STABILITY_GROWTH_BASE = 1.5;
+
+export function retrievability(stabilityDays: number, elapsedDays: number): number {
+	if (stabilityDays <= 0) return 0;
+	const t = Math.max(0, elapsedDays);
+	return Math.pow(1 + FSRS_FACTOR * (t / stabilityDays), FSRS_DECAY);
+}
+
+export function intervalForRetention(
+	stabilityDays: number,
+	targetRetention: number = DEFAULT_TARGET_RETENTION
+): number {
+	const target = Math.min(0.97, Math.max(0.7, targetRetention));
+	return stabilityDays * (Math.pow(target, 1 / FSRS_DECAY) - 1) / FSRS_FACTOR;
+}
+
+function difficultyFromSkill(skill: number): number {
+	// Skill 100 -> easiest (1), skill 0 -> hardest (10).
+	return 1 + 9 * (1 - clampNumber(skill, 0, 100, 50) / 100);
+}
+
+function sessionGrade(sessionRate: number, sessionFluency: number, skipRate: number): number {
+	return clampNumber(
+		sessionRate * (0.7 + 0.3 * sessionFluency) - skipRate * 0.2,
+		0,
+		1,
+		0
+	);
+}
+
+function initialStabilityDays(grade: number, difficulty: number): number {
+	const base = 0.5 + grade * 4; // 0.5 .. 4.5 days
+	const difficultyScale = 1.1 - (difficulty - 1) / 18; // ~1.1 (easy) .. ~0.6 (hard)
+	return Math.max(MIN_STABILITY_DAYS, base * difficultyScale);
+}
+
+export function nextStabilityDays(
+	previousStability: number,
+	elapsedDays: number,
 	skill: number,
 	sessionRate: number,
-	correctStreak: number,
 	sessionFluency: number,
 	skipRate: number
 ): number {
-	if (sessionRate <= 0.25) return 0.75;
-	if (sessionRate < 0.6) return 1.5;
-	const skillBase = skill < 35 ? 2 : skill < 60 ? 4 : skill < 80 ? 8 : 14;
-	const streakBonus = Math.min(correctStreak, 8) * 0.35;
-	const rateMultiplier = sessionRate > 0.85 ? 1.25 : 1;
-	const fluencyMultiplier = sessionFluency >= 0.8 ? 1.2 : sessionFluency < 0.55 ? 0.65 : 1;
-	const skipMultiplier = skipRate > 0 ? Math.max(0.55, 1 - skipRate * 0.5) : 1;
-	return Math.max(
-		1,
-		Math.round((skillBase + streakBonus) * rateMultiplier * fluencyMultiplier * skipMultiplier)
-	);
+	const difficulty = difficultyFromSkill(skill);
+	const grade = sessionGrade(sessionRate, sessionFluency, skipRate);
+
+	if (previousStability <= 0) {
+		return initialStabilityDays(grade, difficulty);
+	}
+
+	if (sessionRate < 0.5) {
+		// Lapse: bring the note back within a few days regardless of prior stability.
+		return Math.max(
+			MIN_STABILITY_DAYS,
+			Math.min(previousStability * 0.25, LAPSE_STABILITY_CAP_DAYS)
+		);
+	}
+
+	const r = retrievability(previousStability, elapsedDays);
+	const easiness = (11 - difficulty) / 10; // ~1 (easy) .. 0.1 (hard)
+	const overdueBoost = 1 + (1 - r); // 1 (fresh) .. 2 (forgotten but recalled)
+	const growth = 1 + STABILITY_GROWTH_BASE * easiness * overdueBoost * grade;
+	return Math.max(previousStability, previousStability * growth);
 }
 
 function updateDailyStreak(memory: PracticeMemory, now: number): void {

@@ -1,6 +1,6 @@
 import { requestUrl } from "obsidian";
 import { Question } from "../types";
-import { StructuredPrompt } from "./prompt";
+import { GENERATION_TEMPERATURE, resolvePromptParts, StructuredPrompt } from "./prompt";
 import { parseQuestions } from "./parse";
 import { extractProviderErrorDetail, formatProviderError } from "./errors";
 
@@ -29,6 +29,7 @@ export class AnthropicClient {
 	}
 
 	async generateQuestions(prompt: StructuredPrompt): Promise<Question[]> {
+		const { system, user } = resolvePromptParts(prompt);
 		const content: Array<Record<string, unknown>> = [];
 
 		for (const attachment of prompt.attachments) {
@@ -55,12 +56,14 @@ export class AnthropicClient {
 
 		content.push({
 			type: "text",
-			text: prompt.textPrompt,
+			text: user,
 		});
 
 		const body = {
 			model: this.config.model,
 			max_tokens: 8192,
+			temperature: GENERATION_TEMPERATURE,
+			system,
 			messages: [
 				{
 					role: "user",
@@ -93,19 +96,36 @@ export class AnthropicClient {
 		const data: unknown = response.json;
 		const text = getAnthropicText(data);
 
-		return parseQuestions(text);
+		try {
+			return parseQuestions(text);
+		} catch (error) {
+			if (anthropicResponseTruncated(data)) {
+				throw new Error(
+					"Anthropic stopped before finishing the questions (hit the output token limit). Try generating fewer questions per session."
+				);
+			}
+			throw error;
+		}
 	}
 }
 
 function getAnthropicText(data: unknown): string {
 	if (!isRecord(data) || !Array.isArray(data["content"])) return "";
+	// Join every text block. A response may contain multiple text blocks (or be
+	// preceded by a thinking block), so returning only the first risks dropping
+	// part of the JSON payload.
+	let text = "";
 	for (const block of data["content"]) {
 		if (!isRecord(block)) continue;
 		if (block["type"] === "text" && typeof block["text"] === "string") {
-			return block["text"];
+			text += block["text"];
 		}
 	}
-	return "";
+	return text;
+}
+
+function anthropicResponseTruncated(data: unknown): boolean {
+	return isRecord(data) && data["stop_reason"] === "max_tokens";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

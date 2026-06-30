@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { buildPrompt } from "../src/llm/prompt";
+import { buildPrompt, resolvePromptParts } from "../src/llm/prompt";
+import { questionSchema } from "../src/llm/openai-shared";
 import { parseQuestions } from "../src/llm/parse";
+import {
+	detectFormatIssues,
+	normalizeObsidianMath,
+	normalizeQuestionFormatting,
+} from "../src/llm/format-normalize";
 import {
 	extractProviderErrorDetail,
 	formatProviderError,
@@ -85,7 +91,17 @@ import {
 	shouldOfferDailyReminder,
 	suppressDailyReminderForToday,
 	updatePracticeMemoryAfterSession,
+	retrievability,
+	intervalForRetention,
+	nextStabilityDays,
 } from "../src/practice/scheduler";
+import {
+	migratePdfSkillPaths,
+	migratePracticeMemoryPaths,
+	prunePdfSkillPaths,
+	prunePracticeMemoryPaths,
+	remapPath,
+} from "../src/practice/path-migration";
 import { resolvePracticeCredit } from "../src/practice/daily-credit";
 import { hasPracticedToday } from "../src/practice/daily-status";
 import { recordQuestionFeedback } from "../src/practice/question-feedback";
@@ -3881,6 +3897,345 @@ function makeArrayBuffer(bytes: number[]): ArrayBuffer {
 	new Uint8Array(buffer).set(bytes);
 	return buffer;
 }
+
+test("computeSkillDeltas keeps same-titled notes on distinct paths independent", () => {
+	const weak = makeTopic({ path: "a/Shared.md", title: "Shared", skill: 40 });
+	const strong = makeTopic({ path: "b/Shared.md", title: "Shared", skill: 80 });
+	const question = makeQuestion({
+		difficulty: "medium",
+		sourceTopics: ["Shared"],
+	});
+
+	const deltas = computeSkillDeltas(
+		[weak, strong],
+		[makeResult(question, { isCorrect: true, timeTakenMs: 40_000 })]
+	);
+	const weakDelta = deltas.find((d) => d.path === "a/Shared.md");
+	const strongDelta = deltas.find((d) => d.path === "b/Shared.md");
+
+	assert.ok(weakDelta);
+	assert.ok(strongDelta);
+	assert.equal(weakDelta.before, 40);
+	assert.equal(strongDelta.before, 80);
+	// Each note's update is computed from its own skill, not collapsed by title.
+	assert.ok(weakDelta.after > 40);
+	assert.ok(strongDelta.after > 80);
+	assert.notEqual(weakDelta.after, strongDelta.after);
+});
+
+test("extractSections ignores headings inside fenced code blocks", () => {
+	const content = [
+		"# Real heading",
+		"intro text",
+		"```python",
+		"# this is a comment, not a heading",
+		"def f():",
+		"    return 1",
+		"```",
+		"closing text",
+	].join("\n");
+
+	const sections = extractSections(content);
+	const headings = sections.map((section) => section.heading);
+	assert.ok(headings.includes("Real heading"));
+	assert.ok(!headings.includes("this is a comment, not a heading"));
+});
+
+test("checkAnswer falls back to tolerance when a non-integer answer is mislabeled integer", () => {
+	const question = makeQuestion({
+		type: "integer",
+		options: undefined,
+		correctAnswer: "3.5",
+	});
+	assert.equal(checkAnswer(question, "3.5"), true);
+	assert.equal(checkAnswer(question, "3"), false);
+});
+
+test("remapPath rewrites exact files and folder prefixes only", () => {
+	assert.equal(remapPath("a/n.md", "a/n.md", "b/n.md", false), "b/n.md");
+	assert.equal(remapPath("a/n.md", "x/n.md", "b/n.md", false), null);
+	assert.equal(remapPath("old/sub/n.md", "old", "new", true), "new/sub/n.md");
+	assert.equal(remapPath("old", "old", "new", true), "new");
+	assert.equal(remapPath("other/n.md", "old", "new", true), null);
+});
+
+test("migratePracticeMemoryPaths re-keys note and index state on rename", () => {
+	const memory = normalizePracticeMemory(undefined);
+	const topic = makeTopic({ path: "old/note.md", title: "Note" });
+	memory.notes["old/note.md"] = makeNoteState(topic, { skill: 73, attempts: 4 });
+	memory.index["old/note.md"] = makeIndexEntry({ path: "old/note.md", skill: 73 });
+
+	const changed = migratePracticeMemoryPaths(memory, "old/note.md", "new/note.md", false);
+
+	assert.equal(changed, true);
+	assert.equal(memory.notes["old/note.md"], undefined);
+	assert.equal(memory.index["old/note.md"], undefined);
+	assert.equal(memory.notes["new/note.md"]?.skill, 73);
+	assert.equal(memory.notes["new/note.md"]?.path, "new/note.md");
+	assert.equal(memory.index["new/note.md"]?.path, "new/note.md");
+});
+
+test("migratePracticeMemoryPaths remaps every note under a renamed folder", () => {
+	const memory = normalizePracticeMemory(undefined);
+	for (const name of ["one.md", "two.md"]) {
+		const path = `DSA/${name}`;
+		memory.notes[path] = makeNoteState(makeTopic({ path, title: name }));
+	}
+	memory.notes["Other/keep.md"] = makeNoteState(makeTopic({ path: "Other/keep.md" }));
+
+	const changed = migratePracticeMemoryPaths(memory, "DSA", "Algorithms", true);
+
+	assert.equal(changed, true);
+	assert.ok(memory.notes["Algorithms/one.md"]);
+	assert.ok(memory.notes["Algorithms/two.md"]);
+	assert.equal(memory.notes["DSA/one.md"], undefined);
+	assert.ok(memory.notes["Other/keep.md"]);
+});
+
+test("prunePracticeMemoryPaths drops state for deleted files and folders", () => {
+	const memory = normalizePracticeMemory(undefined);
+	memory.notes["gone/a.md"] = makeNoteState(makeTopic({ path: "gone/a.md" }));
+	memory.notes["gone/b.md"] = makeNoteState(makeTopic({ path: "gone/b.md" }));
+	memory.notes["stay/c.md"] = makeNoteState(makeTopic({ path: "stay/c.md" }));
+	memory.index["gone/a.md"] = makeIndexEntry({ path: "gone/a.md" });
+
+	assert.equal(prunePracticeMemoryPaths(memory, "gone", true), true);
+	assert.equal(memory.notes["gone/a.md"], undefined);
+	assert.equal(memory.notes["gone/b.md"], undefined);
+	assert.equal(memory.index["gone/a.md"], undefined);
+	assert.ok(memory.notes["stay/c.md"]);
+});
+
+test("pdf skill paths migrate on rename and prune on delete", () => {
+	const renameSkills: Record<string, number> = { "old/book.pdf": 62 };
+	assert.equal(migratePdfSkillPaths(renameSkills, "old/book.pdf", "new/book.pdf", false), true);
+	assert.equal(renameSkills["old/book.pdf"], undefined);
+	assert.equal(renameSkills["new/book.pdf"], 62);
+
+	const deleteSkills: Record<string, number> = { "refs/book.pdf": 40, "keep/x.pdf": 10 };
+	assert.equal(prunePdfSkillPaths(deleteSkills, "refs", true), true);
+	assert.equal(deleteSkills["refs/book.pdf"], undefined);
+	assert.equal(deleteSkills["keep/x.pdf"], 10);
+});
+
+test("normalizeObsidianMath converts LaTeX-native delimiters to Obsidian forms", () => {
+	assert.equal(normalizeObsidianMath("inline \\(a+b\\) end"), "inline $a+b$ end");
+	assert.equal(normalizeObsidianMath("display \\[a+b\\] done"), "display $$a+b$$ done");
+	assert.equal(normalizeObsidianMath("already $x$ and $$y$$"), "already $x$ and $$y$$");
+	assert.equal(normalizeObsidianMath("plain text"), "plain text");
+});
+
+test("parseQuestions normalizes MCQ math delimiters while preserving correctness", () => {
+	const payload = JSON.stringify([
+		{
+			id: "q1",
+			type: "mcq",
+			questionText: "Compute \\(x^2\\) when x=3",
+			options: ["\\(9\\)", "\\(6\\)", "\\(12\\)", "\\(3\\)"],
+			correctAnswer: "\\(9\\)",
+			explanation: "Because \\(3^2 = 9\\).",
+			sourceTopics: ["Math"],
+			difficulty: "easy",
+		},
+	]);
+	const [question] = parseQuestions(payload);
+	assert.ok(question);
+	assert.ok(question.questionText.includes("$x^2$"));
+	assert.ok(!question.questionText.includes("\\("));
+	assert.ok(question.options?.every((option) => /^\$.*\$$/.test(option)));
+	assert.ok(question.options?.includes(question.correctAnswer));
+});
+
+test("parseQuestions normalizes math in numeric stems but leaves the answer numeric", () => {
+	const payload = JSON.stringify([
+		{
+			id: "q1",
+			type: "integer",
+			questionText: "Evaluate \\(2 + 3\\).",
+			correctAnswer: "5",
+			explanation: "\\(2 + 3 = 5\\)",
+			sourceTopics: ["Math"],
+			difficulty: "easy",
+		},
+	]);
+	const [question] = parseQuestions(payload);
+	assert.ok(question);
+	assert.equal(question.type, "integer");
+	assert.equal(question.correctAnswer, "5");
+	assert.ok(question.questionText.includes("$2 + 3$"));
+});
+
+test("detectFormatIssues flags raw LaTeX delimiters and clears after normalization", () => {
+	const bad = makeQuestion({
+		questionText: "x equals \\(y\\)",
+		options: ["\\(1\\)", "2", "3", "4"],
+		correctAnswer: "\\(1\\)",
+	});
+	assert.ok(detectFormatIssues(bad).latexDelimiters > 0);
+	const fixed = detectFormatIssues(normalizeQuestionFormatting(bad));
+	assert.equal(fixed.latexDelimiters, 0);
+	assert.equal(fixed.unbalancedDollars, 0);
+});
+
+test("buildPrompt splits stable instructions into system and material into user", () => {
+	const topic = makeTopic({ title: "Rotated binary search" });
+	const prompt = buildPrompt(
+		[
+			{
+				note: topic,
+				content: "Binary search keeps the sorted-half invariant.",
+				history: "",
+			},
+		],
+		4,
+		{ now: Date.UTC(2026, 5, 26) }
+	);
+
+	assert.ok(prompt.systemPrompt);
+	assert.ok(prompt.userPrompt);
+	// Stable HOW lives in the system prompt, not the per-session material.
+	assert.match(prompt.systemPrompt ?? "", /Core learning contract/);
+	assert.match(prompt.systemPrompt ?? "", /## Response format/);
+	assert.ok(!/### Topic:/.test(prompt.systemPrompt ?? ""));
+	// Per-session material lives in the user prompt.
+	assert.match(prompt.userPrompt ?? "", /### Topic: Rotated binary search/);
+	assert.match(prompt.userPrompt ?? "", /Generate exactly 4 questions now/);
+	assert.ok(!/Core learning contract/.test(prompt.userPrompt ?? ""));
+
+	const parts = resolvePromptParts(prompt);
+	assert.equal(parts.system, prompt.systemPrompt);
+	assert.equal(parts.user, prompt.userPrompt);
+
+	// Fallback: a builder that only set textPrompt still yields a usable split.
+	const fallback = resolvePromptParts({ textPrompt: "only text", attachments: [] });
+	assert.equal(fallback.user, "only text");
+	assert.match(fallback.system, /Adaptive Practice/);
+});
+
+test("questionSchema is shaped for strict structured output", () => {
+	const schema = questionSchema();
+	const questions = (schema["properties"] as Record<string, unknown>)["questions"] as Record<string, unknown>;
+	const item = questions["items"] as {
+		additionalProperties: unknown;
+		required: string[];
+		properties: Record<string, { type: unknown }>;
+	};
+
+	// Strict mode requires every property to be listed in `required`.
+	assert.deepEqual([...item.required].sort(), Object.keys(item.properties).sort());
+	assert.equal(item.additionalProperties, false);
+	// Options nullable so numeric questions can omit them under strict.
+	const optionsProp = item.properties["options"];
+	assert.ok(optionsProp);
+	assert.deepEqual(optionsProp.type, ["array", "null"]);
+	// `minItems` is not supported by strict structured output.
+	assert.ok(!("minItems" in questions));
+});
+
+test("normalizeQuestionFormatting links a repeated note only once per question", () => {
+	const question = makeQuestion({
+		type: "integer",
+		options: undefined,
+		questionText: "In [[version control]], the [[version control]] history graph is a DAG.",
+		explanation: "A [[version control]] DAG records merges.",
+		correctAnswer: "1",
+	});
+	const out = normalizeQuestionFormatting(question);
+	assert.equal((out.questionText.match(/\[\[version control\]\]/g) ?? []).length, 1);
+	assert.ok(out.questionText.includes("the version control history graph"));
+	// Already linked in the stem, so the explanation mention is plain text.
+	assert.ok(!out.explanation.includes("[[version control]]"));
+	assert.ok(out.explanation.includes("A version control DAG"));
+});
+
+test("link dedupe handles markdown links and leaves image embeds intact", () => {
+	const question = makeQuestion({
+		type: "integer",
+		options: undefined,
+		questionText: "See [variance](Variance.md), then [variance](Variance.md) again, plus ![[plot.png]].",
+		explanation: "",
+		correctAnswer: "1",
+	});
+	const out = normalizeQuestionFormatting(question);
+	assert.equal((out.questionText.match(/\]\(Variance\.md\)/g) ?? []).length, 1);
+	assert.ok(out.questionText.includes("then variance again"));
+	assert.ok(out.questionText.includes("![[plot.png]]"));
+});
+
+test("question calibration links a repeated source title only once", () => {
+	const topic = makeTopic({ path: "CS/Version control.md", title: "Version control" });
+	const structure = makeStructure({
+		title: topic.title,
+		headings: [{ heading: "Merge commits", level: 2 }],
+		sections: [
+			{
+				heading: "Merge commits",
+				level: 2,
+				content: "Merges create a directed acyclic graph of commits.",
+				wordCount: 8,
+			},
+		],
+	});
+	const [question] = calibrateQuestionsForPractice(
+		[
+			makeQuestion({
+				questionText:
+					"In Version control, the Version control history graph is a DAG. Why does merging cause that?",
+				correctAnswer: "A merge commit has two parents.",
+				options: [
+					"A merge commit has two parents.",
+					"Branches are always linear.",
+					"Commits are stored unordered.",
+					"Tags introduce cycles.",
+				],
+				sourceTopics: [topic.title],
+				sourceSubtopics: ["Merge commits"],
+				difficulty: "medium",
+			}),
+		],
+		[{ note: topic, content: structure.cleanedText, history: "", structure }],
+		[topic]
+	);
+
+	assert.ok(question);
+	const links = question.questionText.match(/\[\[CS\/Version control\|Version control\]\]/g) ?? [];
+	assert.equal(links.length, 1);
+	// The second mention stays plain text.
+	assert.ok(question.questionText.includes("the Version control history graph"));
+});
+
+test("FSRS retrievability is ~target at one stability and decays with time", () => {
+	assert.ok(Math.abs(retrievability(10, 10) - 0.9) < 0.02);
+	assert.ok(retrievability(10, 0) > 0.99);
+	assert.ok(retrievability(10, 30) < retrievability(10, 10));
+	assert.equal(retrievability(0, 5), 0);
+});
+
+test("FSRS interval grows with stability and shrinks as target retention rises", () => {
+	assert.ok(Math.abs(intervalForRetention(10) - 10) < 0.02);
+	assert.ok(intervalForRetention(20) > intervalForRetention(10));
+	assert.ok(intervalForRetention(10, 0.95) < intervalForRetention(10, 0.85));
+});
+
+test("FSRS stability compounds across successful reviews", () => {
+	const first = nextStabilityDays(0, 0, 70, 1, 0.8, 0);
+	const second = nextStabilityDays(first, intervalForRetention(first), 70, 1, 0.8, 0);
+	const third = nextStabilityDays(second, intervalForRetention(second), 70, 1, 0.8, 0);
+	assert.ok(second > first);
+	assert.ok(third > second);
+});
+
+test("FSRS lapse pulls a mature note back within a few days", () => {
+	const lapsed = nextStabilityDays(40, 60, 70, 0.2, 0.3, 0);
+	assert.ok(lapsed >= 0.5 && lapsed <= 3);
+	assert.ok(intervalForRetention(lapsed) <= 3);
+});
+
+test("FSRS grows stability faster for higher-skill (easier) notes", () => {
+	const easy = nextStabilityDays(10, 10, 90, 1, 0.8, 0);
+	const hard = nextStabilityDays(10, 10, 30, 1, 0.8, 0);
+	assert.ok(easy > hard);
+});
 
 async function runAllTests(): Promise<void> {
 	let failed = 0;

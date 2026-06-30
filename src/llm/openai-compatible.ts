@@ -1,6 +1,6 @@
 import { requestUrl } from "obsidian";
 import { Question } from "../types";
-import { StructuredPrompt } from "./prompt";
+import { GENERATION_TEMPERATURE, resolvePromptParts, StructuredPrompt } from "./prompt";
 import { parseQuestions } from "./parse";
 import { extractProviderErrorDetail, formatProviderError } from "./errors";
 import {
@@ -35,21 +35,22 @@ export class OpenAiCompatibleClient {
 			);
 		}
 
+		const { system, user } = resolvePromptParts(prompt);
 		const imageAttachments = prompt.attachments.filter((attachment) => attachment.kind === "image");
-		const content = this.buildMessageContent(prompt.textPrompt, imageAttachments);
+		const content = this.buildMessageContent(user, imageAttachments);
 		const body = {
 			model: this.config.model,
 			messages: [
 				{
 					role: "system",
-					content: "You generate Adaptive Practice questions. Return only valid JSON.",
+					content: system,
 				},
 				{
 					role: "user",
 					content,
 				},
 			],
-			temperature: 0.7,
+			temperature: GENERATION_TEMPERATURE,
 			max_tokens: MAX_OUTPUT_TOKENS,
 			...this.responseFormat(),
 		};

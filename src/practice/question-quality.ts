@@ -41,9 +41,7 @@ export function buildQuestionTopUpPrompt(
 		? `\nAlready accepted question stems; do not duplicate these:\n${acceptedStems}\n`
 		: "\nThe previous response had no usable questions after validation.\n";
 
-	return {
-		...basePrompt,
-		textPrompt: `${basePrompt.textPrompt}
+	const correction = `
 
 ## Retry correction
 
@@ -52,8 +50,9 @@ For this retry, generate exactly ${remaining} additional question${remaining ===
 Every MCQ must have exactly 4 unique non-empty options, and "correctAnswer" must exactly equal one of those option strings.
 Every question must include non-empty "questionText", "correctAnswer", "explanation", "sourceTopics", "sourceSubtopics", and "difficulty".
 ${avoidBlock}
-Return only the JSON for the additional question${remaining === 1 ? "" : "s"}.`,
-	};
+Return only the JSON for the additional question${remaining === 1 ? "" : "s"}.`;
+
+	return appendCorrection(basePrompt, correction);
 }
 
 export function buildChallengeTopUpPrompt(
@@ -68,9 +67,7 @@ export function buildChallengeTopUpPrompt(
 		.map((question, index) => `${index + 1}. ${truncateForPrompt(question.questionText, 220)}`)
 		.join("\n");
 
-	return {
-		...basePrompt,
-		textPrompt: `${basePrompt.textPrompt}
+	const correction = `
 
 ## Challenge correction
 
@@ -86,7 +83,24 @@ Requirements:
 Under-challenging stems to avoid duplicating:
 ${easyStems || "None listed; still avoid one-step recall."}
 
-Return only JSON for the replacement questions.`,
+Return only JSON for the replacement questions.`;
+
+	return appendCorrection(basePrompt, correction);
+}
+
+/**
+ * Append a per-session correction block to a base prompt, keeping the system
+ * instructions intact and routing the dynamic text into the user turn (and the
+ * combined textPrompt for fallback/tests).
+ */
+function appendCorrection(
+	basePrompt: StructuredPrompt,
+	correction: string
+): StructuredPrompt {
+	return {
+		...basePrompt,
+		userPrompt: `${basePrompt.userPrompt ?? basePrompt.textPrompt}${correction}`,
+		textPrompt: `${basePrompt.textPrompt}${correction}`,
 	};
 }
 

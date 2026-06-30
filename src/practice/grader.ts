@@ -27,13 +27,15 @@ export function checkAnswer(question: Question, userAnswer: string): boolean {
 	const givenNum = parseNumericAnswer(userAnswer);
 	if (correctNum === null || givenNum === null) return false;
 
-	if (question.type === "integer") {
-		return isIntegerLike(correctNum) &&
-			isIntegerLike(givenNum) &&
-			Math.abs(correctNum - givenNum) < 1e-9;
+	// Only enforce exact integer equality when the model's correct answer is
+	// genuinely an integer. If a non-integer answer was mislabeled "integer"
+	// (a common model mistake), fall through to tolerant numeric comparison
+	// instead of marking every attempt wrong.
+	if (question.type === "integer" && isIntegerLike(correctNum)) {
+		return isIntegerLike(givenNum) && Math.abs(correctNum - givenNum) < 1e-9;
 	}
 
-	// decimal: allow 1% relative tolerance or 0.01 absolute
+	// decimal (and mislabeled-integer) answers: allow 1% relative tolerance or 0.01 absolute
 	const absDiff = Math.abs(correctNum - givenNum);
 	return absDiff <= 0.01 || absDiff <= Math.abs(correctNum) * 0.01;
 }
@@ -74,35 +76,43 @@ export function computeSkillDeltas(
 	topics: TopicNote[],
 	results: QuizResult[]
 ): SkillDelta[] {
-	const skillMap = new Map<string, { note: TopicNote; skill: number }>();
+	// Key skill state by path, not title: titles are not unique in Obsidian, so a
+	// title-keyed map would cross-apply deltas between two distinct same-titled notes.
+	const skillByPath = new Map<string, { note: TopicNote; skill: number }>();
+	const titleToPaths = new Map<string, string[]>();
 	for (const t of topics) {
-		skillMap.set(t.title, { note: t, skill: t.skill });
+		skillByPath.set(t.path, { note: t, skill: t.skill });
+		const paths = titleToPaths.get(t.title) ?? [];
+		paths.push(t.path);
+		titleToPaths.set(t.title, paths);
 	}
 
 	for (const r of compactQuizResults(results)) {
 		const mult = DIFFICULTY_MULTIPLIER[r.question.difficulty];
 		for (const topicTitle of reconcileSourceTopics(r.question.sourceTopics, topics)) {
-			const entry = skillMap.get(topicTitle);
-			if (!entry) continue;
+			for (const path of titleToPaths.get(topicTitle) ?? []) {
+				const entry = skillByPath.get(path);
+				if (!entry) continue;
 
-			const fluency = resultFluency(r);
-			if (r.isCorrect) {
-				entry.skill = Math.min(
-					100,
-					entry.skill + (100 - entry.skill) * 0.08 * mult * (0.65 + fluency * 0.5)
-				);
-			} else {
-				const penalty = r.skipped ? 0.075 : 0.05;
-				entry.skill = Math.max(
-					0,
-					entry.skill - entry.skill * penalty * mult * (1.15 - fluency * 0.25)
-				);
+				const fluency = resultFluency(r);
+				if (r.isCorrect) {
+					entry.skill = Math.min(
+						100,
+						entry.skill + (100 - entry.skill) * 0.08 * mult * (0.65 + fluency * 0.5)
+					);
+				} else {
+					const penalty = r.skipped ? 0.075 : 0.05;
+					entry.skill = Math.max(
+						0,
+						entry.skill - entry.skill * penalty * mult * (1.15 - fluency * 0.25)
+					);
+				}
 			}
 		}
 	}
 
 	return topics.map((t) => {
-		const entry = skillMap.get(t.title);
+		const entry = skillByPath.get(t.path);
 		return {
 			path: t.path,
 			title: t.title,

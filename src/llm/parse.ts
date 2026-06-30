@@ -1,6 +1,7 @@
 import { Question } from "../types";
 import { isIntegerLike, parseNumericAnswer } from "../practice/numeric-answer";
 import { normalizeQuestionDifficulty } from "../practice/difficulty-quality";
+import { normalizeQuestionFormatting } from "./format-normalize";
 
 export function parseQuestions(raw: string): Question[] {
 	const parsed = parseQuestionPayload(raw);
@@ -88,8 +89,11 @@ function normalizeQuestion(rawItem: unknown, i: number): Question | null {
 	} else if (!isValidNumericQuestion(q)) {
 		return null;
 	}
-	q.difficulty = normalizeQuestionDifficulty(q);
-	return q;
+	// Apply provider-agnostic formatting repairs (math delimiters, etc.) before
+	// difficulty estimation so the heuristic sees the same text the learner will.
+	const formatted = normalizeQuestionFormatting(q);
+	formatted.difficulty = normalizeQuestionDifficulty(formatted);
+	return formatted;
 }
 
 function isValidNumericQuestion(question: Question): boolean {

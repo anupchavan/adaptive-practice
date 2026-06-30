@@ -435,7 +435,9 @@ export class PracticeView extends ItemView {
 
 		for (let i = 0; i < options.length; i++) {
 			const option = options[i]!;
-			const isCorrectOption = option === q.correctAnswer;
+			// Use the same normalized equality as grading so the highlighted
+			// "correct" option never disagrees with the Correct/Incorrect verdict.
+			const isCorrectOption = checkAnswer(q, option);
 			const isUserChoice = option === result.userAnswer;
 			const choice = container.createDiv({ cls: "ap-choice is-locked" });
 			if (hasBlockMarkdown(option)) choice.addClass("has-block-content");

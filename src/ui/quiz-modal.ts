@@ -309,7 +309,7 @@ export class QuizModal extends Modal {
 		container.querySelectorAll(".ap-option").forEach((el) => {
 			const radio = el.querySelector<HTMLInputElement>("input");
 			if (!radio) return;
-			if (radio.value === q.correctAnswer) {
+			if (checkAnswer(q, radio.value)) {
 				el.addClass("ap-option-correct");
 			} else if (radio.checked && !isCorrect) {
 				el.addClass("ap-option-wrong");

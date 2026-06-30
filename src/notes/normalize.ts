@@ -70,12 +70,46 @@ export function cleanNoteText(content: string): string {
 	return cleaned.join("\n").trim();
 }
 
+/**
+ * Marks each line that lives inside (or delimits) a fenced code block so that
+ * `# comment` lines in Python/Bash/Markdown code are not mistaken for headings.
+ * Fences open on ``` or ~~~ and close only on a matching fence character.
+ */
+export function computeFenceMask(lines: string[]): boolean[] {
+	const mask = new Array<boolean>(lines.length).fill(false);
+	let marker: "`" | "~" | null = null;
+	for (let i = 0; i < lines.length; i++) {
+		const fence = fenceMarkerChar(lines[i] ?? "");
+		if (marker === null) {
+			if (fence) {
+				marker = fence;
+				mask[i] = true;
+			}
+		} else {
+			mask[i] = true;
+			if (fence === marker) marker = null;
+		}
+	}
+	return mask;
+}
+
+function fenceMarkerChar(line: string): "`" | "~" | null {
+	const match = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
+	if (!match) return null;
+	return match[1]![0] === "`" ? "`" : "~";
+}
+
 export function extractSections(content: string): NoteSection[] {
 	const sections: Array<{ heading: string; level: number; lines: string[] }> = [];
 	let current = { heading: "Body", level: 0, lines: [] as string[] };
 
-	for (const line of content.split("\n")) {
-		const headingMatch = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
+	const lines = content.split("\n");
+	const fenceMask = computeFenceMask(lines);
+	for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+		const line = lines[lineIndex] ?? "";
+		const headingMatch = fenceMask[lineIndex]
+			? null
+			: /^(#{1,6})\s+(.+?)\s*$/.exec(line);
 		if (headingMatch) {
 			if (current.lines.join("\n").trim() || current.heading !== "Body") {
 				sections.push(current);

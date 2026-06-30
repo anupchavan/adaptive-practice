@@ -1,4 +1,4 @@
-import { StructuredPrompt } from "./prompt";
+import { GENERATION_TEMPERATURE, resolvePromptParts, StructuredPrompt } from "./prompt";
 import {
 	arrayBufferToBase64,
 	CompatibleJsonMode,
@@ -17,17 +17,18 @@ export function buildOpenAiResponsesBody(
 	prompt: StructuredPrompt,
 	config: OpenAiResponsesConfig
 ): Record<string, unknown> {
+	const { system, user } = resolvePromptParts(prompt);
 	const imageAttachments = prompt.attachments.filter((attachment) => attachment.kind === "image");
 	const body: Record<string, unknown> = {
 		model: config.model,
-		instructions: "You generate Adaptive Practice questions. Return only valid JSON.",
+		instructions: system,
 		input: [
 			{
 				role: "user",
-				content: buildResponsesContent(prompt.textPrompt, imageAttachments, config),
+				content: buildResponsesContent(user, imageAttachments, config),
 			},
 		],
-		temperature: 0.7,
+		temperature: GENERATION_TEMPERATURE,
 		max_output_tokens: MAX_OUTPUT_TOKENS,
 		store: false,
 	};

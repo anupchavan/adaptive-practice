@@ -13,6 +13,7 @@ import {
 import { checkRules } from "../filters/matcher";
 import {
 	cleanNoteText,
+	computeFenceMask,
 	extractSections,
 	parseMarkdownImageReferences,
 	parseInternalEmbedReference,
@@ -326,14 +327,22 @@ function collectHeadings(cache: CachedMetadata | null, cleanedText: string): Not
 	})) ?? [];
 	if (cached.length > 0) return cached;
 
-	return cleanedText
-		.split("\n")
-		.map((line) => /^(#{1,6})\s+(.+?)\s*$/.exec(line))
-		.filter((match): match is RegExpExecArray => !!match)
-		.map((match) => ({
+	// Cold-start fallback (metadata cache not yet populated): parse headings from
+	// text, skipping `#` lines inside fenced code blocks so code comments in CS
+	// notes are not promoted to headings.
+	const lines = cleanedText.split("\n");
+	const fenceMask = computeFenceMask(lines);
+	const headings: NoteHeading[] = [];
+	for (let i = 0; i < lines.length; i++) {
+		if (fenceMask[i]) continue;
+		const match = /^(#{1,6})\s+(.+?)\s*$/.exec(lines[i] ?? "");
+		if (!match) continue;
+		headings.push({
 			heading: match[2] ?? "Untitled section",
 			level: match[1]?.length ?? 1,
-		}));
+		});
+	}
+	return headings;
 }
 
 function collectTags(cache: CachedMetadata | null): string[] {

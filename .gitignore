@@ -18,6 +18,7 @@ main.js
 
 # obsidian
 data.json
+practice-index.json
 
 # Exclude macOS Finder (System Explorer) View States
 .DS_Store

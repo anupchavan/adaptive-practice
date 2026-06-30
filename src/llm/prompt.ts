@@ -32,8 +32,37 @@ export interface TopicContext {
 }
 
 export interface StructuredPrompt {
+	/** Canonical combined prompt (system + user). Kept for fallback and tests. */
 	textPrompt: string;
+	/** Stable instructions (role, contract, difficulty, formatting, schema). */
+	systemPrompt?: string;
+	/** Per-session material (calibration, topics, generation trigger). */
+	userPrompt?: string;
 	attachments: PromptAttachment[];
+}
+
+/**
+ * One low temperature across every provider so output style is consistent and
+ * not a function of each adapter's historical default (which ranged 0.7–1.0).
+ */
+export const GENERATION_TEMPERATURE = 0.4;
+
+/** Used when a prompt builder did not supply a dedicated system instruction. */
+export const DEFAULT_SYSTEM_INSTRUCTION =
+	"You generate Adaptive Practice questions. Return only valid JSON.";
+
+/**
+ * Resolve a prompt into its system/user halves, falling back to the combined
+ * text when a builder only populated `textPrompt` (e.g. test fixtures).
+ */
+export function resolvePromptParts(
+	prompt: StructuredPrompt
+): { system: string; user: string } {
+	const system = prompt.systemPrompt?.trim()
+		? prompt.systemPrompt
+		: DEFAULT_SYSTEM_INSTRUCTION;
+	const user = prompt.userPrompt?.trim() ? prompt.userPrompt : prompt.textPrompt;
+	return { system, user };
 }
 
 export interface PromptBuildOptions {
@@ -77,14 +106,7 @@ export function buildPrompt(
 
 	const allTopicBlocks = [topicBlocks, pdfTopicBlocks].filter(Boolean).join("\n\n");
 
-	const textPrompt = `You are Adaptive Practice, an Obsidian-native practice coach. Generate exactly ${questionCount} questions from the provided vault material. Your goal is durable learning and transfer, not trivia volume.
-
-## Session calibration
-
-Session mode: ${formatChallengeMode(challengeMode)}
-Scheduler reason: ${challengeReason}
-${challengeModeInstructions(challengeMode)}
-${feedbackGuidance}
+	const systemPrompt = `You are Adaptive Practice, an Obsidian-native practice coach. Your goal is durable learning and transfer, not trivia volume.
 
 ## Core learning contract
 
@@ -132,11 +154,7 @@ Adjust the distribution based on skill level and recent results:
 3. Use fenced code blocks for code, traces, or pseudo-code when it clarifies the problem.
 4. For MCQ, provide exactly 4 plausible options. Distractors should reflect common mistakes: sign errors, off-by-one errors, wrong formula choice, missing condition, overgeneralization, confusing best/worst/average case, or violating an invariant.
 5. If images, SVG notes, or PDFs are attached or described, inspect and use them. Treat diagrams and whiteboard images as first-class source material.
-6. Each question must list exact "sourceTopics" using the topic titles below, and "sourceSubtopics" using the concept target, section name, invariant, mechanism, or trap being tested. Do not put the note title in "sourceSubtopics" unless the note has no more specific concept.
-
-## Topics
-
-${allTopicBlocks}
+6. Each question must list exact "sourceTopics" using the topic titles provided in the session material, and "sourceSubtopics" using the concept target, section name, invariant, mechanism, or trap being tested. Do not put the note title in "sourceSubtopics" unless the note has no more specific concept.
 
 ## Response format
 
@@ -157,9 +175,24 @@ Respond with ONLY valid JSON. No markdown fences, no explanation. Prefer a JSON 
 For MCQ: "options" is required, "correctAnswer" must exactly match one option. Do NOT prefix options with letters like "A)", "B)", etc.
 For integer/decimal: "options" should be omitted, "correctAnswer" is the numeric string.
 
-For explanation: be concise but include the key reasoning step, not just the final answer.
+For explanation: be concise but include the key reasoning step, not just the final answer.`;
+
+	const userPrompt = `Generate exactly ${questionCount} questions from the provided vault material.
+
+## Session calibration
+
+Session mode: ${formatChallengeMode(challengeMode)}
+Scheduler reason: ${challengeReason}
+${challengeModeInstructions(challengeMode)}
+${feedbackGuidance}
+
+## Topics
+
+${allTopicBlocks}
 
 Generate exactly ${questionCount} questions now.`;
+
+	const textPrompt = `${systemPrompt}\n\n${userPrompt}`;
 
 	const pdfAttachments = pdfTopics
 		.filter((t) => t.pdfData && t.pdfData.byteLength > 0)
@@ -172,7 +205,12 @@ Generate exactly ${questionCount} questions now.`;
 		}));
 	const mediaAttachments = mdTopics.flatMap((t) => t.attachments ?? []);
 
-	return { textPrompt, attachments: [...pdfAttachments, ...mediaAttachments] };
+	return {
+		textPrompt,
+		systemPrompt,
+		userPrompt,
+		attachments: [...pdfAttachments, ...mediaAttachments],
+	};
 }
 
 function formatChallengeMode(mode: DailyChallengeMode): string {

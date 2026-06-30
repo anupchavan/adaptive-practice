@@ -201,10 +201,13 @@ function linkTopicMentions(
 	markdown: string,
 	replacements: TopicLinkReplacement[]
 ): string {
+	// Link each distinct note at most once across the whole question — a note
+	// mentioned several times should only be a link on its first appearance.
+	const linkedTargets = new Set<string>();
 	return replaceOutsideCode(markdown, (chunk) => {
 		let next = chunk;
 		for (const replacement of replacements) {
-			next = replaceTopicLabel(next, replacement);
+			next = replaceTopicLabel(next, replacement, linkedTargets);
 		}
 		return next;
 	});
@@ -212,23 +215,32 @@ function linkTopicMentions(
 
 function replaceTopicLabel(
 	text: string,
-	replacement: TopicLinkReplacement
+	replacement: TopicLinkReplacement,
+	linkedTargets: Set<string>
 ): string {
+	if (linkedTargets.has(replacement.target)) return text;
 	const labelPattern = escapeRegExp(replacement.label);
 	const boldPattern = new RegExp(`\\*\\*(${labelPattern})\\*\\*`, "gi");
 	const plainPattern = new RegExp(`(^|[^A-Za-z0-9])(${labelPattern})(?=$|[^A-Za-z0-9])`, "gi");
 
 	return text
-		.replace(boldPattern, (_match, display: string, offset: number, full: string) =>
-			shouldSkipLinkReplacement(full, offset)
-				? _match
-				: buildWikiLink(replacement.target, display)
-		)
-		.replace(plainPattern, (match: string, prefix: string, display: string, offset: number, full: string) =>
-			shouldSkipLinkReplacement(full, offset + prefix.length)
-				? match
-				: `${prefix}${buildWikiLink(replacement.target, display)}`
-		);
+		.replace(boldPattern, (matched: string, display: string, offset: number, full: string) => {
+			if (linkedTargets.has(replacement.target) || shouldSkipLinkReplacement(full, offset)) {
+				return matched;
+			}
+			linkedTargets.add(replacement.target);
+			return buildWikiLink(replacement.target, display);
+		})
+		.replace(plainPattern, (match: string, prefix: string, display: string, offset: number, full: string) => {
+			if (
+				linkedTargets.has(replacement.target) ||
+				shouldSkipLinkReplacement(full, offset + prefix.length)
+			) {
+				return match;
+			}
+			linkedTargets.add(replacement.target);
+			return `${prefix}${buildWikiLink(replacement.target, display)}`;
+		});
 }
 
 function replaceOutsideCode(

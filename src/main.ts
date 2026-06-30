@@ -1,4 +1,4 @@
-import { MarkdownView, Notice, Plugin } from "obsidian";
+import { MarkdownView, Notice, Plugin, TAbstractFile, TFile, TFolder, normalizePath } from "obsidian";
 import {
 	AdaptivePracticeSettings,
 	DEFAULT_SETTINGS,
@@ -37,6 +37,13 @@ import {
 	evaluatePracticeSessionMeaningfulness,
 } from "./practice/scheduler";
 import { scanVaultSkeleton } from "./practice/indexer";
+import { readIndexStore, writeIndexStore } from "./practice/index-store";
+import {
+	migratePdfSkillPaths,
+	migratePracticeMemoryPaths,
+	prunePdfSkillPaths,
+	prunePracticeMemoryPaths,
+} from "./practice/path-migration";
 import {
 	dailyTopicCandidateLimitForProvider,
 	splitProviderCompatibleTopics,
@@ -73,6 +80,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 	private practicePlanRefresh: Promise<TopicNote[]> | null = null;
 	private practicePlanRefreshNoticeRequested = false;
 	private dashboardOpenSyncTimer: number | null = null;
+	private vaultChangePersistTimer: number | null = null;
 	private workspaceRestoreComplete = false;
 
 	async onload(): Promise<void> {
@@ -92,6 +100,15 @@ export default class AdaptivePracticePlugin extends Plugin {
 
 		this.registerEvent(this.app.workspace.on("layout-change", () => {
 			this.scheduleDashboardOpenSync();
+		}));
+
+		// Keep practice state attached to notes across renames/moves and pruned on
+		// delete. Without these, all path-keyed state is silently orphaned.
+		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+			this.handleVaultRename(file, oldPath);
+		}));
+		this.registerEvent(this.app.vault.on("delete", (file) => {
+			this.handleVaultDelete(file);
 		}));
 
 		this.registerInterval(window.setInterval(() => {
@@ -176,6 +193,11 @@ export default class AdaptivePracticePlugin extends Plugin {
 		if (this.dashboardOpenSyncTimer !== null) {
 			window.clearTimeout(this.dashboardOpenSyncTimer);
 			this.dashboardOpenSyncTimer = null;
+		}
+		if (this.vaultChangePersistTimer !== null) {
+			window.clearTimeout(this.vaultChangePersistTimer);
+			this.vaultChangePersistTimer = null;
+			void this.persistAfterVaultChange();
 		}
 		this.hideDailyReminderNotice();
 		this.detachPracticeLeaves();
@@ -270,13 +292,105 @@ export default class AdaptivePracticePlugin extends Plugin {
 	async loadSettings(): Promise<void> {
 		const raw: unknown = await this.loadData();
 		this.settings = normalizeSettings(raw);
-		if (rawProviderModelsNeedNormalization(raw)) {
+		const migratedIndex = await this.loadIndexStore();
+		if (migratedIndex || rawProviderModelsNeedNormalization(raw)) {
 			await this.saveSettings();
 		}
 	}
 
 	async saveSettings(): Promise<void> {
-		await this.saveData(this.settings);
+		// The skeleton index lives in its own file (see index-store), so it is
+		// stripped from the data.json payload to keep this hot path small.
+		const memory = this.settings.practiceMemory;
+		await this.saveData({
+			...this.settings,
+			practiceMemory: { ...memory, index: {} },
+		});
+	}
+
+	private pluginDir(): string {
+		return this.manifest.dir ??
+			normalizePath(`${this.app.vault.configDir}/plugins/${this.manifest.id}`);
+	}
+
+	private async loadIndexStore(): Promise<boolean> {
+		const stored = await readIndexStore(this.app, this.pluginDir());
+		if (stored) {
+			this.settings.practiceMemory.index = stored;
+			this.settings.practiceMemory = normalizePracticeMemory(
+				this.settings.practiceMemory
+			);
+			return false;
+		}
+		// No store file yet. If data.json still carries a legacy inline index,
+		// migrate it into its own file and let the caller drop it from data.json.
+		if (Object.keys(this.settings.practiceMemory.index).length > 0) {
+			await this.saveIndex();
+			return true;
+		}
+		return false;
+	}
+
+	private async saveIndex(): Promise<void> {
+		await writeIndexStore(
+			this.app,
+			this.pluginDir(),
+			this.settings.practiceMemory.index
+		);
+	}
+
+	private handleVaultRename(file: TAbstractFile, oldPath: string): void {
+		const isFolder = file instanceof TFolder;
+		if (!isFolder && !(file instanceof TFile)) return;
+		const newPath = file.path;
+		if (newPath === oldPath) return;
+		const memoryChanged = migratePracticeMemoryPaths(
+			this.settings.practiceMemory,
+			oldPath,
+			newPath,
+			isFolder
+		);
+		const pdfChanged = migratePdfSkillPaths(
+			this.settings.pdfSkills,
+			oldPath,
+			newPath,
+			isFolder
+		);
+		if (memoryChanged || pdfChanged) this.scheduleVaultChangePersist();
+	}
+
+	private handleVaultDelete(file: TAbstractFile): void {
+		const isFolder = file instanceof TFolder;
+		const memoryChanged = prunePracticeMemoryPaths(
+			this.settings.practiceMemory,
+			file.path,
+			isFolder
+		);
+		const pdfChanged = prunePdfSkillPaths(
+			this.settings.pdfSkills,
+			file.path,
+			isFolder
+		);
+		if (memoryChanged || pdfChanged) this.scheduleVaultChangePersist();
+	}
+
+	private scheduleVaultChangePersist(delayMs = 800): void {
+		if (this.unloading) return;
+		if (this.vaultChangePersistTimer !== null) {
+			window.clearTimeout(this.vaultChangePersistTimer);
+		}
+		this.vaultChangePersistTimer = window.setTimeout(() => {
+			this.vaultChangePersistTimer = null;
+			void this.persistAfterVaultChange();
+		}, delayMs);
+	}
+
+	private async persistAfterVaultChange(): Promise<void> {
+		await this.saveSettings();
+		await this.saveIndex();
+		// Flush still runs during unload to avoid losing a pending rename
+		// migration, but the views are tearing down then — don't render into them.
+		if (!this.unloading) this.renderDashboardViews();
 	}
 
 	async savePdfSkill(path: string, skill: number): Promise<void> {
@@ -317,6 +431,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 			now
 		);
 		await this.saveSettings();
+		await this.saveIndex();
 
 		const indexed = applyPracticeMemoryToTopics(
 			topics,
