@@ -28,16 +28,22 @@ export function buildOpenAiResponsesBody(
 				content: buildResponsesContent(user, imageAttachments, config),
 			},
 		],
-		temperature: GENERATION_TEMPERATURE,
 		max_output_tokens: MAX_OUTPUT_TOKENS,
 		store: false,
 	};
+	if (supportsCustomTemperature(config.model)) {
+		body["temperature"] = GENERATION_TEMPERATURE;
+	}
 
 	const textFormat = responseTextFormat(config.jsonMode);
 	if (textFormat) {
 		body["text"] = { format: textFormat };
 	}
 	return body;
+}
+
+function supportsCustomTemperature(model: string): boolean {
+	return !/^gpt-5(?:[.-]|$)/i.test(model.trim());
 }
 
 export function normalizeOpenAiResponsesUrl(rawUrl: string): string {

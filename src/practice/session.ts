@@ -19,29 +19,15 @@ import {
 	getPromptAttachments,
 } from "../notes/reader";
 import { updateSkill } from "../notes/writer";
-import { buildPrompt, StructuredPrompt, TopicContext } from "../llm/prompt";
+import { buildPrompt, TopicContext } from "../llm/prompt";
 import { GeminiClient } from "../llm/gemini";
 import { AnthropicClient } from "../llm/anthropic";
 import { OpenAiCompatibleClient } from "../llm/openai-compatible";
 import { OpenAiResponsesClient } from "../llm/openai-responses";
 import { computeSkillDeltas } from "./grader";
-import { reconcileGeneratedQuestions } from "./source-map";
 import { getProviderAttachmentSupport } from "./provider-capabilities";
-import {
-	buildChallengeTopUpPrompt,
-	buildQuestionTopUpPrompt,
-	limitUniqueQuestions,
-} from "./question-quality";
-import {
-	prepareGeneratedQuestionsForSession,
-	selectFlowBalancedQuestions,
-	shouldRequestChallengeTopUp,
-} from "./flow-calibration";
-import { calibrateQuestionsForPractice } from "./question-calibration";
-
-interface LlmClient {
-	generateQuestions(prompt: StructuredPrompt): Promise<Question[]>;
-}
+import { generateQuestionsFromClient } from "./generation-loop";
+import type { LlmClient } from "./generation-loop";
 
 function createClient(
 	provider: LlmProvider,
@@ -145,124 +131,7 @@ export async function generateQuestions(
 	});
 	const client = createClient(provider, apiKey, settings);
 
-	try {
-		let firstBatch = limitUniqueQuestions(
-			await requestReconciledQuestions(client, prompt, config.topics, topicContexts),
-			config.questionCount
-		);
-		if (firstBatch.length >= config.questionCount) {
-			if (
-				shouldRequestChallengeTopUp(
-					firstBatch,
-					config.topics,
-					config.challengeMode
-				)
-			) {
-				try {
-					const challengePrompt = buildChallengeTopUpPrompt(
-						prompt,
-						firstBatch,
-						config.questionCount
-					);
-					firstBatch = selectFlowBalancedQuestions(
-						firstBatch,
-						await requestReconciledQuestions(
-							client,
-							challengePrompt,
-							config.topics,
-							topicContexts
-						),
-						config.questionCount,
-						config.topics,
-						config.challengeMode
-					);
-				} catch {
-					firstBatch = selectFlowBalancedQuestions(
-						firstBatch,
-						[],
-						config.questionCount,
-						config.topics,
-						config.challengeMode
-					);
-				}
-			}
-			return prepareGeneratedQuestionsForSession(firstBatch, config);
-		}
-
-		try {
-			const topUpPrompt = buildQuestionTopUpPrompt(
-				prompt,
-				firstBatch,
-				config.questionCount
-			);
-			return selectFlowBalancedQuestions(
-				firstBatch,
-				await requestReconciledQuestions(
-					client,
-					topUpPrompt,
-					config.topics,
-					topicContexts
-				),
-				config.questionCount,
-				config.topics,
-				config.challengeMode
-			);
-		} catch (topUpError) {
-			if (firstBatch.length > 0) {
-				return prepareGeneratedQuestionsForSession(firstBatch, config);
-			}
-			throw topUpError;
-		}
-	} catch (e) {
-		const isParseError =
-			e instanceof SyntaxError ||
-			(e instanceof Error &&
-				/eof|unexpected token|json/i.test(e.message));
-
-		if (!isParseError) {
-			throw new Error(
-				`Failed to generate questions: ${
-					e instanceof Error ? e.message : String(e)
-				}`
-			);
-		}
-
-		try {
-			return prepareGeneratedQuestionsForSession(
-				await requestReconciledQuestions(
-					client,
-					buildQuestionTopUpPrompt(prompt, [], config.questionCount),
-					config.topics,
-					topicContexts
-				),
-				config
-			);
-		} catch (retryError) {
-			throw new Error(
-				`Failed to generate questions after retry: ${
-					retryError instanceof Error
-						? retryError.message
-						: String(retryError)
-				}`
-			);
-		}
-	}
-}
-
-async function requestReconciledQuestions(
-	client: LlmClient,
-	prompt: StructuredPrompt,
-	topics: TopicNote[],
-	topicContexts: TopicContext[]
-): Promise<Question[]> {
-	return calibrateQuestionsForPractice(
-		reconcileGeneratedQuestions(
-			await client.generateQuestions(prompt),
-			topics
-		),
-		topicContexts,
-		topics
-	);
+	return generateQuestionsFromClient(client, prompt, config, topicContexts);
 }
 
 export async function finalizeSession(

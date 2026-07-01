@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { buildPrompt, resolvePromptParts } from "../src/llm/prompt";
+import type { StructuredPrompt, TopicContext } from "../src/llm/prompt";
 import { questionSchema } from "../src/llm/openai-shared";
 import { parseQuestions } from "../src/llm/parse";
 import {
@@ -119,10 +120,17 @@ import {
 	calibrateQuestionsForPractice,
 } from "../src/practice/question-calibration";
 import {
+	challengeShortfallMessage,
+	desiredDifficultyCounts,
+	isStrictChallengeSession,
 	selectFlowBalancedQuestions,
 	prepareGeneratedQuestionsForSession,
 	shouldRequestChallengeTopUp,
 } from "../src/practice/flow-calibration";
+import {
+	isDeepShellHardQuestion,
+	normalizeQuestionDifficulty,
+} from "../src/practice/difficulty-quality";
 import {
 	adaptQuestionOrderForFlow,
 	nextTargetDifficulty,
@@ -133,6 +141,10 @@ import {
 	practiceDraftProgress,
 	shouldConfirmPracticeDraftReplacement,
 } from "../src/practice/draft";
+import {
+	generateQuestionsFromClient,
+} from "../src/practice/generation-loop";
+import type { LlmClient } from "../src/practice/generation-loop";
 import { folderLabel, stringifyGroupValue } from "../src/ui/topic-groups";
 import { hasBlockMarkdown } from "../src/ui/markdown-detection";
 import { normalizeMarkdownForRender } from "../src/ui/markdown-normalize";
@@ -147,6 +159,7 @@ import {
 	Question,
 	QuestionFeedbackEntry,
 	QuizResult,
+	SessionConfig,
 	SkillDelta,
 	TopicNote,
 } from "../src/types";
@@ -594,6 +607,1151 @@ test("flow calibration asks for challenge top-up when a generated batch is too e
 	assert.ok(balanced.some((question) => question.difficulty === "medium"));
 });
 
+test("flow calibration rejects under-challenging high-skill batches", () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
+	const desired = desiredDifficultyCounts(8, topic.skill, "steady");
+	const easyBatch = Array.from({ length: 8 }, (_, index) =>
+		makeQuestion({
+			id: `easy-${index}`,
+			questionText: `Which command prints direct fact ${index}?`,
+			correctAnswer: "uname",
+			difficulty: "easy",
+		})
+	);
+	const allMediumBatch = Array.from({ length: 8 }, (_, index) =>
+		makeQuestion({
+			id: `medium-${index}`,
+			questionText: `Explain a routine shell behavior ${index}.`,
+			correctAnswer: "The shell expands it before execution.",
+			difficulty: "medium",
+		})
+	);
+	const tooShortHardBatch = Array.from({ length: 3 }, (_, index) =>
+		makeQuestion({
+			id: `short-hard-${index}`,
+			questionText: `Construct a shell pipeline with quoting and stderr redirection for case ${index}.`,
+			correctAnswer: "Use null-delimited input and redirect stderr before the pipe.",
+			difficulty: "hard",
+		})
+	);
+	const replacementGrade = [
+		...Array.from({ length: desired.hard }, (_, index) =>
+			makeLinuxHardQuestion(`replacement-hard-${index}`)
+		),
+		...Array.from({ length: desired.medium }, (_, index) =>
+			makeLinuxMediumQuestion(`medium-replacement-${index}`)
+		),
+	];
+
+	assert.deepEqual(desired, { easy: 0, medium: 2, hard: 6 });
+	assert.deepEqual(desiredDifficultyCounts(8, topic.skill, "stretch"), {
+		easy: 0,
+		medium: 2,
+		hard: 6,
+	});
+	assert.equal(isStrictChallengeSession([topic], "steady"), true);
+	assert.equal(shouldRequestChallengeTopUp(easyBatch, [topic], "steady"), true);
+	assert.equal(shouldRequestChallengeTopUp(allMediumBatch, [topic], "steady"), true);
+	assert.match(
+		challengeShortfallMessage(easyBatch, [topic], "steady", 8),
+		/high-skill topic "Linux Commands".*Expected about 0 easy, 2 medium, 6 hard for that topic; got 8 easy, 0 medium, 0 hard/
+	);
+	assert.match(
+		challengeShortfallMessage(tooShortHardBatch, [topic], "steady", 8),
+		/Generated only 3 of 8 questions.*Expected about 0 easy, 2 medium, 6 hard; got 0 easy, 0 medium, 3 hard/
+	);
+
+	const balanced = selectFlowBalancedQuestions(
+		easyBatch,
+		replacementGrade,
+		8,
+		[topic],
+		"steady"
+	);
+
+	assert.equal(balanced.filter((question) => question.difficulty === "easy").length, 0);
+	assert.equal(balanced.filter((question) => question.difficulty === "hard").length, 6);
+	assert.equal(balanced.filter((question) => question.difficulty === "medium").length, 2);
+	assert.equal(challengeShortfallMessage(balanced, [topic], "steady", 8), "");
+});
+
+test("flow calibration keeps stretch sessions hard for high-skill Linux notes", () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
+	const allMediumBatch = Array.from({ length: 8 }, (_, index) =>
+		makeLinuxMediumQuestion(`stretch-medium-${index}`)
+	);
+	const stretchGrade = [
+		...Array.from({ length: 6 }, (_, index) => makeLinuxHardQuestion(`stretch-hard-${index}`)),
+		...Array.from({ length: 2 }, (_, index) => makeLinuxMediumQuestion(`stretch-replacement-medium-${index}`)),
+	];
+
+	assert.equal(shouldRequestChallengeTopUp(allMediumBatch, [topic], "stretch"), true);
+	assert.match(
+		challengeShortfallMessage(allMediumBatch, [topic], "stretch", 8),
+		/Expected about 0 easy, 2 medium, 6 hard for that topic; got 0 easy, 8 medium, 0 hard/
+	);
+
+	const balanced = selectFlowBalancedQuestions(
+		allMediumBatch,
+		stretchGrade,
+		8,
+		[topic],
+		"stretch"
+	);
+
+	assert.equal(balanced.filter((question) => question.difficulty === "hard").length, 6);
+	assert.equal(balanced.filter((question) => question.difficulty === "medium").length, 2);
+	assert.equal(challengeShortfallMessage(balanced, [topic], "stretch", 8), "");
+});
+
+test("flow calibration tightens the mix again for 90-plus Linux skill", () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 92 });
+	const softOldMix = [
+		...Array.from({ length: 6 }, (_, index) => ({
+			...makeLinuxHardQuestion(`skill-92-soft-hard-${index}`),
+			sourceSubtopics: [`hard subtopic ${index}`],
+		})),
+		...Array.from({ length: 2 }, (_, index) => ({
+			...makeLinuxMediumQuestion(`skill-92-soft-medium-${index}`),
+			sourceSubtopics: [`medium subtopic ${index}`],
+		})),
+	];
+	const targetMix = [
+		...Array.from({ length: 7 }, (_, index) => ({
+			...makeLinuxHardQuestion(`skill-92-target-hard-${index}`),
+			sourceSubtopics: [`target hard subtopic ${index}`],
+		})),
+		{
+			...makeLinuxMediumQuestion("skill-92-target-medium"),
+			sourceSubtopics: ["target medium subtopic"],
+		},
+	];
+
+	assert.deepEqual(desiredDifficultyCounts(8, topic.skill, "steady"), {
+		easy: 0,
+		medium: 1,
+		hard: 7,
+	});
+	assert.equal(shouldRequestChallengeTopUp(softOldMix, [topic], "steady"), true);
+	assert.match(
+		challengeShortfallMessage(softOldMix, [topic], "steady", 8),
+		/high-skill topic "Linux Commands".*Expected about 0 easy, 1 medium, 7 hard for that topic; got 0 easy, 2 medium, 6 hard/
+	);
+	assert.equal(challengeShortfallMessage(targetMix, [topic], "steady", 8), "");
+});
+
+test("flow calibration requires deep shell hard questions for 90-plus Linux skill", () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 92 });
+	const weakHardBatch = [
+		...Array.from({ length: 7 }, (_, index) => ({
+			...makeLinuxWeakHardQuestion(`skill-92-weak-hard-${index}`),
+			sourceSubtopics: [`weak hard subtopic ${index}`],
+		})),
+		{
+			...makeLinuxMediumQuestion("skill-92-weak-medium"),
+			sourceSubtopics: ["weak medium subtopic"],
+		},
+	];
+	const deepCandidates = Array.from({ length: 7 }, (_, index) => ({
+		...makeLinuxHardQuestion(`skill-92-deep-hard-${index}`),
+		sourceSubtopics: [`deep hard subtopic ${index}`],
+	}));
+
+	assert.equal(isDeepShellHardQuestion(makeLinuxWeakHardQuestion("weak-hard-probe")), false);
+	assert.equal(isDeepShellHardQuestion(makeLinuxHardQuestion("deep-hard-probe")), true);
+	assert.equal(shouldRequestChallengeTopUp(weakHardBatch, [topic], "steady"), true);
+	assert.match(
+		challengeShortfallMessage(weakHardBatch, [topic], "steady", 8),
+		/high-skill topic "Linux Commands".*Expected about 0 easy, 1 medium, 7 hard for that topic; got 0 easy, 8 medium, 0 hard/
+	);
+
+	const balanced = selectFlowBalancedQuestions(
+		weakHardBatch,
+		deepCandidates,
+		8,
+		[topic],
+		"steady"
+	);
+
+	assert.equal(
+		balanced.filter((question) => question.id.startsWith("skill-92-weak-hard")).length,
+		0
+	);
+	assert.equal(
+		balanced.filter((question) => question.id.startsWith("skill-92-deep-hard")).length,
+		7
+	);
+	assert.equal(challengeShortfallMessage(balanced, [topic], "steady", 8), "");
+});
+
+test("flow calibration keeps high-skill warmup sessions non-trivial", () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
+	const easyWarmup = Array.from({ length: 8 }, (_, index) =>
+		makeLinuxRecallQuestion(`warmup-easy-${index}`)
+	);
+	const targetWarmup = [
+		...Array.from({ length: 4 }, (_, index) =>
+			makeLinuxHardQuestion(`warmup-hard-${index}`)
+		),
+		...Array.from({ length: 4 }, (_, index) =>
+			makeLinuxMediumQuestion(`warmup-medium-${index}`)
+		),
+	];
+
+	assert.deepEqual(desiredDifficultyCounts(8, topic.skill, "warmup"), {
+		easy: 0,
+		medium: 4,
+		hard: 4,
+	});
+	assert.equal(isStrictChallengeSession([topic], "warmup"), true);
+	assert.equal(shouldRequestChallengeTopUp(easyWarmup, [topic], "warmup"), true);
+	assert.match(
+		challengeShortfallMessage(easyWarmup, [topic], "warmup", 8),
+		/high-skill topic "Linux Commands".*Expected about 0 easy, 4 medium, 4 hard for that topic; got 8 easy, 0 medium, 0 hard/
+	);
+	assert.equal(challengeShortfallMessage(targetWarmup, [topic], "warmup", 8), "");
+});
+
+test("flow calibration requires a hard question even for one high-skill Linux slot", () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
+	const oneMedium = [makeLinuxMediumQuestion("single-medium")];
+
+	assert.match(
+		challengeShortfallMessage(oneMedium, [topic], "steady", 1),
+		/Expected about 0 easy, 0 medium, 1 hard for that topic; got 0 easy, 1 medium, 0 hard/
+	);
+
+	const balanced = selectFlowBalancedQuestions(
+		oneMedium,
+		[makeLinuxHardQuestion("single-hard")],
+		1,
+		[topic],
+		"steady"
+	);
+
+	assert.equal(balanced.length, 1);
+	assert.equal(balanced[0]?.difficulty, "hard");
+	assert.equal(challengeShortfallMessage(balanced, [topic], "steady", 1), "");
+});
+
+test("flow calibration rejects repetitive high-skill Linux subtopics", () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
+	const repeatedFind = Array.from({ length: 8 }, (_, index) =>
+		makeRepeatedLinuxFindHardQuestion(`repeated-find-${index}`)
+	);
+	const diverseCandidates = [
+		{
+			...makeLinuxHardQuestion("diverse-redirection"),
+			sourceSubtopics: ["redirection order", "stdout", "stderr"],
+		},
+		{
+			...makeLinuxHardQuestion("diverse-permissions"),
+			sourceSubtopics: ["umask", "chmod", "creation modes"],
+		},
+		{
+			...makeLinuxHardQuestion("diverse-signals"),
+			sourceSubtopics: ["signals", "jobs", "SIGTERM vs SIGKILL"],
+		},
+	];
+
+	assert.match(
+		challengeShortfallMessage(repeatedFind, [topic], "steady", 8),
+		/too repetitive.*at least 3 source subtopics; got 1/
+	);
+
+	const balanced = selectFlowBalancedQuestions(
+		repeatedFind,
+		diverseCandidates,
+		8,
+		[topic],
+		"steady"
+	);
+
+	assert.equal(challengeShortfallMessage(balanced, [topic], "steady", 8), "");
+	assert.ok(
+		balanced.some((question) =>
+			["redirection order", "umask", "signals"].some((subtopic) =>
+				(question.sourceSubtopics ?? []).includes(subtopic)
+			)
+		)
+	);
+});
+
+test("flow calibration rejects cosmetically varied hard Linux questions with one mechanic", () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
+	const repeatedMechanic = Array.from({ length: 8 }, (_, index) => ({
+		...makeRepeatedLinuxFindHardQuestion(`cosmetic-find-${index}`),
+		sourceSubtopics: [`cosmetic hard subtopic ${index}`],
+	}));
+	const diverseCandidates = [
+		{
+			...makeLinuxHardQuestion("cosmetic-redirection-repair"),
+			sourceSubtopics: ["redirection order", "stdout", "stderr"],
+		},
+		{
+			...makeLinuxHardQuestion("cosmetic-permissions-repair"),
+			sourceSubtopics: ["umask", "chmod", "creation modes"],
+		},
+		{
+			...makeLinuxHardQuestion("cosmetic-signals-repair"),
+			sourceSubtopics: ["signals", "jobs", "SIGTERM vs SIGKILL"],
+		},
+	];
+
+	assert.match(
+		challengeShortfallMessage(repeatedMechanic, [topic], "steady", 8),
+		/too narrow.*at least 2 Linux shell mechanics; got 1/
+	);
+
+	const balanced = selectFlowBalancedQuestions(
+		repeatedMechanic,
+		diverseCandidates,
+		8,
+		[topic],
+		"steady"
+	);
+
+	assert.equal(challengeShortfallMessage(balanced, [topic], "steady", 8), "");
+	assert.ok(
+		balanced.some((question) =>
+			["redirection order", "umask", "signals"].some((subtopic) =>
+				(question.sourceSubtopics ?? []).includes(subtopic)
+			)
+		)
+	);
+});
+
+test("flow calibration protects high-skill topics inside mixed sessions", () => {
+	const linux = makeTopic({
+		path: "systems/Linux Commands.md",
+		title: "Linux Commands",
+		aliases: ["Shell practice"],
+		skill: 83,
+	});
+	const novice = makeTopic({
+		path: "networks/Intro Networks.md",
+		title: "Intro Networks",
+		skill: 35,
+	});
+	const weakMixedBatch = [
+		makeLinuxRecallQuestion("linux-easy-one"),
+		makeLinuxRecallQuestion("linux-easy-two"),
+		makeLinuxHardQuestion("linux-hard-one"),
+		makeQuestion({
+			id: "network-medium-one",
+			questionText: "Explain why DNS caching changes lookup latency.",
+			correctAnswer: "Caching avoids repeated recursive lookups.",
+			sourceTopics: ["Intro Networks"],
+			difficulty: "medium",
+		}),
+		makeQuestion({
+			id: "network-medium-two",
+			questionText: "Trace how a TCP handshake establishes sequence state.",
+			correctAnswer: "SYN, SYN-ACK, and ACK agree on starting sequence numbers.",
+			sourceTopics: ["Intro Networks"],
+			difficulty: "medium",
+		}),
+		makeQuestion({
+			id: "network-hard-one",
+			questionText: "Given packet loss after the first RTT, diagnose which TCP timer fires and how the congestion window changes.",
+			correctAnswer: "The retransmission timer fires and congestion control backs off.",
+			sourceTopics: ["Intro Networks"],
+			difficulty: "hard",
+		}),
+		makeQuestion({
+			id: "network-easy-one",
+			questionText: "What does DNS stand for?",
+			correctAnswer: "Domain Name System.",
+			sourceTopics: ["Intro Networks"],
+			difficulty: "easy",
+		}),
+		makeQuestion({
+			id: "network-easy-two",
+			questionText: "What command checks basic reachability?",
+			correctAnswer: "ping",
+			sourceTopics: ["Intro Networks"],
+			difficulty: "easy",
+		}),
+	];
+	const replacementGradeLinux = [
+		...Array.from({ length: 6 }, (_, index) => makeLinuxHardQuestion(`linux-repair-hard-${index}`)),
+		...Array.from({ length: 2 }, (_, index) => makeLinuxMediumQuestion(`linux-repair-medium-${index}`)),
+	];
+
+	assert.equal(isStrictChallengeSession([linux, novice], "steady"), true);
+	assert.equal(shouldRequestChallengeTopUp(weakMixedBatch, [linux, novice], "steady"), true);
+	assert.match(
+		challengeShortfallMessage(weakMixedBatch, [linux, novice], "steady", 8),
+		/high-skill topic "Linux Commands".*got 2 easy, 0 medium, 1 hard/
+	);
+
+	const balanced = selectFlowBalancedQuestions(
+		weakMixedBatch,
+		replacementGradeLinux,
+		8,
+		[linux, novice],
+		"steady"
+	);
+	assert.equal(
+		balanced.some((question) => question.id.startsWith("linux-easy")),
+		false
+	);
+	assert.equal(challengeShortfallMessage(balanced, [linux, novice], "steady", 8), "");
+});
+
+test("flow calibration requires coverage for selected high-skill topics", () => {
+	const linux = makeTopic({ title: "Linux Commands", skill: 83 });
+	const novice = makeTopic({ title: "Intro Networks", skill: 25 });
+	const networkOnly = [
+		...Array.from({ length: 8 }, (_, index) => makeNetworkHardQuestion(`network-hard-${index}`)),
+	];
+	const linuxCandidates = [
+		makeLinuxHardQuestion("linux-coverage-hard"),
+		makeLinuxMediumQuestion("linux-coverage-medium"),
+	];
+
+	assert.match(
+		challengeShortfallMessage(networkOnly, [linux, novice], "steady", 8),
+		/did not cover high-skill topic "Linux Commands"/
+	);
+
+	const balanced = selectFlowBalancedQuestions(
+		networkOnly,
+		linuxCandidates,
+		8,
+		[linux, novice],
+		"steady"
+	);
+
+	assert.equal(
+		balanced.filter((question) => question.sourceTopics.includes("Linux Commands")).length,
+		2
+	);
+	assert.equal(challengeShortfallMessage(balanced, [linux, novice], "steady", 8), "");
+});
+
+test("flow calibration protects high-skill topics even when topics exceed question count", () => {
+	const linux = makeTopic({ title: "Linux Commands", skill: 92 });
+	const overflowTopics = [
+		linux,
+		...Array.from({ length: 10 }, (_, index) =>
+			makeTopic({
+				title: `Overflow topic ${index}`,
+				path: `overflow/topic-${index}.md`,
+				skill: 25,
+			})
+		),
+	];
+	const noLinux = Array.from({ length: 8 }, (_, index) =>
+		makeNetworkHardQuestion(`overflow-network-${index}`)
+	);
+
+	assert.match(
+		challengeShortfallMessage(noLinux, overflowTopics, "steady", 8),
+		/did not cover high-skill topic "Linux Commands"/
+	);
+
+	const balanced = selectFlowBalancedQuestions(
+		noLinux,
+		[makeLinuxHardQuestion("overflow-linux-hard")],
+		8,
+		overflowTopics,
+		"steady"
+	);
+
+	assert.equal(
+		balanced.some((question) => question.id === "overflow-linux-hard"),
+		true
+	);
+	assert.equal(challengeShortfallMessage(balanced, overflowTopics, "steady", 8), "");
+});
+
+test("flow calibration upgrades token medium Linux coverage for 90-plus mixed sessions", () => {
+	const linux = makeTopic({ title: "Linux Commands", skill: 92 });
+	const overflowTopics = [
+		linux,
+		...Array.from({ length: 10 }, (_, index) =>
+			makeTopic({
+				title: `Overflow topic ${index}`,
+				path: `overflow/topic-${index}.md`,
+				skill: 25,
+			})
+		),
+	];
+	const tokenMedium = [
+		{
+			...makeLinuxMediumQuestion("overflow-linux-medium"),
+			sourceSubtopics: ["token medium Linux coverage"],
+		},
+		...Array.from({ length: 7 }, (_, index) =>
+			makeNetworkHardQuestion(`overflow-network-medium-${index}`)
+		),
+	];
+
+	assert.match(
+		challengeShortfallMessage(tokenMedium, overflowTopics, "steady", 8),
+		/Expected about 0 easy, 0 medium, 1 hard for that topic; got 0 easy, 1 medium, 0 hard/
+	);
+
+	const balanced = selectFlowBalancedQuestions(
+		tokenMedium,
+		[makeLinuxHardQuestion("overflow-linux-upgrade-hard")],
+		8,
+		overflowTopics,
+		"steady"
+	);
+
+	assert.equal(
+		balanced.some((question) => question.id === "overflow-linux-upgrade-hard"),
+		true
+	);
+	assert.equal(
+		balanced.some((question) => question.id === "overflow-linux-medium"),
+		false
+	);
+	assert.equal(challengeShortfallMessage(balanced, overflowTopics, "steady", 8), "");
+});
+
+test("flow calibration rejects token high-skill Linux coverage in mixed sessions", () => {
+	const linux = makeTopic({ title: "Linux Commands", skill: 83 });
+	const novice = makeTopic({ title: "Intro Networks", skill: 25 });
+	const tokenCoverage = [
+		makeLinuxHardQuestion("linux-token-hard"),
+		...Array.from({ length: 7 }, (_, index) => makeNetworkHardQuestion(`network-hard-${index}`)),
+	];
+
+	assert.match(
+		challengeShortfallMessage(tokenCoverage, [linux, novice], "steady", 8),
+		/barely covered high-skill topic "Linux Commands".*Expected at least 2 questions/
+	);
+
+	const balanced = selectFlowBalancedQuestions(
+		tokenCoverage,
+		[makeLinuxHardQuestion("linux-additional-hard")],
+		8,
+		[linux, novice],
+		"steady"
+	);
+
+	assert.equal(
+		balanced.filter((question) => question.sourceTopics.includes("Linux Commands")).length,
+		2
+	);
+	assert.equal(challengeShortfallMessage(balanced, [linux, novice], "steady", 8), "");
+});
+
+test("session generation retries twice before accepting high-skill Linux challenge", async () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
+	const config = makeLinuxSessionConfig(topic);
+	const topicContexts = [makeLinuxTopicContext(topic)];
+	const batches = [
+		Array.from({ length: 8 }, (_, index) => makeLinuxRecallQuestion(`easy-${index}`)),
+		Array.from({ length: 8 }, (_, index) => makeLinuxMediumQuestion(`medium-${index}`)),
+		[
+			...Array.from({ length: 6 }, (_, index) => makeLinuxHardQuestion(`hard-${index}`)),
+			...Array.from({ length: 2 }, (_, index) => makeLinuxMediumQuestion(`replacement-medium-${index}`)),
+		],
+	];
+	const client = makeBatchClient(batches);
+
+	const questions = await generateQuestionsFromClient(
+		client,
+		{ textPrompt: "Generate exactly 8 questions.", attachments: [] },
+		config,
+		topicContexts
+	);
+
+	assert.equal(client.calls.length, 3);
+	assert.match(client.calls[1]?.textPrompt ?? "", /Challenge correction/);
+	assert.match(client.calls[2]?.textPrompt ?? "", /Challenge correction/);
+	assert.equal(questions.length, 8);
+	assert.equal(questions.filter((question) => question.difficulty === "hard").length, 6);
+	assert.equal(questions.filter((question) => question.difficulty === "medium").length, 2);
+	assert.equal(questions.filter((question) => question.difficulty === "easy").length, 0);
+});
+
+test("session generation repairs weak-hard Linux output for 90-plus skill", async () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 92 });
+	const config = makeLinuxSessionConfig(topic);
+	const topicContexts = [makeLinuxTopicContext(topic)];
+	const client = makeBatchClient([
+		Array.from({ length: 8 }, (_, index) =>
+			makeLinuxWeakHardQuestion(`initial-weak-hard-${index}`)
+		),
+		[
+			...Array.from({ length: 7 }, (_, index) =>
+				makeLinuxHardQuestion(`deep-repair-hard-${index}`)
+			),
+			makeLinuxMediumQuestion("deep-repair-medium"),
+		],
+	]);
+
+	const questions = await generateQuestionsFromClient(
+		client,
+		{ textPrompt: "Generate exactly 8 questions.", attachments: [] },
+		config,
+		topicContexts
+	);
+
+	assert.equal(client.calls.length, 2);
+	assert.match(client.calls[1]?.textPrompt ?? "", /Challenge correction/);
+	assert.equal(
+		questions.some((question) => question.id.startsWith("initial-weak-hard")),
+		false
+	);
+	assert.equal(questions.filter((question) => question.difficulty === "hard").length, 7);
+	assert.equal(challengeShortfallMessage(questions, [topic], "steady", 8), "");
+});
+
+test("session generation repairs mixed sessions when the high-skill Linux topic is too easy", async () => {
+	const linux = makeTopic({ title: "Linux Commands", skill: 83 });
+	const novice = makeTopic({ title: "Intro Networks", skill: 25 });
+	const config: SessionConfig = {
+		topics: [linux, novice],
+		questionCount: 8,
+		challengeMode: "steady",
+		challengeReason: "mixed high-skill topic regression",
+	};
+	const topicContexts = [
+		makeLinuxTopicContext(linux),
+		makeTopicContext(
+			novice,
+			"DNS caches recursive lookup results. TCP handshakes establish sequence state before application data flows."
+		),
+	];
+	const client = makeBatchClient([
+		[
+			makeLinuxRecallQuestion("linux-easy-one"),
+			makeLinuxRecallQuestion("linux-easy-two"),
+			makeLinuxHardQuestion("linux-hard-one"),
+			makeQuestion({
+				id: "network-medium-one",
+				questionText: "Explain why DNS caching changes lookup latency.",
+				correctAnswer: "Caching avoids repeated recursive lookups.",
+				sourceTopics: ["Intro Networks"],
+				difficulty: "medium",
+			}),
+			makeQuestion({
+				id: "network-medium-two",
+				questionText: "Trace how a TCP handshake establishes sequence state.",
+				correctAnswer: "SYN, SYN-ACK, and ACK agree on starting sequence numbers.",
+				sourceTopics: ["Intro Networks"],
+				difficulty: "medium",
+			}),
+			makeQuestion({
+				id: "network-medium-three",
+				questionText: "Explain why retransmission timeout is more expensive than a duplicate-ACK fast retransmit.",
+				correctAnswer: "Timeout loses stronger delivery evidence and resets the congestion window more severely.",
+				sourceTopics: ["Intro Networks"],
+				difficulty: "medium",
+			}),
+			makeQuestion({
+				id: "network-medium-four",
+				questionText: "Predict which cache is checked first for a repeated hostname lookup.",
+				correctAnswer: "The local resolver or OS cache is checked before recursive lookup.",
+				sourceTopics: ["Intro Networks"],
+				difficulty: "medium",
+			}),
+			makeQuestion({
+				id: "network-easy-one",
+				questionText: "What does DNS stand for?",
+				correctAnswer: "Domain Name System.",
+				sourceTopics: ["Intro Networks"],
+				difficulty: "easy",
+			}),
+		],
+		[
+			...Array.from({ length: 6 }, (_, index) => makeLinuxHardQuestion(`repair-hard-${index}`)),
+			...Array.from({ length: 2 }, (_, index) => makeLinuxMediumQuestion(`repair-medium-${index}`)),
+		],
+	]);
+
+	const questions = await generateQuestionsFromClient(
+		client,
+		{ textPrompt: "Generate exactly 8 mixed questions.", attachments: [] },
+		config,
+		topicContexts
+	);
+
+	assert.equal(client.calls.length, 2);
+	assert.match(client.calls[1]?.textPrompt ?? "", /Challenge correction/);
+	assert.equal(questions.length, 8);
+	assert.equal(
+		questions.some((question) => question.id.startsWith("linux-easy")),
+		false
+	);
+	assert.equal(challengeShortfallMessage(questions, [linux, novice], "steady", 8), "");
+});
+
+test("session generation repairs token high-skill Linux coverage in mixed sessions", async () => {
+	const linux = makeTopic({ title: "Linux Commands", skill: 83 });
+	const novice = makeTopic({ title: "Intro Networks", skill: 25 });
+	const config: SessionConfig = {
+		topics: [linux, novice],
+		questionCount: 8,
+		challengeMode: "steady",
+		challengeReason: "token high-skill topic coverage regression",
+	};
+	const topicContexts = [
+		makeLinuxTopicContext(linux),
+		makeTopicContext(
+			novice,
+			"TCP loss recovery has different paths for duplicate ACKs and retransmission timeouts."
+		),
+	];
+	const client = makeBatchClient([
+		[
+			makeLinuxHardQuestion("linux-token-hard"),
+			...Array.from({ length: 7 }, (_, index) => makeNetworkHardQuestion(`network-hard-${index}`)),
+		],
+		[
+			makeLinuxHardQuestion("linux-repair-hard"),
+			makeLinuxMediumQuestion("linux-repair-medium"),
+		],
+	]);
+
+	const questions = await generateQuestionsFromClient(
+		client,
+		{ textPrompt: "Generate exactly 8 mixed questions.", attachments: [] },
+		config,
+		topicContexts
+	);
+
+	assert.equal(client.calls.length, 2);
+	assert.match(client.calls[1]?.textPrompt ?? "", /Challenge correction/);
+	assert.equal(
+		questions.filter((question) => question.sourceTopics.includes("Linux Commands")).length,
+		2
+	);
+	assert.equal(challengeShortfallMessage(questions, [linux, novice], "steady", 8), "");
+});
+
+test("session generation repairs batches that ignore a selected high-skill Linux topic", async () => {
+	const linux = makeTopic({ title: "Linux Commands", skill: 83 });
+	const novice = makeTopic({ title: "Intro Networks", skill: 25 });
+	const config: SessionConfig = {
+		topics: [linux, novice],
+		questionCount: 8,
+		challengeMode: "steady",
+		challengeReason: "selected high-skill topic coverage regression",
+	};
+	const topicContexts = [
+		makeLinuxTopicContext(linux),
+		makeTopicContext(
+			novice,
+			"DNS maps hostnames to addresses. TCP congestion control reacts to loss and acknowledgements."
+		),
+	];
+	const client = makeBatchClient([
+		[
+			...Array.from({ length: 8 }, (_, index) => makeNetworkHardQuestion(`network-hard-${index}`)),
+		],
+		[
+			makeLinuxHardQuestion("linux-coverage-hard"),
+			makeLinuxMediumQuestion("linux-coverage-medium"),
+		],
+	]);
+
+	const questions = await generateQuestionsFromClient(
+		client,
+		{ textPrompt: "Generate exactly 8 mixed questions.", attachments: [] },
+		config,
+		topicContexts
+	);
+
+	assert.equal(client.calls.length, 2);
+	assert.match(client.calls[1]?.textPrompt ?? "", /Challenge correction/);
+	assert.equal(
+		questions.some((question) => question.sourceTopics.includes("Linux Commands")),
+		true
+	);
+	assert.equal(challengeShortfallMessage(questions, [linux, novice], "steady", 8), "");
+});
+
+test("session generation treats fake-medium Linux recall as too easy for skill 83", async () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
+	const config = makeLinuxSessionConfig(topic);
+	const topicContexts = [makeLinuxTopicContext(topic)];
+	const client = makeBatchClient([
+		Array.from({ length: 8 }, (_, index) => makeLinuxFakeMediumRecallQuestion(`fake-medium-${index}`)),
+		[
+			...Array.from({ length: 6 }, (_, index) => makeLinuxHardQuestion(`repair-hard-${index}`)),
+			...Array.from({ length: 2 }, (_, index) => makeLinuxMediumQuestion(`repair-medium-${index}`)),
+		],
+	]);
+
+	const questions = await generateQuestionsFromClient(
+		client,
+		{ textPrompt: "Generate exactly 8 questions.", attachments: [] },
+		config,
+		topicContexts
+	);
+
+	assert.equal(client.calls.length, 2);
+	assert.match(client.calls[1]?.textPrompt ?? "", /Challenge correction/);
+	assert.equal(
+		questions.some((question) => question.id.startsWith("fake-medium")),
+		false
+	);
+	assert.equal(questions.filter((question) => question.difficulty === "hard").length, 6);
+	assert.equal(questions.filter((question) => question.difficulty === "medium").length, 2);
+});
+
+test("session generation treats simple Linux predictions as easy for skill 83", async () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
+	const config = makeLinuxSessionConfig(topic);
+	const topicContexts = [makeLinuxTopicContext(topic)];
+	const client = makeBatchClient([
+		Array.from({ length: 8 }, (_, index) =>
+			makeLinuxSimplePredictionQuestion(`initial-simple-prediction-${index}`)
+		),
+		[
+			...Array.from({ length: 6 }, (_, index) =>
+				makeLinuxHardQuestion(`repair-simple-prediction-hard-${index}`)
+			),
+			...Array.from({ length: 2 }, (_, index) =>
+				makeLinuxMediumQuestion(`repair-simple-prediction-medium-${index}`)
+			),
+		],
+	]);
+
+	const questions = await generateQuestionsFromClient(
+		client,
+		{ textPrompt: "Generate exactly 8 questions.", attachments: [] },
+		config,
+		topicContexts
+	);
+
+	assert.equal(client.calls.length, 2);
+	assert.match(client.calls[1]?.textPrompt ?? "", /Challenge correction/);
+	assert.equal(
+		questions.some((question) => question.id.startsWith("initial-simple-prediction")),
+		false
+	);
+	assert.equal(questions.filter((question) => question.difficulty === "easy").length, 0);
+	assert.equal(questions.filter((question) => question.difficulty === "hard").length, 6);
+	assert.equal(questions.filter((question) => question.difficulty === "medium").length, 2);
+});
+
+test("session generation treats basic-section Linux questions as easy for skill 83", async () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
+	const config = makeLinuxSessionConfig(topic);
+	const topicContexts = [makeLinuxTopicContext(topic)];
+	const client = makeBatchClient([
+		Array.from({ length: 8 }, (_, index) =>
+			makeLinuxBasicSectionQuestion(`initial-basic-linux-${index}`)
+		),
+		[
+			...Array.from({ length: 6 }, (_, index) =>
+				makeLinuxHardQuestion(`basic-linux-repair-hard-${index}`)
+			),
+			...Array.from({ length: 2 }, (_, index) =>
+				makeLinuxMediumQuestion(`basic-linux-repair-medium-${index}`)
+			),
+		],
+	]);
+
+	const questions = await generateQuestionsFromClient(
+		client,
+		{ textPrompt: "Generate exactly 8 questions.", attachments: [] },
+		config,
+		topicContexts
+	);
+
+	assert.equal(client.calls.length, 2);
+	assert.match(client.calls[1]?.textPrompt ?? "", /Challenge correction/);
+	assert.equal(
+		questions.some((question) => question.id.startsWith("initial-basic-linux")),
+		false
+	);
+	assert.equal(questions.filter((question) => question.difficulty === "easy").length, 0);
+	assert.equal(questions.filter((question) => question.difficulty === "hard").length, 6);
+	assert.equal(questions.filter((question) => question.difficulty === "medium").length, 2);
+});
+
+test("session generation repairs repetitive hard Linux subtopics for skill 83", async () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
+	const config = makeLinuxSessionConfig(topic);
+	const topicContexts = [makeLinuxTopicContext(topic)];
+	const client = makeBatchClient([
+		Array.from({ length: 8 }, (_, index) =>
+			makeRepeatedLinuxFindHardQuestion(`initial-repeated-find-${index}`)
+		),
+		[
+			{
+				...makeLinuxHardQuestion("repair-redirection"),
+				sourceSubtopics: ["redirection order", "stdout", "stderr"],
+			},
+			{
+				...makeLinuxHardQuestion("repair-permissions"),
+				sourceSubtopics: ["umask", "chmod", "creation modes"],
+			},
+			{
+				...makeLinuxHardQuestion("repair-signals"),
+				sourceSubtopics: ["signals", "jobs", "SIGTERM vs SIGKILL"],
+			},
+		],
+	]);
+
+	const questions = await generateQuestionsFromClient(
+		client,
+		{ textPrompt: "Generate exactly 8 questions.", attachments: [] },
+		config,
+		topicContexts
+	);
+
+	assert.equal(client.calls.length, 2);
+	assert.match(client.calls[1]?.textPrompt ?? "", /Challenge correction/);
+	assert.equal(challengeShortfallMessage(questions, [topic], "steady", 8), "");
+	assert.ok(
+		questions.some((question) =>
+			(question.sourceSubtopics ?? []).includes("redirection order")
+		)
+	);
+	assert.ok(
+		questions.some((question) =>
+			(question.sourceSubtopics ?? []).includes("umask")
+		)
+	);
+});
+
+test("session generation keeps hard surplus from a weak-first high-skill Linux response", async () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
+	const config = makeLinuxSessionConfig(topic);
+	const topicContexts = [makeLinuxTopicContext(topic)];
+	const client = makeBatchClient([
+		[
+			...Array.from({ length: 8 }, (_, index) => makeLinuxFakeMediumRecallQuestion(`surplus-fake-${index}`)),
+			...Array.from({ length: 6 }, (_, index) => makeLinuxHardQuestion(`surplus-hard-${index}`)),
+			...Array.from({ length: 2 }, (_, index) => makeLinuxMediumQuestion(`surplus-medium-${index}`)),
+		],
+	]);
+
+	const questions = await generateQuestionsFromClient(
+		client,
+		{ textPrompt: "Generate exactly 8 questions.", attachments: [] },
+		config,
+		topicContexts
+	);
+
+	assert.equal(client.calls.length, 1);
+	assert.equal(
+		questions.some((question) => question.id.startsWith("surplus-fake")),
+		false
+	);
+	assert.equal(questions.filter((question) => question.difficulty === "hard").length, 6);
+	assert.equal(questions.filter((question) => question.difficulty === "medium").length, 2);
+});
+
+test("session generation rejects repeated fake-medium Linux retries for skill 83", async () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
+	const config = makeLinuxSessionConfig(topic);
+	const topicContexts = [makeLinuxTopicContext(topic)];
+	const client = makeBatchClient([
+		Array.from({ length: 8 }, (_, index) => makeLinuxFakeMediumRecallQuestion(`initial-fake-${index}`)),
+		Array.from({ length: 8 }, (_, index) => makeLinuxFakeMediumRecallQuestion(`retry-one-fake-${index}`)),
+		Array.from({ length: 8 }, (_, index) => makeLinuxFakeMediumRecallQuestion(`retry-two-fake-${index}`)),
+	]);
+
+	await assert.rejects(
+		() =>
+			generateQuestionsFromClient(
+				client,
+				{ textPrompt: "Generate exactly 8 questions.", attachments: [] },
+				config,
+				topicContexts
+			),
+		/Failed to generate questions: Generated questions for high-skill topic "Linux Commands" are still too easy/
+	);
+	assert.equal(client.calls.length, 3);
+	assert.match(client.calls[1]?.textPrompt ?? "", /Challenge correction/);
+	assert.match(client.calls[1]?.textPrompt ?? "", /Under-challenging stems to avoid duplicating:\n1\. \[easy\]/);
+});
+
+test("session generation treats command-choice Linux fake-hard questions as too easy for skill 83", async () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
+	const config = makeLinuxSessionConfig(topic);
+	const topicContexts = [makeLinuxTopicContext(topic)];
+	const client = makeBatchClient([
+		Array.from({ length: 8 }, (_, index) => makeLinuxFakeHardOptionQuestion(`initial-fake-hard-${index}`)),
+		[
+			...Array.from({ length: 6 }, (_, index) => makeLinuxHardQuestion(`repair-hard-${index}`)),
+			...Array.from({ length: 2 }, (_, index) => makeLinuxMediumQuestion(`repair-medium-${index}`)),
+		],
+	]);
+
+	const questions = await generateQuestionsFromClient(
+		client,
+		{ textPrompt: "Generate exactly 8 questions.", attachments: [] },
+		config,
+		topicContexts
+	);
+
+	assert.equal(client.calls.length, 2);
+	assert.match(client.calls[1]?.textPrompt ?? "", /Challenge correction/);
+	assert.equal(
+		questions.some((question) => question.id.startsWith("initial-fake-hard")),
+		false
+	);
+	assert.equal(questions.filter((question) => question.difficulty === "hard").length, 6);
+	assert.equal(questions.filter((question) => question.difficulty === "medium").length, 2);
+});
+
+test("session generation treats shallow Linux comparison questions as too easy for skill 83", async () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
+	const config = makeLinuxSessionConfig(topic);
+	const topicContexts = [makeLinuxTopicContext(topic)];
+	const client = makeBatchClient([
+		Array.from({ length: 8 }, (_, index) =>
+			makeLinuxWeakHardQuestion(`initial-shallow-compare-${index}`)
+		),
+		[
+			...Array.from({ length: 6 }, (_, index) =>
+				makeLinuxHardQuestion(`shallow-compare-repair-hard-${index}`)
+			),
+			...Array.from({ length: 2 }, (_, index) =>
+				makeLinuxMediumQuestion(`shallow-compare-repair-medium-${index}`)
+			),
+		],
+	]);
+
+	const questions = await generateQuestionsFromClient(
+		client,
+		{ textPrompt: "Generate exactly 8 questions.", attachments: [] },
+		config,
+		topicContexts
+	);
+
+	assert.equal(client.calls.length, 2);
+	assert.match(client.calls[1]?.textPrompt ?? "", /Challenge correction/);
+	assert.equal(
+		questions.some((question) => question.id.startsWith("initial-shallow-compare")),
+		false
+	);
+	assert.equal(questions.filter((question) => question.difficulty === "easy").length, 0);
+	assert.ok(questions.filter((question) => question.difficulty === "hard").length >= 6);
+	assert.equal(challengeShortfallMessage(questions, [topic], "steady", 8), "");
+});
+
+test("session generation accepts shell source aliases for high-skill Linux coverage", async () => {
+	const linux = makeTopic({ title: "Linux Commands", skill: 83 });
+	const novice = makeTopic({ title: "Intro Networks", skill: 25 });
+	const config: SessionConfig = {
+		topics: [linux, novice],
+		questionCount: 8,
+		challengeMode: "steady",
+		challengeReason: "shell source alias regression",
+	};
+	const topicContexts = [
+		makeLinuxTopicContext(linux),
+		makeTopicContext(novice, "DNS maps hostnames to IP addresses."),
+	];
+	const shellSourced = [
+		...Array.from({ length: 6 }, (_, index) => ({
+			...makeLinuxHardQuestion(`shell-alias-hard-${index}`),
+			sourceTopics: ["Shell"],
+		})),
+		...Array.from({ length: 2 }, (_, index) => ({
+			...makeLinuxMediumQuestion(`shell-alias-medium-${index}`),
+			sourceTopics: ["Shell"],
+		})),
+	];
+	const client = makeBatchClient([shellSourced]);
+
+	const questions = await generateQuestionsFromClient(
+		client,
+		{ textPrompt: "Generate exactly 8 mixed questions.", attachments: [] },
+		config,
+		topicContexts
+	);
+
+	assert.equal(client.calls.length, 1);
+	assert.equal(
+		questions.every((question) => question.sourceTopics.includes("Linux Commands")),
+		true
+	);
+	assert.equal(challengeShortfallMessage(questions, [linux, novice], "steady", 8), "");
+});
+
+test("session generation rejects repeated under-challenge for high-skill Linux notes", async () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
+	const config = makeLinuxSessionConfig(topic);
+	const topicContexts = [makeLinuxTopicContext(topic)];
+	const client = makeBatchClient([
+		Array.from({ length: 8 }, (_, index) => makeLinuxRecallQuestion(`easy-${index}`)),
+		Array.from({ length: 8 }, (_, index) => makeLinuxMediumQuestion(`medium-${index}`)),
+		Array.from({ length: 8 }, (_, index) => makeLinuxMediumQuestion(`still-medium-${index}`)),
+	]);
+
+	await assert.rejects(
+		() =>
+			generateQuestionsFromClient(
+				client,
+				{ textPrompt: "Generate exactly 8 questions.", attachments: [] },
+				config,
+				topicContexts
+			),
+		/Failed to generate questions: Generated questions for high-skill topic "Linux Commands" are still too easy/
+	);
+	assert.equal(client.calls.length, 3);
+});
+
+test("session generation repairs underfilled high-skill Linux batches with challenge top-up", async () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
+	const config = makeLinuxSessionConfig(topic);
+	const topicContexts = [makeLinuxTopicContext(topic)];
+	const client = makeBatchClient([
+		Array.from({ length: 3 }, (_, index) => makeLinuxHardQuestion(`initial-hard-${index}`)),
+		Array.from({ length: 5 }, (_, index) => makeLinuxMediumQuestion(`generic-medium-${index}`)),
+		[
+			...Array.from({ length: 6 }, (_, index) => makeLinuxHardQuestion(`repair-hard-${index}`)),
+			...Array.from({ length: 2 }, (_, index) => makeLinuxMediumQuestion(`repair-medium-${index}`)),
+		],
+	]);
+
+	const questions = await generateQuestionsFromClient(
+		client,
+		{ textPrompt: "Generate exactly 8 questions.", attachments: [] },
+		config,
+		topicContexts
+	);
+
+	assert.equal(client.calls.length, 3);
+	assert.match(client.calls[1]?.textPrompt ?? "", /Retry correction/);
+	assert.match(client.calls[2]?.textPrompt ?? "", /Challenge correction/);
+	assert.equal(questions.length, 8);
+	assert.equal(questions.filter((question) => question.difficulty === "hard").length, 6);
+	assert.equal(questions.filter((question) => question.difficulty === "medium").length, 2);
+	assert.equal(questions.filter((question) => question.difficulty === "easy").length, 0);
+});
+
+test("session generation rejects underfilled high-skill batches that remain too medium-heavy", async () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
+	const config = makeLinuxSessionConfig(topic);
+	const topicContexts = [makeLinuxTopicContext(topic)];
+	const client = makeBatchClient([
+		Array.from({ length: 3 }, (_, index) => makeLinuxHardQuestion(`initial-hard-${index}`)),
+		Array.from({ length: 5 }, (_, index) => makeLinuxMediumQuestion(`generic-medium-${index}`)),
+		Array.from({ length: 5 }, (_, index) => makeLinuxMediumQuestion(`repair-one-medium-${index}`)),
+		Array.from({ length: 5 }, (_, index) => makeLinuxMediumQuestion(`repair-two-medium-${index}`)),
+	]);
+
+	await assert.rejects(
+		() =>
+			generateQuestionsFromClient(
+				client,
+				{ textPrompt: "Generate exactly 8 questions.", attachments: [] },
+				config,
+				topicContexts
+			),
+		/Failed to generate questions: Generated questions for high-skill topic "Linux Commands" are still too easy/
+	);
+	assert.equal(client.calls.length, 4);
+	assert.match(client.calls[1]?.textPrompt ?? "", /Retry correction/);
+	assert.match(client.calls[2]?.textPrompt ?? "", /Challenge correction/);
+	assert.match(client.calls[3]?.textPrompt ?? "", /Challenge correction/);
+});
+
 test("flow calibration sequences balanced batches as a ramp instead of an easy block", () => {
 	const topic = makeTopic({ skill: 70 });
 	const questions = [
@@ -679,6 +1837,25 @@ test("session preparation flow-orders a complete first provider batch", () => {
 		prepared.slice(0, 3).map((question) => question.difficulty),
 		["easy", "medium", "hard"]
 	);
+});
+
+test("session preparation preserves harder surplus candidates for high-skill topics", () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
+	const rawBatch = [
+		...Array.from({ length: 8 }, (_, index) => makeLinuxRecallQuestion(`surplus-easy-${index}`)),
+		...Array.from({ length: 6 }, (_, index) => makeLinuxHardQuestion(`surplus-hard-${index}`)),
+		...Array.from({ length: 2 }, (_, index) => makeLinuxMediumQuestion(`surplus-medium-${index}`)),
+	];
+
+	const prepared = prepareGeneratedQuestionsForSession(rawBatch, {
+		questionCount: 8,
+		topics: [topic],
+		challengeMode: "steady",
+	});
+
+	assert.equal(prepared.some((question) => question.id.startsWith("surplus-easy")), false);
+	assert.equal(prepared.filter((question) => question.difficulty === "hard").length, 6);
+	assert.equal(prepared.filter((question) => question.difficulty === "medium").length, 2);
 });
 
 test("flow navigation pulls harder questions forward after fluent correct answers", () => {
@@ -1377,6 +2554,7 @@ test("OpenAI Responses adapter builds structured-output request bodies", () => {
 
 	assert.equal(body["model"], "gpt-5.5");
 	assert.equal(body["max_output_tokens"], 8192);
+	assert.equal("temperature" in body, false);
 	assert.deepEqual(body["input"], [
 		{
 			role: "user",
@@ -2405,6 +3583,27 @@ test("reconcileSourceTopics matches frontmatter aliases when title differs", () 
 	);
 });
 
+test("reconcileSourceTopics maps shell aliases to selected Linux command notes", () => {
+	const linux = makeTopic({
+		path: "ocr_output/L01-LinuxCommands/Linux Commands.md",
+		title: "Linux Commands",
+		skill: 83,
+	});
+	const networks = makeTopic({
+		path: "networks/Intro Networks.md",
+		title: "Intro Networks",
+	});
+
+	for (const source of ["Shell", "Bash", "Terminal", "Linux shell", "Shell commands", "CLI"]) {
+		assert.deepEqual(
+			reconcileSourceTopics([source], [linux, networks]),
+			[linux.title],
+			source
+		);
+	}
+	assert.deepEqual(reconcileSourceTopics(["unknown"], [linux, networks]), ["unknown"]);
+});
+
 test("reconcileSourceTopics uses conservative fallbacks for missing sources", () => {
 	const a = makeTopic({ title: "A topic", path: "a.md" });
 	const b = makeTopic({ title: "B topic", path: "b.md" });
@@ -2507,14 +3706,252 @@ test("question quality gate asks challenge retries for genuinely hard questions"
 				correctAnswer: "shrink both ends",
 				difficulty: "easy",
 			}),
+			makeQuestion({
+				questionText: "Explain why `ls -a` shows dotfiles while plain `ls` does not.",
+				correctAnswer: "`-a` includes entries whose names begin with `.`.",
+				sourceTopics: ["Linux Commands"],
+				sourceSubtopics: ["Shell wildcard characters", "ls options"],
+				difficulty: "medium",
+			}),
 		],
 		8
 	);
 
+	assert.match(prompt.textPrompt, /Generate exactly 8 replacement-grade questions/);
 	assert.match(prompt.textPrompt, /two or more substantial reasoning moves/);
+	assert.match(prompt.textPrompt, /Do not include easy questions/);
 	assert.match(prompt.textPrompt, /direct update recall/);
 	assert.match(prompt.textPrompt, /direct complexity recall/);
 	assert.match(prompt.textPrompt, /one-branch checks/);
+	assert.match(prompt.textPrompt, /\[medium\] Explain why `ls -a` shows dotfiles/);
+	assert.match(prompt.textPrompt, /do not repeat direct command-purpose, option-purpose, pipe-definition/);
+	assert.match(prompt.textPrompt, /command-choice stems as medium/);
+});
+
+test("difficulty calibration treats shell recall as easy but multi-constraint shell reasoning as hard", () => {
+	const recall = makeQuestion({
+		questionText: "Which command prints the kernel version?",
+		correctAnswer: "uname -r",
+		explanation: "`uname -r` prints the kernel release.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["uname"],
+		difficulty: "hard",
+	});
+	const dressedUpRecall = makeQuestion({
+		questionText: "In a Linux shell, compare `uname -o` and `uname -r`. Which one prints the kernel version, and why is the other option wrong?",
+		correctAnswer: "uname -r",
+		explanation: "`uname -r` prints kernel release; `uname -o` prints the operating system.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["uname"],
+		difficulty: "hard",
+	});
+	const pipeRecall = makeQuestion({
+		questionText: "Given `ls -l | cat`, what does the pipe connect between the two commands?",
+		correctAnswer: "stdout of `ls -l` to stdin of `cat`",
+		explanation: "A pipe sends standard output of the left process to standard input of the right process.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["Pipes"],
+		difficulty: "medium",
+	});
+	const sessionRecall = makeQuestion({
+		questionText: "Compare `who -u` and `last`: which one shows other currently logged-in sessions rather than historical sessions, and why?",
+		correctAnswer: "who -u",
+		explanation: "`who -u` shows current login sessions; `last` shows login history.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["Other sessions", "Session history"],
+		difficulty: "medium",
+	});
+	const fakeMediumOptionPurpose = makeQuestion({
+		questionText: "Explain why `ls -a` shows dotfiles while plain `ls` does not.",
+		correctAnswer: "`-a` includes entries whose names begin with `.`.",
+		explanation: "`ls -a` includes hidden dotfiles; plain `ls` omits them.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["Shell wildcard characters", "ls options"],
+		difficulty: "medium",
+	});
+	const fakeMediumPipePurpose = makeQuestion({
+		questionText: "In `ls -l | less`, explain what the pipe connects and why the output becomes page-scrollable.",
+		correctAnswer: "The pipe connects stdout of `ls -l` to stdin of `less`.",
+		explanation: "`less` reads the listing from stdin and displays it page by page.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["Redirection, Pipes and Filters", "less"],
+		difficulty: "medium",
+	});
+	const fakeMediumPermissionDecode = makeQuestion({
+		questionText: "Given `chmod 755 script.sh`, explain which user classes can execute the file.",
+		correctAnswer: "Owner, group, and others can execute it.",
+		explanation: "The execute bit is set in 7, 5, and 5.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["Default permissions", "chmod"],
+		difficulty: "medium",
+	});
+	const fakeMediumSignalCompare = makeQuestion({
+		questionText: "Compare `kill PID` and `kill -9 PID`: which one sends SIGKILL?",
+		correctAnswer: "`kill -9 PID` sends SIGKILL.",
+		explanation: "Signal number 9 is SIGKILL; plain `kill` sends SIGTERM by default.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["Processes and signals"],
+		difficulty: "medium",
+	});
+	const fakeMediumOptionMeaning = makeQuestion({
+		questionText: "For `grep -R pattern .`, what does `-R` do and when would you use it?",
+		options: [
+			"It searches recursively through directories",
+			"It treats the pattern as a raw string only",
+			"It reverses the order of matching lines",
+			"It reads patterns from standard input",
+		],
+		correctAnswer: "It searches recursively through directories",
+		explanation: "`grep -R` descends through directories and searches files under them.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["grep"],
+		difficulty: "medium",
+	});
+	const fakeMediumSimpleRedirectCommand = makeQuestion({
+		questionText: "Write the command that redirects only stderr from `grep foo missing.txt` into `errors.log` while leaving stdout on the terminal.",
+		options: [
+			"grep foo missing.txt 2>errors.log",
+			"grep foo missing.txt >errors.log",
+			"grep foo missing.txt 2>&1 errors.log",
+			"grep foo missing.txt | errors.log",
+		],
+		correctAnswer: "grep foo missing.txt 2>errors.log",
+		explanation: "File descriptor 2 is stderr.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["stderr redirection"],
+		difficulty: "medium",
+	});
+	const simpleQuotePrediction = makeQuestion({
+		questionText: "Predict the output of `echo \"$HOME\"` versus `echo '$HOME'` and explain why they differ.",
+		options: [
+			"Double quotes expand HOME; single quotes keep `$HOME` literal",
+			"Both commands print `$HOME` literally",
+			"Both commands print the home directory path",
+			"Single quotes expand HOME; double quotes keep it literal",
+		],
+		correctAnswer: "Double quotes expand HOME; single quotes keep `$HOME` literal",
+		explanation: "The shell expands variables inside double quotes but not inside single quotes.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["quoting", "shell expansion"],
+		difficulty: "hard",
+	});
+	const descriptorRecall = makeQuestion({
+		questionText: "What does `2>&1` do in a shell command?",
+		options: [
+			"Redirect stderr to the current stdout destination",
+			"Redirect stdout to stderr",
+			"Pipe stderr to stdin",
+			"Discard both streams",
+		],
+		correctAnswer: "Redirect stderr to the current stdout destination",
+		explanation: "It duplicates stdout onto file descriptor 2.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["stderr redirection"],
+		difficulty: "medium",
+	});
+	const descriptorOrderTrap = makeQuestion({
+		questionText: "Which statement correctly explains why `cmd >out 2>&1` differs from `cmd 2>&1 >out`?",
+		options: [
+			"The first sends both streams to `out`; the second sends stderr to the old stdout before stdout changes",
+			"They are identical because redirections are commutative",
+			"The second sends stdout to stderr",
+			"The first discards stderr",
+		],
+		correctAnswer: "The first sends both streams to `out`; the second sends stderr to the old stdout before stdout changes",
+		explanation: "Redirections are applied left to right, so `2>&1` copies the stdout destination at that moment.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["stdout", "stderr", "redirection order"],
+		difficulty: "medium",
+	});
+	const permissionDerivation = makeQuestion({
+		questionText: "Given requested file mode `666` and `umask 027`, derive the final permission bits and explain which user classes lose which bits.",
+		correctAnswer: "640",
+		explanation: "The umask removes group write and all other bits from the requested file mode, leaving 640.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["Default permissions", "umask"],
+		difficulty: "medium",
+	});
+	const whyBaitCommandSpotting = makeQuestion({
+		questionText: [
+			"Given a directory tree that may contain spaces in filenames and permission-denied subdirectories, construct the safest one-line command to find `.log` files modified in the last 7 days, count matching lines containing `ERROR`, and keep stderr out of the count.",
+			"Which command sequence is correct, and why does it avoid the common xargs/quoting trap?",
+		].join(" "),
+		options: [
+			"find . -name '*.log' -mtime -7 -print0 2>/dev/null | xargs -0 grep -h 'ERROR' | wc -l",
+			"find . -name *.log -mtime -7 | xargs grep ERROR 2>/dev/null | wc -l",
+			"grep -R ERROR *.log 2>&1 | wc -l",
+			"ls -R | grep '.log' | xargs grep ERROR | wc -l",
+		],
+		correctAnswer: "find . -name '*.log' -mtime -7 -print0 2>/dev/null | xargs -0 grep -h 'ERROR' | wc -l",
+		explanation: "Null-delimited output preserves paths with spaces, stderr is redirected before the pipeline, and grep receives only safe file arguments.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["find", "xargs", "quoting", "stderr redirection", "pipes"],
+		difficulty: "medium",
+	});
+	const reasoning = makeQuestion({
+		questionText: [
+			"Given a directory tree that may contain spaces in filenames and permission-denied subdirectories, construct the safest one-line command to find `.log` files modified in the last 7 days, count matching lines containing `ERROR`, and keep stderr out of the count.",
+			"A teammate's attempt inflated the count with permission-denied text and split filenames with spaces; debug that failure mode. Which command sequence and explanation is correct?",
+		].join(" "),
+		options: [
+			"`find . -name '*.log' -mtime -7 -print0 2>/dev/null | xargs -0 grep -h 'ERROR' | wc -l`, because null-delimited paths preserve spaces and `2>/dev/null` removes find errors before the pipe",
+			"`find . -name *.log -mtime -7 | xargs grep ERROR 2>/dev/null | wc -l`, because the shell expands `*.log` recursively and xargs preserves spaces by default",
+			"`grep -R ERROR *.log 2>&1 | wc -l`, because merging stderr into stdout keeps permission errors out of the count",
+			"`ls -R | grep '.log' | xargs grep ERROR | wc -l`, because listing names is equivalent to passing file paths from find",
+		],
+		correctAnswer: "`find . -name '*.log' -mtime -7 -print0 2>/dev/null | xargs -0 grep -h 'ERROR' | wc -l`, because null-delimited paths preserve spaces and `2>/dev/null` removes find errors before the pipe",
+		explanation: "Null-delimited output preserves paths with spaces, stderr is redirected before the pipeline, and grep receives only safe file arguments.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["find", "xargs", "quoting", "stderr redirection", "pipes"],
+		difficulty: "medium",
+	});
+	const fakeHardOptionSpotting = makeQuestion({
+		questionText: "Given a directory tree that may contain spaces in filenames and permission-denied subdirectories, which command sequence correctly counts `ERROR` lines in `.log` files modified in the last 7 days while keeping stderr out of the count?",
+		options: [
+			"find . -name '*.log' -mtime -7 -print0 2>/dev/null | xargs -0 grep -h 'ERROR' | wc -l",
+			"find . -name *.log -mtime -7 | xargs grep ERROR 2>/dev/null | wc -l",
+			"grep -R ERROR *.log 2>&1 | wc -l",
+			"ls -R | grep '.log' | xargs grep ERROR | wc -l",
+		],
+		correctAnswer: "find . -name '*.log' -mtime -7 -print0 2>/dev/null | xargs -0 grep -h 'ERROR' | wc -l",
+		explanation: "The correct option uses null-delimited paths and redirects stderr before the pipe.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["find", "xargs", "quoting", "stderr redirection", "pipes"],
+		difficulty: "hard",
+	});
+	const multiSinkPipelineTrace = makeQuestion({
+		questionText: "Given `{ printf \"a\\nb\\n\"; printf \"warn\\n\" >&2; } 2>producer.err | grep b >out.txt 2>grep.err`, predict the terminal output, contents of `producer.err`, `out.txt`, and `grep.err`, and explain which process each redirection applies to.",
+		options: [
+			"Terminal prints nothing; `producer.err` contains `warn`; `out.txt` contains `b`; `grep.err` is empty",
+			"Terminal prints `warn`; `out.txt` contains `b`; both error files are empty",
+			"`producer.err` contains `b`; `out.txt` contains `warn`; `grep.err` is empty",
+			"`grep.err` contains `warn`; `out.txt` contains `a` and `b`; terminal prints nothing",
+		],
+		correctAnswer: "Terminal prints nothing; `producer.err` contains `warn`; `out.txt` contains `b`; `grep.err` is empty",
+		explanation: "The producer's stderr is redirected before the pipe, only producer stdout enters grep, grep stdout goes to `out.txt`, and grep stderr goes to `grep.err`.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["pipes", "stdout", "stderr", "redirection"],
+		difficulty: "medium",
+	});
+
+	assert.equal(normalizeQuestionDifficulty(recall), "easy");
+	assert.equal(normalizeQuestionDifficulty(dressedUpRecall), "easy");
+	assert.equal(normalizeQuestionDifficulty(pipeRecall), "easy");
+	assert.equal(normalizeQuestionDifficulty(sessionRecall), "easy");
+	assert.equal(normalizeQuestionDifficulty(fakeMediumOptionPurpose), "easy");
+	assert.equal(normalizeQuestionDifficulty(fakeMediumPipePurpose), "easy");
+	assert.equal(normalizeQuestionDifficulty(fakeMediumPermissionDecode), "easy");
+	assert.equal(normalizeQuestionDifficulty(fakeMediumSignalCompare), "easy");
+	assert.equal(normalizeQuestionDifficulty(fakeMediumOptionMeaning), "easy");
+	assert.equal(normalizeQuestionDifficulty(fakeMediumSimpleRedirectCommand), "easy");
+	assert.equal(normalizeQuestionDifficulty(simpleQuotePrediction), "easy");
+	assert.equal(normalizeQuestionDifficulty(descriptorRecall), "easy");
+	assert.equal(normalizeQuestionDifficulty(descriptorOrderTrap), "hard");
+	assert.equal(normalizeQuestionDifficulty(permissionDerivation), "medium");
+	assert.equal(normalizeQuestionDifficulty(fakeHardOptionSpotting), "easy");
+	assert.equal(normalizeQuestionDifficulty(whyBaitCommandSpotting), "medium");
+	assert.equal(normalizeQuestionDifficulty(multiSinkPipelineTrace), "hard");
+	assert.equal(normalizeQuestionDifficulty(reasoning), "hard");
 });
 
 test("normalizePracticeMemory backfills fluency fields for older saved data", () => {
@@ -3604,8 +5041,49 @@ test("buildPrompt includes daily warm-up calibration when scheduler flags fragil
 
 	assert.match(prompt.textPrompt, /Session mode: warm-up/);
 	assert.match(prompt.textPrompt, /Scheduler reason: low skill, slow recall/);
-	assert.match(prompt.textPrompt, /mostly easy\/medium questions/);
+	assert.match(prompt.textPrompt, /use the skill-based target mix below/);
 	assert.match(prompt.textPrompt, /diagnostic questions/);
+});
+
+test("buildPrompt keeps high-skill Linux warmups medium-hard", () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
+	const structure = makeStructure({
+		title: topic.title,
+		sections: [
+			{
+				heading: "Redirection, Pipes and Filters",
+				level: 1,
+				content: "Pipelines connect stdout to stdin. Redirection can send stderr separately, and xargs builds commands from input.",
+				wordCount: 16,
+			},
+			{
+				heading: "Shell wildcard characters",
+				level: 1,
+				content: "Wildcards are expanded by the shell before the command runs; quoting prevents expansion.",
+				wordCount: 13,
+			},
+		],
+	});
+	const prompt = buildPrompt(
+		[
+			{
+				note: topic,
+				content: structure.cleanedText,
+				history: "",
+				structure,
+			},
+		],
+		8,
+		{
+			challengeMode: "warmup",
+			challengeReason: "recent misses",
+		}
+	);
+
+	assert.match(prompt.textPrompt, /Session mode: warm-up/);
+	assert.match(prompt.textPrompt, /Target mix for this session: 0 easy, 4 medium, 4 hard/);
+	assert.match(prompt.textPrompt, /High-skill rule: do not generate easy questions/);
+	assert.match(prompt.textPrompt, /For high-skill Linux\/shell notes, hard questions should use command construction/);
 });
 
 test("buildPrompt includes stretch calibration for fluent daily review", () => {
@@ -3627,8 +5105,269 @@ test("buildPrompt includes stretch calibration for fluent daily review", () => {
 
 	assert.match(prompt.textPrompt, /Session mode: stretch/);
 	assert.match(prompt.textPrompt, /strong recent accuracy and fluency/);
+	assert.match(prompt.textPrompt, /Target mix for this session: 0 easy, 1 medium, 5 hard/);
 	assert.match(prompt.textPrompt, /mostly medium\/hard questions/);
 	assert.match(prompt.textPrompt, /edge cases/);
+});
+
+test("buildPrompt targets hard shell practice for high-skill Linux notes", () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
+	const sections = [
+		{
+			heading: "License",
+			level: 1,
+			content: "Copyright CC BY NC SA",
+			wordCount: 5,
+		},
+		{
+			heading: "Agenda",
+			level: 1,
+			content: "Login, manuals, shell, users, process, files",
+			wordCount: 6,
+		},
+		{
+			heading: "uname",
+			level: 1,
+			content: "Use uname -a to know basic information about the system.",
+			wordCount: 10,
+		},
+		{
+			heading: "Shell wildcard characters",
+			level: 1,
+			content: "Wildcards are expanded by the shell before the command runs; quoting prevents expansion.",
+			wordCount: 13,
+		},
+		{
+			heading: "umask and chmod permissions",
+			level: 1,
+			content: "The umask removes permission bits from a requested mode. chmod changes owner, group, and other permission bits.",
+			wordCount: 17,
+		},
+		{
+			heading: "Redirection, Pipes and Filters",
+			level: 1,
+			content: "Pipelines connect stdout to stdin. Redirection can send stderr separately, and xargs builds commands from input.",
+			wordCount: 16,
+		},
+		{
+			heading: "Process jobs and signals",
+			level: 1,
+			content: "Foreground and background jobs receive signals differently. kill sends signals to process IDs.",
+			wordCount: 13,
+		},
+	];
+	const structure = makeStructure({
+		title: topic.title,
+		frontmatter: { skill: "83" },
+		headings: sections.map((section) => ({
+			heading: section.heading,
+			level: section.level,
+		})),
+		sections,
+		cleanedText: sections.map((section) => section.content).join("\n\n"),
+	});
+	const prompt = buildPrompt(
+		[
+			{
+				note: topic,
+				content: structure.cleanedText,
+				history: "",
+				structure,
+			},
+		],
+		8,
+		{ challengeMode: "steady" }
+	);
+
+	assert.match(prompt.textPrompt, /Target mix for this session: 0 easy, 2 medium, 6 hard/);
+	assert.match(prompt.textPrompt, /High-skill rule: do not generate easy questions/);
+	assert.match(prompt.textPrompt, /For high-skill Linux\/shell notes, hard questions should use command construction/);
+	assert.match(prompt.textPrompt, /each option should include the command plus its reasoning\/trap/);
+	assert.doesNotMatch(prompt.textPrompt, /<concept_targets>\n(?:.|\n)*- License/);
+	assert.doesNotMatch(prompt.textPrompt, /<concept_targets>\n(?:.|\n)*- Agenda/);
+	assert.doesNotMatch(prompt.textPrompt, /<outline>\n(?:.|\n)*- License/);
+	assert.doesNotMatch(prompt.textPrompt, /<note_sections>\n(?:.|\n)*# License/);
+	assert.match(prompt.textPrompt, /Redirection, Pipes and Filters/);
+	assert.match(prompt.textPrompt, /umask and chmod permissions/);
+});
+
+test("buildPrompt raises shell depth guidance for 90-plus Linux notes", () => {
+	const topic = makeTopic({ title: "Linux Commands", skill: 92 });
+	const prompt = buildPrompt(
+		[makeLinuxTopicContext(topic)],
+		8,
+		{ challengeMode: "steady" }
+	);
+
+	assert.match(prompt.textPrompt, /Target mix for this session: 0 easy, 1 medium, 7 hard/);
+	assert.match(prompt.textPrompt, /For 90\+ Linux\/shell topics, a hard question must combine at least two reasoning moves/);
+});
+
+test("buildPrompt keeps high-skill Linux guidance in mixed-skill sessions", () => {
+	const linux = makeTopic({ title: "Linux Commands", skill: 83 });
+	const networks = makeTopic({ title: "Intro Networks", skill: 25 });
+	const prompt = buildPrompt(
+		[
+			makeLinuxTopicContext(linux),
+			makeTopicContext(
+				networks,
+				"DNS maps hostnames to addresses. A TCP handshake exchanges SYN and ACK packets before data flows."
+			),
+		],
+		8,
+		{ challengeMode: "steady" }
+	);
+
+	assert.match(prompt.textPrompt, /Target mix for this session: 2 easy, 4 medium, 2 hard/);
+	assert.match(prompt.textPrompt, /High-skill topic rule: for Linux Commands \(83\/100\), do not generate easy questions/);
+	assert.match(prompt.textPrompt, /For high-skill Linux\/shell notes, hard questions should use command construction/);
+});
+
+test("buildPrompt focuses the real high-skill Linux Commands note on shell mechanics", () => {
+	const notePath = "../../../ocr_output/L01-LinuxCommands/Linux Commands.md";
+	if (!existsSync(notePath)) return;
+
+	const raw = readFileSync(notePath, "utf8");
+	const skill = frontmatterSkill(raw) ?? 83;
+	assert.ok(skill > 80);
+	const body = raw.replace(/^---[\s\S]*?---\s*/, "");
+	const cleanedText = cleanNoteText(body);
+	const sections = extractSections(cleanedText);
+	const topic = makeTopic({
+		path: "ocr_output/L01-LinuxCommands/Linux Commands.md",
+		title: "Linux Commands",
+		skill,
+	});
+	const structure = makeStructure({
+		path: topic.path,
+		title: topic.title,
+		frontmatter: { skill: String(skill) },
+		sections,
+		headings: sections
+			.filter((section) => section.level > 0)
+			.map((section) => ({
+				heading: section.heading,
+				level: section.level,
+			})),
+		cleanedText,
+	});
+	const prompt = buildPrompt(
+		[
+			{
+				note: topic,
+				content: cleanedText,
+				history: "",
+				structure,
+			},
+		],
+		8,
+		{
+			challengeMode: "steady",
+			challengeReason: "real Linux note regression",
+			now: Date.UTC(2026, 5, 30),
+		}
+	);
+	const sectionsBlock = prompt.textPrompt.match(/<note_sections>\n([\s\S]*?)\n<\/note_sections>/)?.[1] ?? "";
+	const conceptBlock = prompt.textPrompt.match(/<concept_targets>\n([\s\S]*?)\n<\/concept_targets>/)?.[1] ?? "";
+	const desired = desiredDifficultyCounts(8, skill, "steady");
+
+	assert.match(
+		prompt.textPrompt,
+		new RegExp(`Target mix for this session: ${desired.easy} easy, ${desired.medium} medium, ${desired.hard} hard`)
+	);
+	assert.match(prompt.textPrompt, new RegExp(`skill: ${escapeRegExp(String(skill))}`));
+	assert.match(prompt.textPrompt, /High-skill rule: do not generate easy questions/);
+	assert.match(prompt.textPrompt, /For high-skill Linux\/shell notes, hard questions should use command construction/);
+	assert.doesNotMatch(conceptBlock, /License|Agenda/);
+	assert.doesNotMatch(sectionsBlock, /# License|# Agenda|# uname\b|# Login\b/);
+	assert.match(sectionsBlock, /# Shell wildcard characters/);
+	assert.match(sectionsBlock, /# Output redirection/);
+	assert.match(sectionsBlock, /# Error redirection/);
+	assert.match(sectionsBlock, /# Pipes/);
+	assert.match(sectionsBlock, /# Command substitution/);
+	assert.match(sectionsBlock, /# Arguments' injection/);
+	assert.match(sectionsBlock, /Use command \[options\] \[args\] > filename/);
+	assert.match(sectionsBlock, /Use `command \[options\] \[args\] 2> filename`/);
+	assert.match(sectionsBlock, /\$ ls -l \| cat/);
+	assert.match(sectionsBlock, /awk -F: '\{print \$7\}' \| sort \| uniq \| wc -l/);
+	assert.match(sectionsBlock, /\$ kill `pidof firefox`/);
+	assert.match(sectionsBlock, /xargs du -c \| tail -1/);
+	assert.match(conceptBlock, /Redirection, Pipes and Filters/);
+	assert.match(conceptBlock, /Sending signals to processes|Default permissions/);
+});
+
+test("session generation repairs fake-medium output for the real high-skill Linux Commands note", async () => {
+	const notePath = "../../../ocr_output/L01-LinuxCommands/Linux Commands.md";
+	if (!existsSync(notePath)) return;
+
+	const raw = readFileSync(notePath, "utf8");
+	const skill = frontmatterSkill(raw) ?? 83;
+	assert.ok(skill > 80);
+	const body = raw.replace(/^---[\s\S]*?---\s*/, "");
+	const cleanedText = cleanNoteText(body);
+	const sections = extractSections(cleanedText);
+	const topic = makeTopic({
+		path: "ocr_output/L01-LinuxCommands/Linux Commands.md",
+		title: "Linux Commands",
+		skill,
+	});
+	const structure = makeStructure({
+		path: topic.path,
+		title: topic.title,
+		frontmatter: { skill: String(skill) },
+		sections,
+		headings: sections
+			.filter((section) => section.level > 0)
+			.map((section) => ({
+				heading: section.heading,
+				level: section.level,
+			})),
+		cleanedText,
+	});
+	const context: TopicContext = {
+		note: topic,
+		content: cleanedText,
+		history: "",
+		structure,
+	};
+	const config: SessionConfig = {
+		topics: [topic],
+		questionCount: 8,
+		challengeMode: "steady",
+		challengeReason: "real high-skill Linux fake-medium regression",
+	};
+	const desired = desiredDifficultyCounts(config.questionCount, skill, config.challengeMode);
+	const client = makeBatchClient([
+		Array.from({ length: 8 }, (_, index) =>
+			makeLinuxFakeMediumRecallQuestion(`real-note-fake-medium-${index}`)
+		),
+		[
+			...Array.from({ length: desired.hard }, (_, index) =>
+				makeLinuxHardQuestion(`real-note-repair-hard-${index}`)
+			),
+			...Array.from({ length: desired.medium }, (_, index) =>
+				makeLinuxMediumQuestion(`real-note-repair-medium-${index}`)
+			),
+		],
+	]);
+
+	const questions = await generateQuestionsFromClient(
+		client,
+		{ textPrompt: "Generate exactly 8 questions from the real Linux Commands note.", attachments: [] },
+		config,
+		[context]
+	);
+
+	assert.equal(client.calls.length, 2);
+	assert.match(client.calls[1]?.textPrompt ?? "", /Challenge correction/);
+	assert.equal(
+		questions.some((question) => question.id.startsWith("real-note-fake-medium")),
+		false
+	);
+	assert.equal(questions.filter((question) => question.difficulty === "easy").length, 0);
+	assert.equal(questions.filter((question) => question.difficulty === "hard").length, desired.hard);
+	assert.equal(questions.filter((question) => question.difficulty === "medium").length, desired.medium);
+	assert.equal(challengeShortfallMessage(questions, [topic], "steady", 8), "");
 });
 
 test("buildPrompt bounds excerpts for notes with many sections", () => {
@@ -3759,6 +5498,404 @@ test("buildPrompt prioritizes weak subtopic sections in long notes", () => {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+function frontmatterSkill(markdown: string): number | null {
+	const match = markdown.match(/^---[\s\S]*?\bskill:\s*([0-9]+(?:\.[0-9]+)?)/);
+	if (!match) return null;
+	const value = Number(match[1]);
+	return Number.isFinite(value) ? value : null;
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function makeBatchClient(
+	batches: Question[][]
+): LlmClient & { calls: StructuredPrompt[] } {
+	const calls: StructuredPrompt[] = [];
+	return {
+		calls,
+		async generateQuestions(prompt: StructuredPrompt): Promise<Question[]> {
+			calls.push(prompt);
+			return batches.shift() ?? [];
+		},
+	};
+}
+
+function makeLinuxSessionConfig(topic: TopicNote): SessionConfig {
+	return {
+		topics: [topic],
+		questionCount: 8,
+		challengeMode: "steady",
+		challengeReason: "high-skill Linux regression",
+	};
+}
+
+function makeLinuxTopicContext(topic: TopicNote): TopicContext {
+	const sections = [
+		{
+			heading: "Shell wildcard characters",
+			level: 1,
+			content: "Wildcards are expanded by the shell before commands run; quoting keeps text literal.",
+			wordCount: 13,
+		},
+		{
+			heading: "Default permissions",
+			level: 1,
+			content: "umask removes bits from requested permissions when files or directories are created.",
+			wordCount: 12,
+		},
+		{
+			heading: "Redirection, Pipes and Filters",
+			level: 1,
+			content: "stdout, stderr, pipes, filters, and xargs interact differently depending on where redirection appears.",
+			wordCount: 13,
+		},
+	];
+	const structure = makeStructure({
+		title: topic.title,
+		sections,
+		headings: sections.map((section) => ({
+			heading: section.heading,
+			level: section.level,
+		})),
+		cleanedText: sections.map((section) => section.content).join("\n\n"),
+	});
+	return {
+		note: topic,
+		content: structure.cleanedText,
+		history: "",
+		structure,
+	};
+}
+
+function makeTopicContext(topic: TopicNote, content: string): TopicContext {
+	const structure = makeStructure({
+		title: topic.title,
+		headings: [{ heading: topic.title, level: 1 }],
+		sections: [
+			{
+				heading: topic.title,
+				level: 1,
+				content,
+				wordCount: content.trim().split(/\s+/).filter(Boolean).length,
+			},
+		],
+		cleanedText: content,
+	});
+	return {
+		note: topic,
+		content,
+		history: "",
+		structure,
+	};
+}
+
+function makeLinuxRecallQuestion(id: string): Question {
+	return makeQuestion({
+		id,
+		questionText: `Which command prints the kernel version for ${id}?`,
+		correctAnswer: "uname -r",
+		explanation: "`uname -r` prints the kernel release.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["uname"],
+		difficulty: "easy",
+	});
+}
+
+function makeLinuxMediumQuestion(id: string): Question {
+	return makeQuestion({
+		id,
+		questionText: `Given requested file mode \`666\` and \`umask 027\` in case ${id}, derive the final permission bits and explain which groups lose which bits.`,
+		correctAnswer: "640",
+		explanation: "The umask removes group write and all other bits from the requested file mode, leaving 640.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["Default permissions", "umask"],
+		difficulty: "medium",
+	});
+}
+
+function makeLinuxFakeMediumRecallQuestion(id: string): Question {
+	const variants = [
+		{
+			questionText: `Explain why \`ls -a\` shows dotfiles while plain \`ls\` does not in case ${id}.`,
+			correctAnswer: "`-a` includes entries whose names begin with `.`.",
+			explanation: "`ls -a` includes hidden dotfiles; plain `ls` omits them.",
+			sourceSubtopics: ["Shell wildcard characters", "ls options"],
+		},
+		{
+			questionText: `In \`ls -l | less\`, explain what the pipe connects and why the output becomes page-scrollable in case ${id}.`,
+			correctAnswer: "The pipe connects stdout of `ls -l` to stdin of `less`.",
+			explanation: "`less` reads the listing from stdin and displays it page by page.",
+			sourceSubtopics: ["Redirection, Pipes and Filters", "less"],
+		},
+		{
+			questionText: `Given \`chmod 755 script.sh\`, explain which user classes can execute the file in case ${id}.`,
+			correctAnswer: "Owner, group, and others can execute it.",
+			explanation: "The execute bit is set in 7, 5, and 5.",
+			sourceSubtopics: ["Default permissions", "chmod"],
+		},
+		{
+			questionText: `Compare \`kill PID\` and \`kill -9 PID\`: which one sends SIGKILL in case ${id}?`,
+			correctAnswer: "`kill -9 PID` sends SIGKILL.",
+			explanation: "Signal number 9 is SIGKILL; plain `kill` sends SIGTERM by default.",
+			sourceSubtopics: ["Processes and signals"],
+		},
+	];
+	const variant = variants[Math.abs(hashString(id)) % variants.length]!;
+	return makeQuestion({
+		id,
+		...variant,
+		sourceTopics: ["Linux Commands"],
+		difficulty: "medium",
+	});
+}
+
+function makeLinuxSimplePredictionQuestion(id: string): Question {
+	const variants = [
+		{
+			questionText: `Predict what \`echo "$HOME"\` versus \`echo '$HOME'\` prints in case ${id}.`,
+			options: [
+				"Double quotes expand HOME; single quotes keep `$HOME` literal",
+				"Both commands print `$HOME` literally",
+				"Both commands print the home directory path",
+				"Single quotes expand HOME; double quotes keep it literal",
+			],
+			correctAnswer: "Double quotes expand HOME; single quotes keep `$HOME` literal",
+			explanation: "The shell expands variables inside double quotes but not inside single quotes.",
+			sourceSubtopics: ["quoting", "shell expansion"],
+		},
+		{
+			questionText: `What does \`echo *.txt\` expand to when the directory contains \`a.txt\`, \`b.txt\`, and \`notes.md\` in case ${id}?`,
+			options: [
+				"`a.txt b.txt`",
+				"`*.txt`",
+				"`a.txt b.txt notes.md`",
+				"`notes.md`",
+			],
+			correctAnswer: "`a.txt b.txt`",
+			explanation: "The shell expands `*.txt` to matching pathnames before `echo` runs.",
+			sourceSubtopics: ["Shell wildcard characters", "globbing"],
+		},
+		{
+			questionText: `Predict the result of \`pwd\` after running \`cd /tmp\` in case ${id}.`,
+			options: ["/tmp", "$HOME", "/", "The previous directory"],
+			correctAnswer: "/tmp",
+			explanation: "`cd /tmp` changes the current working directory for that shell.",
+			sourceSubtopics: ["Paths", "cd", "pwd"],
+		},
+	];
+	const variant = variants[Math.abs(hashString(id)) % variants.length]!;
+	return makeQuestion({
+		id,
+		...variant,
+		sourceTopics: ["Linux Commands"],
+		difficulty: "medium",
+	});
+}
+
+function makeLinuxBasicSectionQuestion(id: string): Question {
+	const variants = [
+		{
+			questionText: `Compare SSH key-based login with password login in case ${id}. Why is key-based login preferred?`,
+			correctAnswer: "Key-based login avoids sending or reusing a password and supports stronger authentication.",
+			explanation: "The note recommends SSH with keys and treats insecure remote login commands as deprecated.",
+			sourceSubtopics: ["Login"],
+		},
+		{
+			questionText: `Explain how \`uname -o\`, \`uname -r\`, and \`uname -m\` differ in case ${id}.`,
+			correctAnswer: "`-o` prints OS, `-r` prints kernel release, and `-m` prints hardware architecture.",
+			explanation: "These are direct `uname` option meanings from the note.",
+			sourceSubtopics: ["uname"],
+		},
+		{
+			questionText: `Compare \`/dev/pts/6\`, \`/dev/tty1\`, and \`/dev/ttyS0\` in case ${id}. What session type does each indicate?`,
+			correctAnswer: "pts is a pseudo-terminal, tty is a tele terminal, and ttyS is a serial console.",
+			explanation: "This is direct session-identification mapping.",
+			sourceSubtopics: ["Session identification"],
+		},
+		{
+			questionText: `Compare \`who -u\`, \`w\`, and \`last\` in case ${id}. Which ones show current sessions versus session history?`,
+			correctAnswer: "`who -u` and `w` show current sessions; `last` shows login history.",
+			explanation: "The commands are listed in the other-sessions and session-history sections.",
+			sourceSubtopics: ["Other sessions", "Session history"],
+		},
+		{
+			questionText: `Explain when \`man 5 passwd\` should be used instead of plain \`man passwd\` in case ${id}.`,
+			correctAnswer: "`man 5 passwd` selects the file-format manual page rather than the command page.",
+			explanation: "Manual sections disambiguate command, system-call, library, and file-format pages.",
+			sourceSubtopics: ["Manual pages"],
+		},
+	];
+	const variant = variants[Math.abs(hashString(id)) % variants.length]!;
+	return makeQuestion({
+		id,
+		...variant,
+		sourceTopics: ["Linux Commands"],
+		difficulty: "hard",
+	});
+}
+
+function makeLinuxFakeHardOptionQuestion(id: string): Question {
+	const correct = "find . -name '*.log' -mtime -7 -print0 2>/dev/null | xargs -0 grep -h 'ERROR' | wc -l";
+	return makeQuestion({
+		id,
+		questionText: [
+			`Given case ${id}: a directory tree may contain spaces in filenames and permission-denied subdirectories.`,
+			"Which command sequence correctly counts `ERROR` lines in `.log` files modified in the last 7 days while keeping stderr out of the count?",
+		].join(" "),
+		options: [
+			correct,
+			"find . -name *.log -mtime -7 | xargs grep ERROR 2>/dev/null | wc -l",
+			"grep -R ERROR *.log 2>&1 | wc -l",
+			"ls -R | grep '.log' | xargs grep ERROR | wc -l",
+		],
+		correctAnswer: correct,
+		explanation: "The correct option uses null-delimited paths and redirects stderr before the pipe.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["find", "xargs", "quoting", "stderr redirection", "pipes"],
+		difficulty: "hard",
+	});
+}
+
+function makeLinuxWeakHardQuestion(id: string): Question {
+	return makeQuestion({
+		id,
+		questionText: [
+			`In Linux shell case ${id}, compare \`grep error app.log\` with \`grep -i error app.log\`.`,
+			"Which explanation best describes the difference?",
+		].join(" "),
+		options: [
+			"`grep -i` ignores case, so it can match `ERROR` as well as `error`",
+			"`grep -i` searches recursively through directories by default",
+			"`grep -i` redirects stderr away from the terminal",
+			"`grep -i` prints only the number of matching lines",
+		],
+		correctAnswer: "`grep -i` ignores case, so it can match `ERROR` as well as `error`",
+		explanation: "This is a direct option-purpose distinction, not multi-step shell reasoning.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["grep option recall"],
+		difficulty: "hard",
+	});
+}
+
+function makeNetworkHardQuestion(id: string): Question {
+	const correct = "RTO fires, cwnd is cut aggressively, then the sender retransmits the missing segment after the timer";
+	return makeQuestion({
+		id,
+		questionText: [
+			`Given TCP case ${id}: a sender transmits segments 10-14, segment 10 is lost, and no later duplicate ACKs arrive because the receiver window closes immediately after segment 11.`,
+			"Trace the sender state, identify whether fast retransmit or retransmission timeout fires, and explain how the congestion window changes compared with a duplicate-ACK recovery.",
+		].join(" "),
+		options: [
+			correct,
+			"Fast retransmit fires immediately, cwnd stays unchanged, and segment 10 is resent after three duplicate ACKs",
+			"DNS cache expiry forces the sender to reopen the TCP connection before retransmitting",
+			"The receiver retransmits segment 10 because TCP recovery is receiver-driven",
+		],
+		correctAnswer: correct,
+		explanation: "With no stream of duplicate ACKs, fast retransmit has no evidence to trigger; the sender waits for RTO, backs off congestion state, and retransmits.",
+		sourceTopics: ["Intro Networks"],
+		sourceSubtopics: ["TCP retransmission", "congestion control", "failure mode"],
+		difficulty: "hard",
+	});
+}
+
+function makeRepeatedLinuxFindHardQuestion(id: string): Question {
+	return makeQuestion({
+		id,
+		questionText: [
+			`Given repeated find/xargs case ${id}: a directory tree may contain spaces in filenames and permission-denied subdirectories.`,
+			"Construct the safest one-line command to find `.log` files modified in the last 7 days, count matching lines containing `ERROR`, and keep stderr out of the count.",
+			"A teammate's attempt inflated the count with permission-denied text and split filenames with spaces; debug that failure mode. Which command sequence and explanation is correct?",
+		].join(" "),
+		options: [
+			"`find . -name '*.log' -mtime -7 -print0 2>/dev/null | xargs -0 grep -h 'ERROR' | wc -l`, because null-delimited paths preserve spaces and `2>/dev/null` removes find errors before the pipe",
+			"`find . -name *.log -mtime -7 | xargs grep ERROR 2>/dev/null | wc -l`, because the shell expands `*.log` recursively and xargs preserves spaces by default",
+			"`grep -R ERROR *.log 2>&1 | wc -l`, because merging stderr into stdout keeps permission errors out of the count",
+			"`ls -R | grep '.log' | xargs grep ERROR | wc -l`, because listing names is equivalent to passing file paths from find",
+		],
+		correctAnswer: "`find . -name '*.log' -mtime -7 -print0 2>/dev/null | xargs -0 grep -h 'ERROR' | wc -l`, because null-delimited paths preserve spaces and `2>/dev/null` removes find errors before the pipe",
+		explanation: "Null-delimited output preserves paths with spaces, stderr is redirected before the pipe, and grep receives only safe file arguments.",
+		sourceTopics: ["Linux Commands"],
+		sourceSubtopics: ["find", "xargs", "quoting", "stderr redirection", "pipes"],
+		difficulty: "hard",
+	});
+}
+
+function makeLinuxHardQuestion(id: string): Question {
+	const variants = [
+		{
+			questionText: [
+				`Given case ${id}: a directory tree may contain spaces in filenames and permission-denied subdirectories.`,
+				"Construct the safest one-line command to find `.log` files modified in the last 7 days, count matching lines containing `ERROR`, and keep stderr out of the count.",
+				"A teammate's attempt inflated the count with permission-denied text and split filenames with spaces; debug that failure mode. Which command sequence and explanation is correct?",
+			].join(" "),
+			options: [
+				"`find . -name '*.log' -mtime -7 -print0 2>/dev/null | xargs -0 grep -h 'ERROR' | wc -l`, because null-delimited paths preserve spaces and `2>/dev/null` removes find errors before the pipe",
+				"`find . -name *.log -mtime -7 | xargs grep ERROR 2>/dev/null | wc -l`, because the shell expands `*.log` recursively and xargs preserves spaces by default",
+				"`grep -R ERROR *.log 2>&1 | wc -l`, because merging stderr into stdout keeps permission errors out of the count",
+				"`ls -R | grep '.log' | xargs grep ERROR | wc -l`, because listing names is equivalent to passing file paths from find",
+			],
+			correctAnswer: "`find . -name '*.log' -mtime -7 -print0 2>/dev/null | xargs -0 grep -h 'ERROR' | wc -l`, because null-delimited paths preserve spaces and `2>/dev/null` removes find errors before the pipe",
+			explanation: "Null-delimited output preserves paths with spaces, stderr is redirected before the pipe, and grep receives only safe file arguments.",
+			sourceSubtopics: ["find", "xargs", "quoting", "stderr redirection", "pipes"],
+		},
+		{
+			questionText: [
+				`Given case ${id}: compare \`cmd >out 2>&1\` with \`cmd 2>&1 >out\` when stdout initially points to the terminal.`,
+				"Predict where stdout and stderr end up, and debug the failure mode where stderr unexpectedly stays on the terminal. Which explanation is correct?",
+			].join(" "),
+			options: [
+				"The first sends both streams to `out`; the second sends stdout to `out` but leaves stderr on the old stdout because `2>&1` copied stdout before it changed",
+				"They are identical because shell redirections are commutative and both streams are named before the command starts",
+				"The first sends stdout to `out` and stderr to the terminal; the second sends both streams to `out`",
+				"The second discards stderr because redirecting stdout after `2>&1` closes file descriptor 2",
+			],
+			correctAnswer: "The first sends both streams to `out`; the second sends stdout to `out` but leaves stderr on the old stdout because `2>&1` copied stdout before it changed",
+			explanation: "Redirections apply left to right, so `2>&1` duplicates the current stdout destination at that moment.",
+			sourceSubtopics: ["redirection order", "stdout", "stderr", "file descriptors"],
+		},
+		{
+			questionText: [
+				`Given case ${id}: \`umask 027\`, then \`mkdir -m 777 project\`, then \`touch project/run.sh\`, then \`chmod 750 project/run.sh\`.`,
+				"Trace the directory and file modes after each operation, derive which operation is affected by umask, and debug the mistaken belief that umask changes the later chmod result.",
+			].join(" "),
+			options: [
+				"The directory creation is masked to `750`; the file creation would start from file defaults masked by `027`; the later `chmod 750` explicitly sets the file mode afterward",
+				"The directory creation ignores umask; the file is created as `777`; the later chmod is then masked down to `730`",
+				"umask only applies to chmod, so both creations keep their requested modes until the final mode becomes `730`",
+				"umask permanently changes the directory, so every later file inside it loses group execute and all other bits regardless of chmod",
+			],
+			correctAnswer: "The directory creation is masked to `750`; the file creation would start from file defaults masked by `027`; the later `chmod 750` explicitly sets the file mode afterward",
+			explanation: "Umask affects creation-time requested modes; chmod is an explicit later mode change and is not masked again.",
+			sourceSubtopics: ["umask", "chmod", "directory permissions", "creation modes"],
+		},
+		{
+			questionText: [
+				`Given case ${id}: \`{ printf "a\\nb\\n"; printf "warn\\n" >&2; } 2>producer.err | grep b >out.txt 2>grep.err\`.`,
+				"Predict terminal output and the contents of all three files, then explain which process each redirection applies to.",
+			].join(" "),
+			options: [
+				"Terminal prints nothing; `producer.err` contains `warn`; `out.txt` contains `b`; `grep.err` is empty",
+				"Terminal prints `warn`; `out.txt` contains `b`; both error files are empty",
+				"`producer.err` contains `b`; `out.txt` contains `warn`; `grep.err` is empty",
+				"`grep.err` contains `warn`; `out.txt` contains `a` and `b`; terminal prints nothing",
+			],
+			correctAnswer: "Terminal prints nothing; `producer.err` contains `warn`; `out.txt` contains `b`; `grep.err` is empty",
+			explanation: "The producer's stderr is redirected before the pipe, only producer stdout enters grep, grep stdout goes to `out.txt`, and grep stderr goes to `grep.err`.",
+			sourceSubtopics: ["pipes", "stdout", "stderr", "process-local redirection"],
+		},
+	];
+	const variant = variants[Math.abs(hashString(id)) % variants.length]!;
+	return makeQuestion({
+		id,
+		...variant,
+		sourceTopics: ["Linux Commands"],
+		difficulty: "hard",
+	});
+}
+
 function makeQuestion(overrides: Partial<Question> = {}): Question {
 	return {
 		id: "q1",
@@ -3772,6 +5909,14 @@ function makeQuestion(overrides: Partial<Question> = {}): Question {
 		difficulty: "medium",
 		...overrides,
 	};
+}
+
+function hashString(value: string): number {
+	let hash = 0;
+	for (const char of value) {
+		hash = (hash * 31 + char.charCodeAt(0)) | 0;
+	}
+	return hash;
 }
 
 function makeResult(

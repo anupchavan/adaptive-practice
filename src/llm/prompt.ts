@@ -9,6 +9,7 @@ import {
 	TopicNote,
 } from "../types";
 import { extractConceptCandidates, normalizeConceptKey } from "../notes/concepts";
+import { desiredDifficultyCounts } from "../practice/flow-calibration";
 
 const MAX_TOTAL_CONTENT_CHARS = 120_000;
 const MAX_HISTORY_RATIO = 0.25;
@@ -184,6 +185,7 @@ For explanation: be concise but include the key reasoning step, not just the fin
 Session mode: ${formatChallengeMode(challengeMode)}
 Scheduler reason: ${challengeReason}
 ${challengeModeInstructions(challengeMode)}
+${renderDifficultyTargetGuidance(topics, questionCount, challengeMode)}
 ${feedbackGuidance}
 
 ## Topics
@@ -222,7 +224,7 @@ function challengeModeInstructions(mode: DailyChallengeMode): string {
 	if (mode === "warmup") {
 		return [
 			"Calibration rule: this is a warm-up session for fragile recall.",
-			"Favor confidence-building retrieval first: mostly easy/medium questions, one concept per question, no hard synthesis unless the note is already simple.",
+			"Favor confidence-building retrieval first: use the skill-based target mix below, one concept per question, and simpler setups than a steady session without dropping below the learner's level.",
 			"Use mistakes, slow recall, skips, or new-note status as signals to ask diagnostic questions that reveal the misconception without overwhelming the learner.",
 		].join("\n");
 	}
@@ -238,6 +240,65 @@ function challengeModeInstructions(mode: DailyChallengeMode): string {
 		"Use the skill-based difficulty distribution below and sequence questions from approachable recall toward transfer.",
 		"Keep challenge close to the learner's current level so the session feels focused rather than either trivial or punishing.",
 	].join("\n");
+}
+
+function renderDifficultyTargetGuidance(
+	topics: TopicContext[],
+	questionCount: number,
+	mode: DailyChallengeMode
+): string {
+	const average = averageTopicSkill(topics.map((topic) => topic.note));
+	const desired = desiredDifficultyCounts(questionCount, average, mode);
+	const highSkillTopics = topics.filter((topic) => topic.note.skill >= 81);
+	const lines = [
+		"",
+		`Target mix for this session: ${desired.easy} easy, ${desired.medium} medium, ${desired.hard} hard.`,
+	];
+
+	if (highSkillTopics.length > 0) {
+		const allHighSkill = highSkillTopics.length === topics.length;
+		const topicNames = highSkillTopics
+			.map((topic) => `${topic.note.title} (${Math.round(topic.note.skill)}/100)`)
+			.join(", ");
+		lines.push(
+			allHighSkill
+				? "High-skill rule: do not generate easy questions for this session. If a stem can be answered by recalling one command, one definition, one branch update, or one complexity label, rewrite it until it requires transfer."
+				: `High-skill topic rule: for ${topicNames}, do not generate easy questions. Questions from these topics should be medium/hard only, and most should be hard. If a stem can be answered by recalling one command, one definition, one branch update, or one complexity label, rewrite it until it requires transfer.`
+		);
+		lines.push(
+			"For each high-skill topic, spread questions across multiple concrete sourceSubtopics instead of making the whole session variations of one trap or section."
+		);
+		if (highSkillTopics.some(isShellPracticeTopic)) {
+				lines.push(
+					"For high-skill Linux/shell notes, hard questions should use command construction, output prediction, debugging symptoms, quoting/wildcards, pipes/redirection, stdin/stdout/stderr, find/grep/xargs, permissions/umask/chmod, process/job/signal behavior, or hard-link/symlink/inode reasoning. Avoid bare command-name recall, shallow option-purpose questions, shallow command comparisons, and MCQs where the learner merely picks the right command. If a hard shell question is MCQ, each option should include the command plus its reasoning/trap so the selected answer tests why it works, not just which command looks right."
+				);
+			if (highSkillTopics.some((topic) => topic.note.skill >= 90)) {
+				lines.push(
+					"For 90+ Linux/shell topics, a hard question must combine at least two reasoning moves, such as constructing or debugging a command under constraints plus predicting stdout/stderr/file/process state or explaining why a tempting command fails."
+				);
+			}
+		}
+	}
+
+	return lines.join("\n");
+}
+
+function averageTopicSkill(topics: TopicNote[]): number {
+	if (topics.length === 0) return 50;
+	return topics.reduce((sum, topic) => sum + topic.skill, 0) / topics.length;
+}
+
+function isShellPracticeTopic(topic: TopicContext): boolean {
+	const structureText = topic.structure
+		? [
+			topic.structure.title,
+			...topic.structure.headings.map((heading) => heading.heading),
+			topic.structure.cleanedText.slice(0, 4000),
+		].join("\n")
+		: topic.content.slice(0, 4000);
+	return /\b(linux|unix|bash|shell|command|cli|terminal|process|job|signal|file system|permission|chmod|umask|redirection|pipe|grep|find|xargs|stdin|stdout|stderr)\b/i.test(
+		`${topic.note.title}\n${structureText}`
+	);
 }
 
 function renderQuestionFeedbackGuidance(
@@ -433,17 +494,22 @@ function renderStructure(topic: TopicContext, contentBudget: number, now: number
 			6,
 			Math.min(MAX_OUTLINE_ITEMS, Math.floor(contentBudget / 180) || 6)
 		);
-		const outline = structure.headings
-			.slice(0, outlineLimit)
-			.map((heading) => `${"  ".repeat(Math.max(0, heading.level - 1))}- ${heading.heading}`)
-			.join("\n");
-		const omitted = structure.headings.length - outlineLimit;
-		const omittedLine = omitted > 0
-			? `\n[...${omitted} additional outline items omitted]`
-			: "";
-		parts.push(`<outline>\n${outline}${omittedLine}\n</outline>`);
+		const outlineHeadings = structure.headings.filter(
+			(heading) => !isLowValueHeading(heading.heading, structure.title)
+		);
+		if (outlineHeadings.length > 0) {
+			const outline = outlineHeadings
+				.slice(0, outlineLimit)
+				.map((heading) => `${"  ".repeat(Math.max(0, heading.level - 1))}- ${heading.heading}`)
+				.join("\n");
+			const omitted = outlineHeadings.length - outlineLimit;
+			const omittedLine = omitted > 0
+				? `\n[...${omitted} additional outline items omitted]`
+				: "";
+			parts.push(`<outline>\n${outline}${omittedLine}\n</outline>`);
+		}
 	}
-	const concepts = renderConceptTargets(structure, contentBudget);
+	const concepts = renderConceptTargets(topic, contentBudget);
 	if (concepts) parts.push(concepts);
 	if (structure.media.length > 0) {
 		parts.push(renderMedia(structure.media));
@@ -453,16 +519,46 @@ function renderStructure(topic: TopicContext, contentBudget: number, now: number
 	return parts.join("\n");
 }
 
-function renderConceptTargets(structure: NoteStructure, contentBudget: number): string {
+function renderConceptTargets(topic: TopicContext, contentBudget: number): string {
+	const structure = topic.structure!;
 	const conceptLimit = Math.max(
 		4,
 		Math.min(MAX_CONCEPT_TARGETS, Math.floor(contentBudget / 140) || 4)
 	);
-	const unique = uniqueConcepts(extractConceptCandidates(structure, conceptLimit * 2))
-		.filter((concept) => normalizeConceptKey(concept) !== normalizeConceptKey(structure.title))
+	const highSkill = topic.note.skill >= 75;
+	const unique = uniqueConcepts(extractConceptCandidates(structure, conceptLimit * 8))
+		.map((concept, index) => ({
+			concept,
+			index,
+			score: conceptTargetPriority(concept, topic, highSkill),
+		}))
+		.filter(({ score }) => score > Number.NEGATIVE_INFINITY)
+		.sort((a, b) => b.score - a.score || a.index - b.index)
+		.map(({ concept }) => concept)
 		.slice(0, conceptLimit);
 	if (unique.length === 0) return "";
 	return `<concept_targets>\n${unique.map((concept) => `- ${concept}`).join("\n")}\n</concept_targets>`;
+}
+
+function conceptTargetPriority(
+	concept: string,
+	topic: TopicContext,
+	highSkill: boolean
+): number {
+	const key = normalizeConceptKey(concept);
+	if (!key || key === normalizeConceptKey(topic.structure!.title)) {
+		return Number.NEGATIVE_INFINITY;
+	}
+	if (isLowValueHeading(concept, topic.structure!.title)) {
+		return Number.NEGATIVE_INFINITY;
+	}
+	let score = 0;
+	if (highSkill && isShellChallengeText(key)) score += 8;
+	if (/\b(invariant|edge case|failure mode|trap|complexity|permission|redirection|pipe|signal|wildcard|substitution)\b/.test(key)) {
+		score += 3;
+	}
+	if (key.split(" ").length >= 2) score += 0.5;
+	return score;
 }
 
 function renderSections(topic: TopicContext, contentBudget: number, now: number): string {
@@ -502,7 +598,12 @@ function selectSectionsForPrompt(
 	maxRenderedSections = MAX_RENDERED_SECTIONS
 ): NoteStructure["sections"] {
 	const sections = topic.structure?.sections ?? [];
-	if (sections.length <= maxRenderedSections) return sections;
+	if (sections.length <= maxRenderedSections) {
+		const substantive = sections.filter((section) =>
+			isSubstantivePromptSection(section, topic)
+		);
+		return substantive.length > 0 ? substantive : sections;
+	}
 
 	const selected = new Map<number, NoteStructure["sections"][number]>();
 	const add = (index: number): void => {
@@ -512,31 +613,63 @@ function selectSectionsForPrompt(
 		}
 	};
 
-	add(0);
-	const nonEmpty = sections
+	const substantive = sections
 		.map((section, index) => ({ section, index }))
-		.filter(({ section }) => section.wordCount > 0);
-	if (nonEmpty.length > 0) {
-		add(nonEmpty[0]!.index);
+		.filter(({ section }) => isSubstantivePromptSection(section, topic));
+	const selectable = substantive.length > 0
+		? substantive
+		: sections
+			.map((section, index) => ({ section, index }))
+			.filter(({ section }) => section.wordCount > 0);
+	const highSkill = topic.note.skill >= 75;
+	const challengeSelectable = highSkill
+		? selectable.filter(({ section }) => hardChallengeSectionPriority(section, topic) > 0)
+		: [];
+
+	if (!highSkill && selectable.length > 0) {
+		add(selectable[0]!.index);
 	}
 
-	const prioritySlots = Math.max(1, Math.floor(maxRenderedSections / 3));
-	const prioritized = sections
-		.map((section, index) => ({
+	const prioritySlots = Math.max(
+		1,
+		Math.floor(maxRenderedSections * (highSkill ? 1 : 1 / 3))
+	);
+	const prioritizedSource =
+		highSkill && challengeSelectable.length > 0
+			? challengeSelectable
+			: selectable;
+	const prioritized = prioritizedSource
+		.map(({ section, index }) => ({
 			index,
 			score: sectionPromptPriority(section, topic, now),
 		}))
 		.filter(({ score }) => score > 0)
 		.sort((a, b) => b.score - a.score || a.index - b.index);
 	for (const { index } of prioritized) {
-		if (selected.size >= prioritySlots + 2) break;
+		if (selected.size >= prioritySlots + (highSkill ? 0 : 2)) break;
 		add(index);
 	}
 
 	const slots = Math.max(1, maxRenderedSections - selected.size);
 	const denominator = Math.max(1, slots - 1);
+	const spacingSource =
+		highSkill && challengeSelectable.length > 0
+			? challengeSelectable
+			: selectable;
 	for (let i = 0; i < slots; i++) {
-		const index = Math.round((i * (sections.length - 1)) / denominator);
+		const source = spacingSource.length > 0
+			? spacingSource
+			: sections.map((section, index) => ({ section, index }));
+		const sourceIndex = Math.round((i * (source.length - 1)) / denominator);
+		add(source[sourceIndex]!.index);
+	}
+
+	const fillSource =
+		highSkill && challengeSelectable.length > 0
+			? [...challengeSelectable, ...selectable]
+			: selectable;
+	for (const { index } of fillSource) {
+		if (selected.size >= maxRenderedSections) break;
 		add(index);
 	}
 
@@ -555,8 +688,10 @@ function sectionPromptPriority(
 	now: number
 ): number {
 	if (section.wordCount <= 0) return 0;
+	if (isLowValueSection(section, topic)) return 0;
 	const heading = normalizeHeading(section.heading);
 	if (!heading) return 0.25;
+	const challengeScore = hardChallengeSectionPriority(section, topic);
 
 	const practiced = topic.practicedSubtopics ?? {};
 	const practicedEntries = Object.entries(practiced);
@@ -564,13 +699,72 @@ function sectionPromptPriority(
 		.filter(([name]) => headingsOverlap(heading, normalizeHeading(name)))
 		.map(([, state]) => subtopicMemoryScore(state, now));
 	if (matching.length > 0) {
-		return 6 + Math.max(...matching);
+		return 6 + Math.max(...matching) + challengeScore;
 	}
 
 	const isUnpracticed = !practicedEntries.some(([name]) =>
 		headingsOverlap(heading, normalizeHeading(name))
 	);
-	return isUnpracticed ? 1 : 0;
+	return (isUnpracticed ? 1 : 0) + challengeScore;
+}
+
+function isSubstantivePromptSection(
+	section: NoteStructure["sections"][number],
+	topic: TopicContext
+): boolean {
+	return section.wordCount > 0 && !isLowValueSection(section, topic);
+}
+
+function isLowValueSection(
+	section: NoteStructure["sections"][number],
+	topic: TopicContext
+): boolean {
+	if (isLowValueHeading(section.heading, topic.structure?.title ?? topic.note.title)) {
+		return true;
+	}
+	const contentKey = normalizeHeading(section.content);
+	if (!contentKey) return false;
+	if (section.wordCount <= 10 && /\b(cc by nc sa|copyright|creative common|license|agenda)\b/.test(contentKey)) {
+		return true;
+	}
+	return false;
+}
+
+function isLowValueHeading(heading: string, noteTitle: string): boolean {
+	const key = normalizeHeading(heading);
+	if (!key) return false;
+	if (key === normalizeHeading(noteTitle)) return true;
+	return /^(body|license|agenda|table of contents|contents|references|bibliography|q a|q and a|questions|thank you|appendix)$/.test(key);
+}
+
+function hardChallengeSectionPriority(
+	section: NoteStructure["sections"][number],
+	topic: TopicContext
+): number {
+	if (topic.note.skill < 75) return 0;
+	const heading = normalizeHeading(section.heading);
+	if (isBasicShellRecallHeading(heading)) return 0;
+	const text = normalizeHeading(`${section.heading} ${section.content.slice(0, 2000)}`);
+	let score = 0;
+	if (isShellChallengeText(text)) score += 3.5;
+	if (/\b(edge case|trap|failure|debug|symptom|invariant|why|compare|construct)\b/.test(text)) score += 1.5;
+	if (/\b(example|syntax|option|argument|output|exit status|error)\b/.test(text)) score += 0.8;
+	return Math.min(5, score);
+}
+
+function isBasicShellRecallHeading(heading: string): boolean {
+	return /^(login|login session logout|uname|session identification|other sessions|session history|logout|bash shell|shell|commands|internal commands|external commands|users|groups|home directories|paths|file operations|listing files|viewing files|creating files|creating directories|copying files|moving files|renaming files|removing files)$/.test(heading);
+}
+
+function isShellChallengeText(text: string): boolean {
+	const groups = [
+		/\b(pipe|pipes|pipeline|redirection|redirect|stdin|stdout|stderr|file descriptor|tee|filter|xargs|command substitution)\b/,
+		/\b(permission|permissions|chmod|umask|owner|group|execute bit|sticky bit|setuid|setgid)\b/,
+		/\b(process|processes|job|jobs|signal|signals|kill|pkill|pgrep|pidof|foreground|background)\b/,
+		/\b(find|grep|sort|uniq|cut|awk|sed|wildcard|wildcards|glob|globbing|quote|quoting)\b/,
+		/\b(hard link|symbolic link|symlink|inode|mount|path|directory tree)\b/,
+	];
+	return groups.some((pattern) => pattern.test(text));
 }
 
 function normalizeHeading(value: string): string {

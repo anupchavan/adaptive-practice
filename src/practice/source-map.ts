@@ -75,7 +75,35 @@ function topicAliases(topic: TopicNote): string[] {
 		topic.path,
 		withoutExtension,
 		basename,
+		...domainAliases(topic),
 	].map(normalizeTopicKey).filter(Boolean);
+}
+
+function domainAliases(topic: TopicNote): string[] {
+	const labels = [
+		topic.title,
+		topic.path,
+		...(topic.aliases ?? []),
+	]
+		.map(normalizeTopicKey)
+		.join(" ");
+	if (!/\b(linux|unix|bash|shell|terminal)\b/.test(labels)) {
+		return [];
+	}
+	return [
+		"Linux",
+		"Linux shell",
+		"Linux commands",
+		"Shell",
+		"Shell commands",
+		"Bash",
+		"Bash shell",
+		"Terminal",
+		"Terminal commands",
+		"Unix shell",
+		"Command line",
+		"CLI",
+	];
 }
 
 function topicSimilarity(a: string, b: string): number {

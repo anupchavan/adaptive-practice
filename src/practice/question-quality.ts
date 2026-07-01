@@ -60,11 +60,13 @@ export function buildChallengeTopUpPrompt(
 	currentQuestions: Question[],
 	desiredCount: number
 ): StructuredPrompt {
-	const needed = Math.max(2, Math.ceil(desiredCount * 0.45));
-	const easyStems = currentQuestions
-		.filter((question) => question.difficulty === "easy")
+	const needed = Math.max(2, desiredCount);
+	const weakStems = currentQuestions
+		.filter((question) => question.difficulty !== "hard")
 		.slice(0, 8)
-		.map((question, index) => `${index + 1}. ${truncateForPrompt(question.questionText, 220)}`)
+		.map((question, index) =>
+			`${index + 1}. [${question.difficulty}] ${truncateForPrompt(question.questionText, 220)}`
+		)
 		.join("\n");
 
 	const correction = `
@@ -78,10 +80,15 @@ Requirements:
 - Do not frame the note title as the concept. Avoid stems like "In the <note title> problem, what does it do?" unless the question then forces transfer.
 - Each question must include concrete "sourceSubtopics" naming the section, concept, invariant, mechanism, or trap being tested.
 - At least half should require two or more substantial reasoning moves, such as tracing multiple states plus explaining an invariant, deriving complexity from a failure mode, constructing a counterexample, debugging from symptoms, or comparing two implementation choices.
+- For high-skill source notes, prefer hard questions over medium. Do not include easy questions in this replacement batch.
+- For high-skill source notes, spread replacements across multiple concrete sourceSubtopics instead of repeating one trap or section.
 - Do not label direct update recall, direct complexity recall, single-iteration traces, or one-branch checks as hard.
+- For Linux/shell notes, do not repeat direct command-purpose, option-purpose, pipe-definition, signal-name, simple permission-decoding, shallow command comparisons, or command-choice stems as medium. Medium/hard shell questions must require command construction with justification, output/state prediction, debugging, quoting/redirection reasoning, or multi-condition state reasoning. For hard shell MCQs, make every option include the command plus a reason/trap; bare command-line options are not hard.
+- For high-skill Linux/shell notes, spread replacements across different shell mechanics such as expansion/quoting, searching with find/grep/xargs, permissions, streams/redirection, pipes/filters, processes/signals, and filesystem links.
+- For 90+ Linux/shell notes, hard replacements must combine at least two shell reasoning moves: construct or debug a command under constraints, then predict stdout/stderr/file/process state or explain why an attractive command fails.
 
 Under-challenging stems to avoid duplicating:
-${easyStems || "None listed; still avoid one-step recall."}
+${weakStems || "None listed; still avoid one-step recall."}
 
 Return only JSON for the replacement questions.`;
 
