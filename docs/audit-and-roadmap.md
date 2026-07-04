@@ -33,12 +33,14 @@ v0.3.5 is ~60% to a quality release — far more built than the version implies.
 
 ## Roadmap
 
-- **Phase 0 — release blockers (DONE):** see changelog below.
-- **Phase 1 — cross-provider consistency (Goal 3):** strict-compatible schema + native structured output per provider; system-role prompt + pinned low temperature; deterministic LaTeX/markdown/KaTeX normalizer-repair; 1–2 few-shot exemplars; an eval harness (built _before_ flipping strict on) measuring per-provider deviation. Add the user-intent field here.
-- **Phase 2 — scheduling on real science (Goals 6, 13):** FSRS/DSR core at note level (the plugin already stores S/D/dueAt), per-subtopic (DAS3H) stability driving due-ness off the weakest subtopic (finally consuming `practicedSubtopics`), interleaving across notes within a session, treat `updated > lastPracticed` as a partial stability reset, overlearning cap, streak in the reminder Notice + status bar.
-- **Phase 3 — question quality (Goals 8, 13):** user-intent (cram/mastery/review) conditioning; per-domain Depth-of-Knowledge rules + domain detection; groundedness/answerability validator (solver/self-consistency, gated by cost); over-generate-and-rank distractors; LLM student-simulation difficulty (regex as pre-filter only).
-- **Phase 4 — scale + polish (Goals 4, 10, 12):** event-driven incremental indexing, debounced sweeps, cached `scanVaultProperties`, virtualized picker, scoped keydown handlers, prompt caching, image downscale + transcribe-cache, scale output tokens to count, retire one quiz UI, slim main.ts.
-- **Phase 5 — flow JIT (Goal 9) + optional model ($0 groundwork, Goal 11):** hybrid just-in-time generation with a tiny pre-validated cache; closed control loop holding ~85% rolling accuracy via an accuracy × item-relative-time rule with hysteresis; build a 300–1000 example synthetic dataset (exemplars + validator fixtures + future QLoRA data).
+All phases implemented as of 2026-07-04 (one commit per phase on `main`). Remaining known gaps are listed under "Known caveats" below.
+
+- **Phase 0 — release blockers (DONE).**
+- **Phase 1 — cross-provider consistency (DONE):** strict structured output everywhere (strict:true json_schema on chat + Responses API, Gemini responseSchema) with a one-shot fallback to plain JSON on schema rejection; system-role prompt + pinned temperature; format normalizer incl. math-brace repair; one format exemplar in the system prompt. NOT done: live-provider eval harness (needs API spend) — the auto-fallback de-risked the strict flip in its place.
+- **Phase 2 — scheduling on real science (DONE):** FSRS/DSR core; per-subtopic (DAS3H-style) stability with weakest-subtopic selection boost; interleaving across notes in a session; edit-triggered partial stability reset; new-note throttle once reviews exist; streak in Notice + status bar; target-retention dial.
+- **Phase 3 — question quality (DONE):** Phase 3a domain de-specialization (see changelog); practice-intent (mastery/cram/review) conditioning; answer-leak + near-duplicate-option rejection; over-generate-and-rank distractor rule. Deferred by token cost: LLM student-simulation difficulty (the deterministic estimator is the pre-filter).
+- **Phase 4 — scale + polish (DONE, part deferred):** event-driven debounced incremental index refresh; Anthropic prompt-cache breakpoint on the system prompt; output tokens scaled to question count; active-view-scoped keyboard shortcuts; cached vault property scan; orphaned quiz-modal deleted. Deferred: image downscale + transcribe-cache, picker virtualization, main.ts extraction.
+- **Phase 5 — flow JIT + dataset groundwork (DONE):** `flow-engine.ts` — sessions >4 questions generate in micro-batches (3/3/2-style plan); a rolling controller with hysteresis holds success near the ~80–85% band by nudging effective skill per batch; continuation prompts carry asked stems; the practice view keeps a background buffer and degrades gracefully (session ends at generated questions on failure; toggle restores single-shot). "Export practice dataset" command writes feedback + note-state JSONL for a future local judge model.
 
 ## Phase 0 changelog (implemented)
 
