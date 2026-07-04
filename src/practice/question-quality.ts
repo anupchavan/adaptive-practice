@@ -130,6 +130,51 @@ Return only the JSON for the new question${batchSize === 1 ? "" : "s"}.`;
 }
 
 /**
+ * Blind re-solve prompt for answer verification: the finished batch is sent
+ * back WITHOUT its answers, and the model must independently derive each one.
+ * Blindness is the point — showing the marked answer invites rubber-stamp
+ * rationalization, the exact failure mode this pass exists to catch. The
+ * response reuses the ordinary question schema so every provider adapter
+ * (strict structured output included) works unchanged.
+ */
+export function buildAnswerVerificationPrompt(
+	basePrompt: StructuredPrompt,
+	questions: Question[]
+): StructuredPrompt {
+	const stripped = questions.map((question) =>
+		JSON.stringify({
+			id: question.id,
+			type: question.type,
+			questionText: question.questionText,
+			options: question.options ?? null,
+			sourceTopics: question.sourceTopics,
+			sourceSubtopics: question.sourceSubtopics,
+			difficulty: question.difficulty,
+		})
+	).join("\n");
+
+	const correction = `
+
+## Answer verification
+
+Ignore the earlier generation instruction counts. Your only task now: below are ${questions.length} finished question${questions.length === 1 ? "" : "s"} with the answers removed. Independently re-solve every one of them from its stem and options alone, using the session material above as the source of truth.
+
+<questions_to_verify>
+${stripped}
+</questions_to_verify>
+
+Rules:
+- Derive each answer step by step in "explanation" FIRST, using only facts stated in the stem and the source material; then commit to the answer that derivation supports. If the stem asserts a fact (an index, a value, a result), your answer must be consistent with it.
+- Copy "id", "type", "questionText", "options", "sourceTopics", "sourceSubtopics", and "difficulty" EXACTLY as given. Do not rephrase, reorder, add, or remove options.
+- For "multi", list every correct option in "correctAnswers". For "integer"/"decimal", give the numeric string.
+- Re-emit all ${questions.length} question${questions.length === 1 ? "" : "s"} in the standard JSON schema.
+
+Return only the JSON.`;
+
+	return appendCorrection(basePrompt, correction);
+}
+
+/**
  * Append a per-session correction block to a base prompt, keeping the system
  * instructions intact and routing the dynamic text into the user turn (and the
  * combined textPrompt for fallback/tests).

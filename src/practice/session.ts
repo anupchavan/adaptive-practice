@@ -108,6 +108,7 @@ export async function createFlowSessionGenerator(
 	batchPlan?: number[]
 ): Promise<FlowSessionGenerator> {
 	assertModelConfigured(provider, settings);
+	config = { ...config, verifyAnswers: settings.verifyAnswers !== false };
 	const topicContexts = await buildSessionTopicContexts(app, config, provider, settings);
 	const client = createClient(provider, apiKey, settings);
 	return new FlowSessionGenerator(client, topicContexts, config, {
@@ -126,6 +127,7 @@ export async function generateQuestions(
 	settings: AdaptivePracticeSettings
 ): Promise<Question[]> {
 	assertModelConfigured(provider, settings);
+	config = { ...config, verifyAnswers: settings.verifyAnswers !== false };
 
 	// No provider reliably fits more than ~8 reason-rich questions inside the
 	// shared 8192-token output ceiling, so large up-front sessions generate in

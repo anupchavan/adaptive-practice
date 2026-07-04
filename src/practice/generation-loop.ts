@@ -1,7 +1,9 @@
 import { StructuredPrompt, TopicContext } from "../llm/prompt";
 import { Question, SessionConfig, TopicNote } from "../types";
 import { reconcileGeneratedQuestions } from "./source-map";
+import { checkAnswer } from "./grader";
 import {
+	buildAnswerVerificationPrompt,
 	buildChallengeTopUpPrompt,
 	buildQuestionTopUpPrompt,
 	mergeQuestionBatches,
@@ -20,6 +22,87 @@ export interface LlmClient {
 }
 
 export async function generateQuestionsFromClient(
+	client: LlmClient,
+	prompt: StructuredPrompt,
+	config: SessionConfig,
+	topicContexts: TopicContext[]
+): Promise<Question[]> {
+	const questions = await generateUnverifiedQuestions(
+		client,
+		prompt,
+		config,
+		topicContexts
+	);
+	if (config.verifyAnswers !== true || questions.length === 0) return questions;
+	return verifyQuestionAnswers(client, prompt, questions);
+}
+
+/**
+ * Blind re-solve pass: the batch goes back to the model with answers removed,
+ * and any question whose marked answer disagrees with the independent
+ * derivation is dropped. A shorter honest batch beats a full one with a wrong
+ * key — the learner picking the right answer and being marked wrong is the
+ * worst outcome this plugin can produce. Best-effort: any failure in the
+ * verification request keeps the batch untouched.
+ */
+async function verifyQuestionAnswers(
+	client: LlmClient,
+	basePrompt: StructuredPrompt,
+	questions: Question[]
+): Promise<Question[]> {
+	try {
+		const reSolved = await client.generateQuestions(
+			buildAnswerVerificationPrompt(basePrompt, questions)
+		);
+		return applyAnswerVerification(questions, reSolved);
+	} catch {
+		return questions;
+	}
+}
+
+/**
+ * Compare the original batch against the blind re-solve. Only an ACTIVE
+ * disagreement drops a question — a question the verifier skipped or mangled
+ * stays. If more than half the batch is contested, the verifier run itself is
+ * the more likely fault, so the batch is kept whole.
+ */
+export function applyAnswerVerification(
+	questions: Question[],
+	reSolved: Question[]
+): Question[] {
+	const byId = new Map(reSolved.map((question) => [question.id, question]));
+	// The stem fallback (for verifiers that renumber ids) only trusts stems
+	// that appear exactly once in the re-solve — a duplicated stem is ambiguous.
+	const byText = new Map<string, Question | null>();
+	for (const question of reSolved) {
+		const key = verificationTextKey(question.questionText);
+		byText.set(key, byText.has(key) ? null : question);
+	}
+	const contested = new Set<string>();
+	for (const original of questions) {
+		const match = byId.get(original.id)
+			?? byText.get(verificationTextKey(original.questionText));
+		if (!match || !match.correctAnswer) continue;
+		if (!checkAnswer(original, match.correctAnswer)) contested.add(original.id);
+	}
+	if (contested.size === 0) return questions;
+	if (contested.size > Math.max(1, Math.floor(questions.length / 2))) {
+		console.warn(
+			`Adaptive Practice: answer verification contested ${contested.size}/${questions.length} questions; distrusting the verification run and keeping the batch.`
+		);
+		return questions;
+	}
+	console.warn(
+		`Adaptive Practice: dropped ${contested.size} question(s) whose marked answer failed blind re-solving.`
+	);
+	return questions.filter((question) => !contested.has(question.id));
+}
+
+function verificationTextKey(text: string): string {
+	return text.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+async function generateUnverifiedQuestions(
 	client: LlmClient,
 	prompt: StructuredPrompt,
 	config: SessionConfig,

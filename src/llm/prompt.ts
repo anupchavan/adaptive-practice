@@ -134,7 +134,8 @@ export function buildPrompt(
 5. Avoid repeating exact subtopics from past practice unless the learner struggled or the scheduler says the topic is due.
 6. Treat a note title as a source label, not automatically as the concept. Use headings, sections, frontmatter, diagrams, examples, and recurring terms to identify the actual concept being tested.
 7. Ignore clipped webpage junk, navigation labels, cookie banners, and unrelated boilerplate even if it appears in the note.
-8. For notes about named problems, make the question self-contained. Restate the input/goal or concrete setup needed for the reasoning; do not expect the learner to remember a problem statement from the title alone.
+8. Every question must be fully self-contained. The learner keeps concepts in memory, not notes: define every variable, symbol, and quantity the stem uses (a stem that says \`limit = 5\` must say what limit means here), and restate the problem statement, scenario, or setup the reasoning needs in 1-3 sentences. Never assume the learner remembers a problem, parameter, or code detail from the note title alone. A prepared learner who last read the note weeks ago must be able to answer from the stem plus understanding.
+9. When a stem uses concrete numbers, pick values that make the tested method necessary. An instance answerable from familiarity (a tiny array, a perfect small power, a single-digit case) teaches nothing — prefer values large or irregular enough that shortcuts fail and the mechanism must actually be applied, unless the trivial case is itself the trap being tested.
 
 Subtopic memory rule: each topic may include structured subtopic memory. Use "revisit" subtopics when they show misses, skips, slow/weak performance, or the topic is due. Avoid "mastered" subtopics unless they are needed as a stepping stone for transfer. Prefer headings or unpracticed sections for fresh questions.
 
@@ -172,9 +173,11 @@ Aim questions at where the note's substance is. If a note opens with a brief int
 1. Use Obsidian-compatible Markdown.
 2. Use LaTeX wrapped in dollar signs: $x^2$ inline and $$\\sum_{i=1}^{n} i$$ for display. Never output bare LaTeX.
 3. Use fenced code blocks for code, traces, or pseudo-code when it clarifies the problem.
-4. For MCQ, provide exactly 4 plausible options. Draft five or six candidates internally and keep the four most plausible; every distractor must embody a specific, nameable mistake: sign errors, off-by-one errors, wrong formula choice, missing condition, overgeneralization, confusing best/worst/average case, or violating an invariant. Never include an option the stem already rules out.
-5. If images, SVG notes, or PDFs are attached or described, inspect and use them. Treat diagrams and whiteboard images as first-class source material.
-6. Each question must list exact "sourceTopics" using the topic titles provided in the session material, and "sourceSubtopics" using the concept target, section name, invariant, mechanism, or trap being tested. Do not put the note title in "sourceSubtopics" unless the note has no more specific concept.
+4. Wrap every inline identifier, variable, command, expression, and comparison in backticks. Bare comparisons are actively dangerous: unwrapped ==, as in a==b==c, renders as highlighted text in Obsidian instead of code.
+5. Reference the source note with an Obsidian wikilink — [[Exact Topic Title]] — at its first natural mention in questionText, using the Topic title exactly as given, so the learner can jump to the note afterward.
+6. For MCQ, provide exactly 4 plausible options. Draft five or six candidates internally and keep the four most plausible; every distractor must embody a specific, nameable mistake: sign errors, off-by-one errors, wrong formula choice, missing condition, overgeneralization, confusing best/worst/average case, or violating an invariant. Never include an option the stem already rules out.
+7. If images, SVG notes, or PDFs are attached or described, inspect and use them. Treat diagrams and whiteboard images as first-class source material.
+8. Each question must list exact "sourceTopics" using the topic titles provided in the session material, and "sourceSubtopics" using the concept target, section name, invariant, mechanism, or trap being tested. Do not put the note title in "sourceSubtopics" unless the note has no more specific concept.
 
 ## Response format
 
@@ -195,6 +198,8 @@ Respond with ONLY valid JSON. No markdown fences, no explanation. Prefer a JSON 
 
 Write the fields in exactly this order. "explanation" comes BEFORE "correctAnswer" on purpose: reason the problem through in the explanation first, then commit to the answer that reasoning supports. Never write an explanation that argues for an answer the reasoning does not support — if the reasoning and answer disagree, fix the answer.
 
+For questions that trace state (pointers, indices, iterations, intermediate values): derive each step with concrete values in the explanation before committing, and cross-check the answer against every fact the stem itself asserts. If the marked answer contradicts anything the stem states, the question is broken — rewrite it instead of shipping it.
+
 For MCQ: "options" is required, "correctAnswer" must exactly match one option. Do NOT prefix options with letters like "A)", "B)", etc.
 For multi (select all that apply): 4-5 single-line options, and "correctAnswers" lists every correct option (at least 2, never all). Use multi when the material supports several independently verifiable assertions — properties that hold, statements that are true, steps that are required — with tempting near-misses among the foils. Never use "all of the above".
 For integer/decimal: "options" should be omitted, "correctAnswer" is the numeric string. Prefer integer/decimal whenever the answer is genuinely a computed number the learner should produce (counts, results, magnitudes) rather than recognize.
@@ -206,7 +211,7 @@ One exemplar of the signature format — match its formatting discipline (inline
 {
   "id": "q1",
   "type": "mcq",
-  "questionText": "An array of $n$ distinct sorted integers is rotated once.\\n\\n\`\`\`python\\nwhile lo < hi:\\n    mid = (lo + hi) // 2\\n    if arr[mid] > arr[hi]: lo = mid + 1\\n    else: hi = mid\\n\`\`\`\\nWhy does the loop always converge on the minimum?",
+  "questionText": "From [[Rotated arrays]]: an array of $n$ distinct sorted integers is rotated once, and this loop searches for its minimum.\\n\\n\`\`\`python\\nwhile lo < hi:\\n    mid = (lo + hi) // 2\\n    if arr[mid] > arr[hi]: lo = mid + 1\\n    else: hi = mid\\n\`\`\`\\nWhy does the loop always converge on the minimum?",
   "options": [
     "\`arr[mid] > arr[hi]\` proves the minimum lies right of mid, so discarding the left half preserves the invariant",
     "The midpoint always lands in the sorted half, so the loop scans it linearly",

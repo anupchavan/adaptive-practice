@@ -53,6 +53,31 @@ function normalizeLinkKey(value: string): string {
 		.replace(/\s+/g, " ");
 }
 
+/**
+ * Backtick-wrap prose tokens containing `==`. Obsidian renders `==text==` as
+ * a highlight (`<mark>`), so an unwrapped comparison like `a==b==c` silently
+ * mangles into "a<mark>b</mark>c". Code fences, inline code, and math spans
+ * are left untouched; in prose, any whitespace-delimited token containing
+ * `==` is by construction code-like, so wrapping it is what the model should
+ * have done. Trailing sentence punctuation stays outside the code span.
+ */
+export function escapeBareHighlights(text: string): string {
+	if (!text || !text.includes("==")) return text;
+	const segments = text.split(
+		/(```[\s\S]*?(?:```|$)|`[^`\n]*`|\$\$[\s\S]*?\$\$|\$[^$\n]+\$)/g
+	);
+	return segments
+		.map((segment, index) => {
+			if (index % 2 === 1) return segment;
+			return segment.replace(/[^\s`]*==[^\s`]*/g, (token) => {
+				const stripped = token.replace(/[.,;:!?]+$/, "");
+				if (!stripped.includes("==")) return token;
+				return `\`${stripped}\`${token.slice(stripped.length)}`;
+			});
+		})
+		.join("");
+}
+
 /** Convert LaTeX-native math delimiters to the `$`/`$$` forms Obsidian renders. */
 export function normalizeObsidianMath(text: string): string {
 	if (!text) return text;
@@ -112,27 +137,31 @@ function closeUnbalancedBraces(inner: string): string {
  * parser keeps seeing a clean value.
  */
 export function normalizeQuestionFormatting(question: Question): Question {
+	// Math first so math spans are in `$` form when the highlight escape
+	// decides which segments are protected.
+	const normalizeInline = (text: string): string =>
+		escapeBareHighlights(normalizeObsidianMath(text));
 	// One shared set across the stem and explanation so a note linked in the
 	// question is not linked again in its explanation.
 	const seenLinks = new Set<string>();
 	const normalized: Question = {
 		...question,
 		questionText: dedupeRepeatedLinks(
-			normalizeObsidianMath(question.questionText),
+			normalizeInline(question.questionText),
 			seenLinks
 		),
 		explanation: dedupeRepeatedLinks(
-			normalizeObsidianMath(question.explanation),
+			normalizeInline(question.explanation),
 			seenLinks
 		),
 	};
 	if ((question.type === "mcq" || question.type === "multi") && question.options) {
-		// Options/correctAnswer get math normalization only (no link dedup), so
+		// Options/correctAnswer get the same inline transforms (no link dedup), so
 		// their string equality — relied on by grading/highlighting — is preserved.
-		normalized.options = question.options.map(normalizeObsidianMath);
-		normalized.correctAnswer = normalizeObsidianMath(question.correctAnswer);
+		normalized.options = question.options.map(normalizeInline);
+		normalized.correctAnswer = normalizeInline(question.correctAnswer);
 		if (question.correctAnswers) {
-			normalized.correctAnswers = question.correctAnswers.map(normalizeObsidianMath);
+			normalized.correctAnswers = question.correctAnswers.map(normalizeInline);
 		}
 	}
 	return normalized;

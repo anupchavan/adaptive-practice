@@ -225,6 +225,17 @@ export class AdaptivePracticeSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
+			.setName("Verify answers")
+			.setDesc("Re-solve each generated batch blind (answers hidden) with one extra request, and drop any question whose marked answer fails the check. Catches wrong answer keys at the cost of roughly one extra request per batch.")
+			.addToggle((toggle) => {
+				toggle.setValue(this.plugin.settings.verifyAnswers);
+				toggle.onChange(async (value) => {
+					this.plugin.settings.verifyAnswers = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new Setting(containerEl)
 			.setName("Practice intent")
 			.setDesc("What you are practicing for. Mastery favors understanding and transfer; exam cram favors high-yield facts and classic traps; review favors quick checks across many subtopics.")
 			.addDropdown((dropdown) => {

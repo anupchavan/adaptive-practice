@@ -158,6 +158,8 @@ export interface AdaptivePracticeSettings {
 	practiceIntent: PracticeIntent;
 	/** Generate sessions in adaptive micro-batches instead of one shot. */
 	flowGeneration: boolean;
+	/** Blind re-solve each generated batch and drop questions whose marked answer fails. */
+	verifyAnswers: boolean;
 	pdfSkills: Record<string, number>;
 	practiceMemory: PracticeMemory;
 	practiceDraft: PracticeDraft | null;
@@ -259,6 +261,7 @@ export const DEFAULT_SETTINGS: AdaptivePracticeSettings = {
 	targetRetention: 0.9,
 	practiceIntent: "mastery",
 	flowGeneration: true,
+	verifyAnswers: true,
 	pdfSkills: {},
 	practiceMemory: JSON.parse(JSON.stringify(DEFAULT_PRACTICE_MEMORY)) as PracticeMemory,
 	practiceDraft: null,
@@ -358,6 +361,9 @@ export interface SessionConfig {
 	mode?: "manual" | "daily";
 	challengeMode?: DailyChallengeMode;
 	challengeReason?: string;
+	/** Session entry points set this from settings (default true there); it is
+	 * opt-in at this level so test fixtures with bare configs skip the pass. */
+	verifyAnswers?: boolean;
 }
 
 export type DailyChallengeMode = "warmup" | "steady" | "stretch";

@@ -1302,6 +1302,7 @@ function normalizeSettings(raw: unknown): AdaptivePracticeSettings {
 		settings.practiceIntent = DEFAULT_SETTINGS.practiceIntent;
 	}
 	settings.flowGeneration = settings.flowGeneration !== false;
+	settings.verifyAnswers = settings.verifyAnswers !== false;
 	settings.practiceMemory = normalizePracticeMemory(settings.practiceMemory);
 	settings.practiceDraft = normalizePracticeDraft(settings.practiceDraft);
 	return settings;

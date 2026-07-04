@@ -18,6 +18,7 @@ import {
 import { parseQuestions } from "../src/llm/parse";
 import {
 	detectFormatIssues,
+	escapeBareHighlights,
 	normalizeObsidianMath,
 	normalizeQuestionFormatting,
 	repairMathBraces,
@@ -128,6 +129,7 @@ import {
 	resolveQuestionTargetTopics,
 } from "../src/practice/source-map";
 import {
+	buildAnswerVerificationPrompt,
 	buildChallengeTopUpPrompt,
 	buildQuestionTopUpPrompt,
 	mergeQuestionBatches,
@@ -158,6 +160,7 @@ import {
 	shouldConfirmPracticeDraftReplacement,
 } from "../src/practice/draft";
 import {
+	applyAnswerVerification,
 	generateQuestionsFromClient,
 } from "../src/practice/generation-loop";
 import type { LlmClient } from "../src/practice/generation-loop";
@@ -2835,7 +2838,10 @@ test("practice drafts can preserve completed sessions until results are saved", 
 });
 
 test("practice draft replacement prompts only for valid unfinished drafts", () => {
-	const now = Date.UTC(2026, 5, 27, 12);
+	// Real current time: shouldConfirmPracticeDraftReplacement normalizes
+	// against Date.now() internally, so a fixed fixture date silently expires
+	// once it is more than the draft max-age in the past.
+	const now = Date.now();
 	const topics = [makeTopic()];
 	const questions = [
 		makeQuestion({ id: "q1" }),
@@ -6564,6 +6570,220 @@ test("large upfront sessions drain through chunked generation without duplicates
 	assert.equal(all.length, 20);
 	assert.equal(new Set(all.map((question) => question.id)).size, 20);
 	assert.equal(calls, 3);
+});
+
+test("bare == comparisons are backtick-wrapped in prose but not inside code or math", () => {
+	assert.equal(
+		escapeBareHighlights("triggering when arr[low]==arr[mid]==arr[high], the skip fires"),
+		"triggering when `arr[low]==arr[mid]==arr[high]`, the skip fires"
+	);
+	// Already-protected spans stay untouched.
+	assert.equal(
+		escapeBareHighlights("check `a==b` first"),
+		"check `a==b` first"
+	);
+	assert.equal(
+		escapeBareHighlights("```python\nif a==b: pass\n```"),
+		"```python\nif a==b: pass\n```"
+	);
+	assert.equal(escapeBareHighlights("$x==y$ holds"), "$x==y$ holds");
+	// A lone == token still gets wrapped so it cannot pair into a highlight.
+	assert.equal(escapeBareHighlights("a == b"), "a `==` b");
+	assert.equal(escapeBareHighlights("no comparisons here"), "no comparisons here");
+});
+
+test("highlight escaping keeps option and correctAnswer strings equal", () => {
+	const question = makeQuestion({
+		questionText: "The skip fires when arr[low]==arr[mid]==arr[high].",
+		options: [
+			"only when low==high",
+			"whenever arr[low]==arr[mid]==arr[high]",
+			"never",
+			"when mid==0",
+		],
+		correctAnswer: "whenever arr[low]==arr[mid]==arr[high]",
+	});
+	const normalized = normalizeQuestionFormatting(question);
+	assert.equal(
+		normalized.questionText,
+		"The skip fires when `arr[low]==arr[mid]==arr[high]`."
+	);
+	assert.ok(normalized.options!.includes(normalized.correctAnswer));
+	assert.equal(normalized.correctAnswer, "whenever `arr[low]==arr[mid]==arr[high]`");
+});
+
+test("answer verification prompt is blind and self-describing", () => {
+	const questions = [
+		makeQuestion({
+			id: "v1",
+			questionText: "Which invariant holds?",
+			correctAnswer: "A",
+			explanation: "Because the unsorted half contains the pivot.",
+		}),
+		makeQuestion({
+			id: "v2",
+			type: "integer",
+			options: undefined,
+			questionText: "How many comparisons occur?",
+			correctAnswer: "17",
+			explanation: "Count the halvings.",
+		}),
+	];
+	const base: StructuredPrompt = {
+		textPrompt: "SYSTEM\n\nGenerate exactly 2 questions",
+		systemPrompt: "SYSTEM",
+		userPrompt: "Generate exactly 2 questions",
+		maxOutputTokens: 2800,
+		attachments: [],
+	};
+	const prompt = buildAnswerVerificationPrompt(base, questions);
+	assert.match(prompt.userPrompt!, /## Answer verification/);
+	assert.match(prompt.userPrompt!, /Which invariant holds\?/);
+	// Blind: neither the marked answers nor the original reasoning may leak.
+	assert.ok(!prompt.userPrompt!.includes("\"17\""));
+	assert.ok(!prompt.userPrompt!.includes("unsorted half contains"));
+	assert.ok(!prompt.userPrompt!.includes("Count the halvings"));
+	assert.ok(!/"correctAnswer"/.test(prompt.userPrompt!.split("## Answer verification")[1] ?? ""));
+});
+
+test("answer verification drops only actively contested questions", () => {
+	const original = [
+		makeQuestion({ id: "k1", questionText: "Stem one?", correctAnswer: "A" }),
+		makeQuestion({ id: "k2", questionText: "Stem two?", correctAnswer: "B" }),
+		makeQuestion({ id: "k3", questionText: "Stem three?", correctAnswer: "C" }),
+		makeQuestion({ id: "k4", questionText: "Stem four?", correctAnswer: "D" }),
+	];
+	// Verifier agrees on k1/k3, disagrees on k2, and never returned k4.
+	const reSolved = [
+		makeQuestion({ id: "k1", questionText: "Stem one?", correctAnswer: "A" }),
+		makeQuestion({ id: "k2", questionText: "Stem two?", correctAnswer: "C" }),
+		makeQuestion({ id: "k3", questionText: "Stem three?", correctAnswer: "C" }),
+	];
+	const kept = applyAnswerVerification(original, reSolved);
+	assert.deepEqual(kept.map((question) => question.id), ["k1", "k3", "k4"]);
+});
+
+test("answer verification distrusts a verifier that contests most of the batch", () => {
+	const original = [
+		makeQuestion({ id: "m1", correctAnswer: "A" }),
+		makeQuestion({ id: "m2", correctAnswer: "B" }),
+		makeQuestion({ id: "m3", correctAnswer: "C" }),
+		makeQuestion({ id: "m4", correctAnswer: "D" }),
+	];
+	const reSolved = original.map((question) =>
+		makeQuestion({ id: question.id, correctAnswer: "wrong every time" })
+	);
+	assert.equal(applyAnswerVerification(original, reSolved).length, 4);
+});
+
+test("answer verification matches by stem when ids drift and respects multi set equality", () => {
+	const original = [
+		makeQuestion({
+			id: "orig-1",
+			type: "multi",
+			questionText: "Select every property that holds.",
+			options: ["P holds", "Q holds", "R holds", "S holds"],
+			correctAnswers: ["P holds", "R holds"],
+			correctAnswer: "P holds\nR holds",
+		}),
+	];
+	// Verifier renumbered the id but re-solved the same stem; its display order
+	// differs and that must not count as disagreement.
+	const agreeing = [
+		makeQuestion({
+			id: "q1",
+			type: "multi",
+			questionText: "Select  every property that holds.",
+			options: ["P holds", "Q holds", "R holds", "S holds"],
+			correctAnswers: ["R holds", "P holds"],
+			correctAnswer: "R holds\nP holds",
+		}),
+	];
+	assert.equal(applyAnswerVerification(original, agreeing).length, 1);
+	const disagreeing = [
+		makeQuestion({
+			id: "q1",
+			type: "multi",
+			questionText: "Select  every property that holds.",
+			options: ["P holds", "Q holds", "R holds", "S holds"],
+			correctAnswers: ["Q holds", "S holds"],
+			correctAnswer: "Q holds\nS holds",
+		}),
+	];
+	assert.equal(applyAnswerVerification(original, disagreeing).length, 0);
+});
+
+test("generateQuestionsFromClient runs the blind re-solve only when configured", async () => {
+	const topic = makeTopic({ title: "Any topic", skill: 55 });
+	const contexts = [makeTopicContext(topic, "Content with enough substance to question.")];
+	const batch = [
+		makeQuestion({
+			id: "g1",
+			questionText: "Trace the pointer updates for the stated array and pick the invariant-preserving step.",
+			correctAnswer: "A",
+			sourceTopics: [topic.title],
+			sourceSubtopics: ["pointer updates"],
+		}),
+		makeQuestion({
+			id: "g2",
+			questionText: "A colleague proposes skipping the boundary check entirely; explain which failure mode that introduces.",
+			correctAnswer: "B",
+			sourceTopics: [topic.title],
+			sourceSubtopics: ["boundary check"],
+		}),
+	];
+	const config: SessionConfig = {
+		topics: [topic],
+		questionCount: 2,
+		challengeMode: "steady",
+		challengeReason: "verify test",
+		verifyAnswers: true,
+	};
+	const prompt: StructuredPrompt = {
+		textPrompt: "SYSTEM\n\nGenerate exactly 2 questions",
+		systemPrompt: "SYSTEM",
+		userPrompt: "Generate exactly 2 questions",
+		maxOutputTokens: 2800,
+		attachments: [],
+	};
+	// Second call is the verification: it disagrees on g2.
+	const client = makeBatchClient([
+		batch,
+		[
+			makeQuestion({ ...batch[0]! }),
+			makeQuestion({ ...batch[1]!, correctAnswer: "C" }),
+		],
+	]);
+	const verified = await generateQuestionsFromClient(client, prompt, config, contexts);
+	assert.equal(client.calls.length, 2);
+	assert.match(client.calls[1]!.userPrompt!, /## Answer verification/);
+	assert.deepEqual(verified.map((question) => question.id), ["g1"]);
+
+	// Without the flag the same run never issues a second request.
+	const unverifiedClient = makeBatchClient([batch.map((question) => makeQuestion({ ...question }))]);
+	const unverified = await generateQuestionsFromClient(
+		unverifiedClient,
+		prompt,
+		{ ...config, verifyAnswers: undefined },
+		contexts
+	);
+	assert.equal(unverifiedClient.calls.length, 1);
+	assert.equal(unverified.length, 2);
+});
+
+test("system prompt carries the self-containment, wikilink, and instance-quality rules", () => {
+	const topic = makeTopic({ title: "Smallest divisor", skill: 70 });
+	const prompt = buildPrompt(
+		[makeTopicContext(topic, "Binary search over divisors with a sum condition.")],
+		4,
+		{ now: Date.UTC(2026, 6, 4) }
+	);
+	assert.match(prompt.systemPrompt!, /fully self-contained/);
+	assert.match(prompt.systemPrompt!, /define every variable, symbol, and quantity/);
+	assert.match(prompt.systemPrompt!, /\[\[Exact Topic Title\]\]/);
+	assert.match(prompt.systemPrompt!, /values large or irregular enough that shortcuts fail/);
+	assert.match(prompt.systemPrompt!, /renders as highlighted text in Obsidian/);
+	assert.match(prompt.systemPrompt!, /contradicts anything the stem states/);
 });
 
 test("daily selection reserves slots for new notes even under review backlog", () => {

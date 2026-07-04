@@ -392,6 +392,29 @@ export class PracticeView extends ItemView {
 		if (q.difficulty === "hard") {
 			header.addClass("is-hard-question");
 		}
+
+		this.renderSourceNoteLink(container, q);
+	}
+
+	/**
+	 * Deterministic "From [[note]]" chip under the question header, so the
+	 * source is one click away even when the model forgot to link it inline.
+	 * Rendered through the markdown pipeline so it gets internal-link click
+	 * handling and hover preview for free.
+	 */
+	private renderSourceNoteLink(container: HTMLElement, q: Question): void {
+		const topics = q.sourceTopics
+			.map((title) => this.state?.topics.find((topic) => topic.title === title))
+			.filter((topic): topic is TopicNote => !!topic && !!topic.path);
+		if (topics.length === 0) return;
+		const chip = container.createDiv({ cls: "ap-question-source" });
+		// Link by full path (aliased to the title) so duplicate basenames in
+		// different folders still resolve to the exact session note.
+		const links = topics
+			.slice(0, 2)
+			.map((topic) => `[[${topic.path}|${topic.title}]]`)
+			.join(", ");
+		this.renderMarkdown(`From ${links}`, chip);
 	}
 
 	private renderQuestionText(container: HTMLElement, q: Question): void {
