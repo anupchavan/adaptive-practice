@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { buildPrompt, outputTokenBudget, resolvePromptParts } from "../src/llm/prompt";
 import type { StructuredPrompt, TopicContext } from "../src/llm/prompt";
-import { geminiQuestionSchema, questionSchema } from "../src/llm/openai-shared";
+import { geminiQuestionSchema, modelOmitsSamplingParams, questionSchema } from "../src/llm/openai-shared";
 import {
 	FlowSessionGenerator,
 	FlowSignal,
@@ -19,7 +19,9 @@ import {
 import {
 	extractProviderErrorDetail,
 	formatProviderError,
+	isSamplingParamRejection,
 	isStructuredOutputRejection,
+	isThinkingConfigRejection,
 } from "../src/llm/errors";
 import {
 	buildOpenAiResponsesBody,
@@ -6359,6 +6361,46 @@ test("structured-output rejections are retryable, auth and quota errors are not"
 	assert.equal(isStructuredOutputRejection(401, "invalid api key for schema access"), false);
 	assert.equal(isStructuredOutputRejection(429, "rate limited json_schema"), false);
 	assert.equal(isStructuredOutputRejection(500, "internal schema error"), false);
+});
+
+test("sampling params are omitted for models that removed them", () => {
+	assert.equal(modelOmitsSamplingParams("claude-sonnet-5"), true);
+	assert.equal(modelOmitsSamplingParams("claude-opus-4-7"), true);
+	assert.equal(modelOmitsSamplingParams("claude-opus-4-8"), true);
+	assert.equal(modelOmitsSamplingParams("claude-fable-5"), true);
+	assert.equal(modelOmitsSamplingParams("claude-mythos-5"), true);
+	// Older models keep the pinned temperature for output consistency.
+	assert.equal(modelOmitsSamplingParams("claude-sonnet-4-6"), false);
+	assert.equal(modelOmitsSamplingParams("claude-opus-4-6"), false);
+	assert.equal(modelOmitsSamplingParams("claude-haiku-4-5"), false);
+});
+
+test("sampling and thinking rejections are retryable, auth errors are not", () => {
+	assert.equal(isSamplingParamRejection(400, "temperature is deprecated for this model"), true);
+	assert.equal(isSamplingParamRejection(400, "top_p is not supported"), true);
+	assert.equal(isSamplingParamRejection(400, "messages: roles must alternate"), false);
+	assert.equal(isSamplingParamRejection(401, "temperature invalid key"), false);
+	assert.equal(isThinkingConfigRejection(400, "thinkingConfig.thinkingBudget: unknown field"), true);
+	assert.equal(isThinkingConfigRejection(400, "responseSchema rejected"), false);
+	assert.equal(isThinkingConfigRejection(429, "thinking rate limited"), false);
+});
+
+test("schemas order explanation before the answer fields", () => {
+	for (const schema of [questionSchema(), geminiQuestionSchema()]) {
+		const serialized = JSON.stringify(schema);
+		const explanationAt = serialized.indexOf('"explanation"');
+		const answerAt = serialized.indexOf('"correctAnswer"');
+		assert.ok(explanationAt >= 0 && answerAt >= 0);
+		assert.ok(
+			explanationAt < answerAt,
+			"explanation must precede correctAnswer so generation reasons before answering"
+		);
+	}
+	const gemini = geminiQuestionSchema() as {
+		properties: { questions: { items: Record<string, unknown> } };
+	};
+	const ordering = gemini.properties.questions.items["propertyOrdering"] as string[];
+	assert.ok(ordering.indexOf("explanation") < ordering.indexOf("correctAnswer"));
 });
 
 test("gemini schema dialect avoids unsupported keywords", () => {

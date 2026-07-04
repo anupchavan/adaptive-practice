@@ -6,6 +6,7 @@ import {
 	extractProviderErrorDetail,
 	formatProviderError,
 	isStructuredOutputRejection,
+	isThinkingConfigRejection,
 } from "./errors";
 import { geminiQuestionSchema } from "./openai-shared";
 
@@ -48,14 +49,27 @@ export class GeminiClient {
 			});
 		}
 
-		const maxOutputTokens = prompt.maxOutputTokens ?? 8192;
-		const attempt = await this.requestGenerateContent(system, parts, true, maxOutputTokens);
+		// Thinking-capable Gemini models spend thinking tokens INSIDE
+		// maxOutputTokens, which starved question output (truncated
+		// explanations, two-question batches). Never send Gemini a budget
+		// below the old 8192 ceiling, and disable thinking on flash-tier
+		// models where question JSON does not benefit from it.
+		const maxOutputTokens = Math.max(prompt.maxOutputTokens ?? 8192, 8192);
+		let withThinkingCap = /flash/i.test(normalizeGeminiModel(this.config.model));
+		let attempt = await this.requestGenerateContent(system, parts, true, maxOutputTokens, withThinkingCap);
+
+		// Thinking-config field names vary across Gemini generations; if this
+		// model rejects it, retry without and keep everything else.
+		if (!attempt.ok && withThinkingCap && isThinkingConfigRejection(attempt.status, attempt.detail)) {
+			withThinkingCap = false;
+			attempt = await this.requestGenerateContent(system, parts, true, maxOutputTokens, withThinkingCap);
+		}
 		if (attempt.ok) return this.parseResponse(attempt.data);
 
 		// If the responseSchema itself is rejected (model/tier differences),
 		// degrade once to plain JSON mode instead of failing the session.
 		if (isStructuredOutputRejection(attempt.status, attempt.detail)) {
-			const fallback = await this.requestGenerateContent(system, parts, false, maxOutputTokens);
+			const fallback = await this.requestGenerateContent(system, parts, false, maxOutputTokens, withThinkingCap);
 			if (fallback.ok) return this.parseResponse(fallback.data);
 			throw new Error(this.describeFailure(fallback));
 		}
@@ -67,7 +81,8 @@ export class GeminiClient {
 		system: string,
 		parts: Array<Record<string, unknown>>,
 		withSchema: boolean,
-		maxOutputTokens: number
+		maxOutputTokens: number,
+		withThinkingCap: boolean
 	): Promise<{ ok: boolean; status: number; data: unknown; detail?: string }> {
 		const body = {
 			contents: [{ parts }],
@@ -77,6 +92,7 @@ export class GeminiClient {
 				maxOutputTokens,
 				responseMimeType: "application/json",
 				...(withSchema ? { responseSchema: geminiQuestionSchema() } : {}),
+				...(withThinkingCap ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
 			},
 		};
 		const model = normalizeGeminiModel(this.config.model);

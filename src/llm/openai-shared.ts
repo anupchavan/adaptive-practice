@@ -2,6 +2,16 @@ export type CompatibleJsonMode = "json_schema" | "json_object" | "prompt_only";
 
 export const MAX_OUTPUT_TOKENS = 8192;
 
+/**
+ * Claude Sonnet 5, Opus 4.7+, and the Fable/Mythos 5 family removed the
+ * sampling parameters entirely — a non-default `temperature` returns a 400.
+ * Steering on those models is prompt-side (which this plugin already does);
+ * older Claude models keep the pinned temperature for output consistency.
+ */
+export function modelOmitsSamplingParams(model: string): boolean {
+	return /claude-(?:sonnet-5|opus-4-[7-9]|fable|mythos)/i.test(model);
+}
+
 export function arrayBufferToBase64(buffer: ArrayBuffer): string {
 	const bytes = new Uint8Array(buffer);
 	let binary = "";
@@ -36,13 +46,16 @@ export function questionSchema(): Record<string, unknown> {
 						"type",
 						"questionText",
 						"options",
+						"explanation",
 						"correctAnswer",
 						"correctAnswers",
-						"explanation",
 						"sourceTopics",
 						"sourceSubtopics",
 						"difficulty",
 					],
+					// Property order is deliberate: explanation precedes
+					// correctAnswer so schema-ordered generation reasons before
+					// committing to an answer (prevents answer-then-rationalize).
 					properties: {
 						id: { type: "string" },
 						type: { type: "string", enum: ["mcq", "multi", "integer", "decimal"] },
@@ -52,13 +65,13 @@ export function questionSchema(): Record<string, unknown> {
 							type: ["array", "null"],
 							items: { type: "string" },
 						},
+						explanation: { type: "string" },
 						correctAnswer: { type: "string" },
 						// Only "multi" (select-all-that-apply) uses this; null otherwise.
 						correctAnswers: {
 							type: ["array", "null"],
 							items: { type: "string" },
 						},
-						explanation: { type: "string" },
 						sourceTopics: {
 							type: "array",
 							items: { type: "string" },
@@ -93,8 +106,8 @@ export function geminiQuestionSchema(): Record<string, unknown> {
 						"id",
 						"type",
 						"questionText",
-						"correctAnswer",
 						"explanation",
+						"correctAnswer",
 						"sourceTopics",
 						"sourceSubtopics",
 						"difficulty",
@@ -108,17 +121,30 @@ export function geminiQuestionSchema(): Record<string, unknown> {
 							items: { type: "string" },
 							nullable: true,
 						},
+						explanation: { type: "string" },
 						correctAnswer: { type: "string" },
 						correctAnswers: {
 							type: "array",
 							items: { type: "string" },
 							nullable: true,
 						},
-						explanation: { type: "string" },
 						sourceTopics: { type: "array", items: { type: "string" } },
 						sourceSubtopics: { type: "array", items: { type: "string" } },
 						difficulty: { type: "string", enum: ["easy", "medium", "hard"] },
 					},
+					// Gemini honors this explicitly; reasoning precedes the answer.
+					propertyOrdering: [
+						"id",
+						"type",
+						"questionText",
+						"options",
+						"explanation",
+						"correctAnswer",
+						"correctAnswers",
+						"sourceTopics",
+						"sourceSubtopics",
+						"difficulty",
+					],
 				},
 			},
 		},

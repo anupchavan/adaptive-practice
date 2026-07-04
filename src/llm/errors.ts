@@ -25,13 +25,41 @@ export function isStructuredOutputRejection(
 	status: number,
 	detail?: string
 ): boolean {
-	if (status < 400 || status >= 500) return false;
-	if (status === 401 || status === 403 || status === 404 || status === 429) {
-		return false;
-	}
+	if (!isRetryableValidationStatus(status)) return false;
 	return /\b(json_schema|response_format|responseschema|response_schema|structured output|strict|schema)\b/i.test(
 		detail ?? ""
 	);
+}
+
+/**
+ * The provider rejected a sampling parameter (newer Claude models removed
+ * `temperature`/`top_p`/`top_k` outright). Safe to retry once without it.
+ */
+export function isSamplingParamRejection(
+	status: number,
+	detail?: string
+): boolean {
+	if (!isRetryableValidationStatus(status)) return false;
+	return /\b(temperature|top_p|top_k|sampling)\b/i.test(detail ?? "");
+}
+
+/**
+ * The provider rejected the thinking configuration (budget field names and
+ * ranges vary across model generations). Safe to retry once without it.
+ */
+export function isThinkingConfigRejection(
+	status: number,
+	detail?: string
+): boolean {
+	if (!isRetryableValidationStatus(status)) return false;
+	// No trailing word boundary: field names arrive as thinkingConfig /
+	// thinkingBudget / thinking_level depending on the model generation.
+	return /\bthinking/i.test(detail ?? "");
+}
+
+function isRetryableValidationStatus(status: number): boolean {
+	if (status < 400 || status >= 500) return false;
+	return status !== 401 && status !== 403 && status !== 404 && status !== 429;
 }
 
 export function formatProviderError(context: ProviderErrorContext): string {

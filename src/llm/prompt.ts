@@ -183,19 +183,21 @@ Respond with ONLY valid JSON. No markdown fences, no explanation. Prefer a JSON 
   "type": "mcq" | "multi" | "integer" | "decimal",
   "questionText": "The full question text",
   "options": ["option text 1", "option text 2", "option text 3", "option text 4"],
+  "explanation": "The key reasoning that determines the answer (2-4 sentences)",
   "correctAnswer": "option text 1" or "42" or "3.14",
   "correctAnswers": ["option text 1", "option text 3"] (multi only; null otherwise),
-  "explanation": "Brief explanation of why this is correct",
   "sourceTopics": ["Topic Title 1", "Topic Title 2"],
   "sourceSubtopics": ["Heading or subtopic 1"],
   "difficulty": "easy" | "medium" | "hard"
 }
 
+Write the fields in exactly this order. "explanation" comes BEFORE "correctAnswer" on purpose: reason the problem through in the explanation first, then commit to the answer that reasoning supports. Never write an explanation that argues for an answer the reasoning does not support — if the reasoning and answer disagree, fix the answer.
+
 For MCQ: "options" is required, "correctAnswer" must exactly match one option. Do NOT prefix options with letters like "A)", "B)", etc.
 For multi (select all that apply): 4-5 single-line options, and "correctAnswers" lists every correct option (at least 2, never all). Use multi when the material supports several independently verifiable assertions — properties that hold, statements that are true, steps that are required — with tempting near-misses among the foils. Never use "all of the above".
 For integer/decimal: "options" should be omitted, "correctAnswer" is the numeric string. Prefer integer/decimal whenever the answer is genuinely a computed number the learner should produce (counts, results, magnitudes) rather than recognize.
 
-For explanation: be concise but include the key reasoning step, not just the final answer.
+For explanation: 2-4 sentences carrying the key reasoning step — never a rambling justification.
 
 One exemplar of the signature format — match its formatting discipline (inline code, fenced code, $-wrapped math, reason-paired options, concrete sourceSubtopics), never its topic or phrasing:
 
@@ -209,8 +211,8 @@ One exemplar of the signature format — match its formatting discipline (inline
     "Integer division guarantees \`lo == hi\` after exactly $\\\\log_2 n$ steps for every input",
     "Comparing with \`arr[hi]\` sorts the array first, making plain binary search valid"
   ],
-  "correctAnswer": "\`arr[mid] > arr[hi]\` proves the minimum lies right of mid, so discarding the left half preserves the invariant",
   "explanation": "The unsorted half must contain the rotation point, so the invariant keeps the minimum inside [lo, hi] and the range halves each step: $O(\\\\log n)$.",
+  "correctAnswer": "\`arr[mid] > arr[hi]\` proves the minimum lies right of mid, so discarding the left half preserves the invariant",
   "sourceTopics": ["Rotated arrays"],
   "sourceSubtopics": ["loop invariant", "rotation point"],
   "difficulty": "medium"

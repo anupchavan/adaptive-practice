@@ -2,7 +2,12 @@ import { requestUrl } from "obsidian";
 import { Question } from "../types";
 import { GENERATION_TEMPERATURE, resolvePromptParts, StructuredPrompt } from "./prompt";
 import { parseQuestions } from "./parse";
-import { extractProviderErrorDetail, formatProviderError } from "./errors";
+import {
+	extractProviderErrorDetail,
+	formatProviderError,
+	isSamplingParamRejection,
+} from "./errors";
+import { modelOmitsSamplingParams } from "./openai-shared";
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
@@ -59,39 +64,21 @@ export class AnthropicClient {
 			text: user,
 		});
 
-		const body = {
-			model: this.config.model,
-			max_tokens: prompt.maxOutputTokens ?? 8192,
-			temperature: GENERATION_TEMPERATURE,
-			// The system prompt is identical across sessions (and across the
-			// micro-batches of one session), so mark it as a cache breakpoint —
-			// repeat requests within the cache TTL read it at ~10% input price.
-			system: [
-				{
-					type: "text",
-					text: system,
-					cache_control: { type: "ephemeral" },
-				},
-			],
-			messages: [
-				{
-					role: "user",
-					content,
-				},
-			],
-		};
-
-		const response = await requestUrl({
-			url: ANTHROPIC_URL,
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"x-api-key": this.apiKey,
-				"anthropic-version": "2023-06-01",
-			},
-			body: JSON.stringify(body),
-			throw: false,
-		});
+		// Sonnet 5 / Opus 4.7+ / Fable removed sampling parameters entirely —
+		// sending temperature 400s. Known models skip it up front; unknown
+		// future models self-heal via the sampling-rejection retry below.
+		const withTemperature = !modelOmitsSamplingParams(this.config.model);
+		let response = await this.requestMessages(system, content, prompt, withTemperature);
+		if (
+			response.status !== 200 &&
+			withTemperature &&
+			isSamplingParamRejection(
+				response.status,
+				extractProviderErrorDetail(response.text)
+			)
+		) {
+			response = await this.requestMessages(system, content, prompt, false);
+		}
 
 		if (response.status !== 200) {
 			throw new Error(formatProviderError({
@@ -115,6 +102,47 @@ export class AnthropicClient {
 			}
 			throw error;
 		}
+	}
+
+	private async requestMessages(
+		system: string,
+		content: Array<Record<string, unknown>>,
+		prompt: StructuredPrompt,
+		withTemperature: boolean
+	): Promise<{ status: number; text: string; json: unknown }> {
+		const body = {
+			model: this.config.model,
+			max_tokens: prompt.maxOutputTokens ?? 8192,
+			...(withTemperature ? { temperature: GENERATION_TEMPERATURE } : {}),
+			// The system prompt is identical across sessions (and across the
+			// micro-batches of one session), so mark it as a cache breakpoint —
+			// repeat requests within the cache TTL read it at ~10% input price.
+			system: [
+				{
+					type: "text",
+					text: system,
+					cache_control: { type: "ephemeral" },
+				},
+			],
+			messages: [
+				{
+					role: "user",
+					content,
+				},
+			],
+		};
+
+		return requestUrl({
+			url: ANTHROPIC_URL,
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"x-api-key": this.apiKey,
+				"anthropic-version": "2023-06-01",
+			},
+			body: JSON.stringify(body),
+			throw: false,
+		});
 	}
 }
 
