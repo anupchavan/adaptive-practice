@@ -61,9 +61,18 @@ export class AnthropicClient {
 
 		const body = {
 			model: this.config.model,
-			max_tokens: 8192,
+			max_tokens: prompt.maxOutputTokens ?? 8192,
 			temperature: GENERATION_TEMPERATURE,
-			system,
+			// The system prompt is identical across sessions (and across the
+			// micro-batches of one session), so mark it as a cache breakpoint —
+			// repeat requests within the cache TTL read it at ~10% input price.
+			system: [
+				{
+					type: "text",
+					text: system,
+					cache_control: { type: "ephemeral" },
+				},
+			],
 			messages: [
 				{
 					role: "user",

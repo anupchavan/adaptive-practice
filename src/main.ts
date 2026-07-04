@@ -76,6 +76,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 	private sessionGenerationId = 0;
 	private dailyReminderNotice: Notice | null = null;
 	private practiceStatusBarEl: HTMLElement | null = null;
+	private incrementalIndexTimer: number | null = null;
 	private dailyReminderCheckInProgress = false;
 	private unloading = false;
 	private practicePlanRefresh: Promise<TopicNote[]> | null = null;
@@ -111,6 +112,23 @@ export default class AdaptivePracticePlugin extends Plugin {
 		this.registerEvent(this.app.vault.on("delete", (file) => {
 			this.handleVaultDelete(file);
 		}));
+
+		// Event-driven index freshness: edits and new notes schedule one quiet
+		// incremental sweep (the indexer skips files whose stats are unchanged)
+		// instead of waiting for the half-hour interval. Debounced so a burst of
+		// typing or a bulk import causes a single rescan.
+		this.registerEvent(this.app.vault.on("modify", (file) => {
+			this.scheduleIncrementalIndexRefresh(file);
+		}));
+		this.registerEvent(this.app.vault.on("create", (file) => {
+			this.scheduleIncrementalIndexRefresh(file);
+		}));
+		this.register(() => {
+			if (this.incrementalIndexTimer !== null) {
+				window.clearTimeout(this.incrementalIndexTimer);
+				this.incrementalIndexTimer = null;
+			}
+		});
 
 		this.registerInterval(window.setInterval(() => {
 			void this.checkDailyReminder();
@@ -409,6 +427,19 @@ export default class AdaptivePracticePlugin extends Plugin {
 		if (!this.settings.pdfSkills) this.settings.pdfSkills = {};
 		this.settings.pdfSkills[path] = skill;
 		await this.saveSettings();
+	}
+
+	private scheduleIncrementalIndexRefresh(file: TAbstractFile): void {
+		if (!(file instanceof TFile)) return;
+		const extension = file.extension?.toLowerCase();
+		if (extension !== "md" && extension !== "pdf") return;
+		if (this.incrementalIndexTimer !== null) {
+			window.clearTimeout(this.incrementalIndexTimer);
+		}
+		this.incrementalIndexTimer = window.setTimeout(() => {
+			this.incrementalIndexTimer = null;
+			void this.refreshPracticePlan(false);
+		}, 30_000);
 	}
 
 	async refreshPracticePlan(showNotice: boolean): Promise<TopicNote[]> {

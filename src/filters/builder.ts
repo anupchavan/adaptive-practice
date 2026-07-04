@@ -212,6 +212,13 @@ function createFilterValueInput(
 	}
 }
 
+const PROPERTY_SCAN_TTL_MS = 30_000;
+let propertyScanCache: {
+	app: App;
+	at: number;
+	properties: PropertyDef[];
+} | null = null;
+
 export class FilterBuilder {
 	private app: App;
 	root: FilterGroup;
@@ -240,6 +247,19 @@ export class FilterBuilder {
 	}
 
 	private scanVaultProperties(): PropertyDef[] {
+		// The frontmatter sweep touches every markdown file's metadata cache; on
+		// a 10k-note vault that is noticeable every time the filter UI opens, so
+		// the result is shared briefly across builder instances.
+		const cached = propertyScanCache;
+		if (cached && Date.now() - cached.at < PROPERTY_SCAN_TTL_MS && cached.app === this.app) {
+			return cached.properties;
+		}
+		const properties = this.scanVaultPropertiesUncached();
+		propertyScanCache = { app: this.app, at: Date.now(), properties };
+		return properties;
+	}
+
+	private scanVaultPropertiesUncached(): PropertyDef[] {
 		const propMap = new Map<string, PropertyType>();
 		const builtInProps: Array<[string, PropertyType]> = [
 			["file", "file"], ["file.name", "text"], ["file.path", "text"], ["file.folder", "text"],

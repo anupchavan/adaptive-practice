@@ -43,7 +43,8 @@ export class OpenAiCompatibleClient {
 		const imageAttachments = prompt.attachments.filter((attachment) => attachment.kind === "image");
 		const content = this.buildMessageContent(user, imageAttachments);
 
-		const attempt = await this.requestChatCompletion(system, content, this.config.jsonMode);
+		const maxTokens = prompt.maxOutputTokens ?? MAX_OUTPUT_TOKENS;
+		const attempt = await this.requestChatCompletion(system, content, this.config.jsonMode, maxTokens);
 		if (attempt.ok) return parseQuestions(attempt.text);
 
 		// Some OpenAI-compatible gateways reject strict json_schema outright.
@@ -53,7 +54,7 @@ export class OpenAiCompatibleClient {
 			this.config.jsonMode === "json_schema" &&
 			isStructuredOutputRejection(attempt.status, attempt.detail)
 		) {
-			const fallback = await this.requestChatCompletion(system, content, "json_object");
+			const fallback = await this.requestChatCompletion(system, content, "json_object", maxTokens);
 			if (fallback.ok) return parseQuestions(fallback.text);
 			throw new Error(this.describeFailure(fallback));
 		}
@@ -64,7 +65,8 @@ export class OpenAiCompatibleClient {
 	private async requestChatCompletion(
 		system: string,
 		content: string | Array<Record<string, unknown>>,
-		jsonMode: CompatibleJsonMode
+		jsonMode: CompatibleJsonMode,
+		maxTokens: number
 	): Promise<{ ok: boolean; status: number; text: string; detail?: string }> {
 		const body = {
 			model: this.config.model,
@@ -79,7 +81,7 @@ export class OpenAiCompatibleClient {
 				},
 			],
 			temperature: GENERATION_TEMPERATURE,
-			max_tokens: MAX_OUTPUT_TOKENS,
+			max_tokens: maxTokens,
 			...this.responseFormat(jsonMode),
 		};
 

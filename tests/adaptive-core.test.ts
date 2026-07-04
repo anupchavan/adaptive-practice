@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
-import { buildPrompt, resolvePromptParts } from "../src/llm/prompt";
+import { buildPrompt, outputTokenBudget, resolvePromptParts } from "../src/llm/prompt";
 import type { StructuredPrompt, TopicContext } from "../src/llm/prompt";
 import { geminiQuestionSchema, questionSchema } from "../src/llm/openai-shared";
 import { parseQuestions } from "../src/llm/parse";
@@ -6336,6 +6336,18 @@ test("practice intent conditions the session calibration block", () => {
 
 	const defaulted = buildPrompt([context], 4, { now: Date.UTC(2026, 5, 26) });
 	assert.match(defaulted.userPrompt ?? "", /Learner intent: durable mastery/);
+});
+
+test("output token budget scales with question count within provider bounds", () => {
+	const prompt = buildPrompt(
+		[{ note: makeTopic({ title: "Any" }), content: "c", history: "" }],
+		4,
+		{ now: Date.UTC(2026, 5, 26) }
+	);
+	assert.equal(prompt.maxOutputTokens, 1200 + 4 * 650);
+	assert.equal(outputTokenBudget(1), 2048);
+	assert.equal(outputTokenBudget(20), 8192);
+	assert.equal(outputTokenBudget(0), 2048);
 });
 
 test("system prompt carries one format exemplar", () => {

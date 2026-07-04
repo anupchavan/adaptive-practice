@@ -48,13 +48,14 @@ export class GeminiClient {
 			});
 		}
 
-		const attempt = await this.requestGenerateContent(system, parts, true);
+		const maxOutputTokens = prompt.maxOutputTokens ?? 8192;
+		const attempt = await this.requestGenerateContent(system, parts, true, maxOutputTokens);
 		if (attempt.ok) return this.parseResponse(attempt.data);
 
 		// If the responseSchema itself is rejected (model/tier differences),
 		// degrade once to plain JSON mode instead of failing the session.
 		if (isStructuredOutputRejection(attempt.status, attempt.detail)) {
-			const fallback = await this.requestGenerateContent(system, parts, false);
+			const fallback = await this.requestGenerateContent(system, parts, false, maxOutputTokens);
 			if (fallback.ok) return this.parseResponse(fallback.data);
 			throw new Error(this.describeFailure(fallback));
 		}
@@ -65,14 +66,15 @@ export class GeminiClient {
 	private async requestGenerateContent(
 		system: string,
 		parts: Array<Record<string, unknown>>,
-		withSchema: boolean
+		withSchema: boolean,
+		maxOutputTokens: number
 	): Promise<{ ok: boolean; status: number; data: unknown; detail?: string }> {
 		const body = {
 			contents: [{ parts }],
 			systemInstruction: { parts: [{ text: system }] },
 			generationConfig: {
 				temperature: GENERATION_TEMPERATURE,
-				maxOutputTokens: 8192,
+				maxOutputTokens,
 				responseMimeType: "application/json",
 				...(withSchema ? { responseSchema: geminiQuestionSchema() } : {}),
 			},

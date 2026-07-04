@@ -780,6 +780,7 @@ export class PracticeView extends ItemView {
 	private installKeyHandler(q: Question, container: HTMLElement): void {
 		this.removeKeyHandler();
 		this.keyHandler = (e: KeyboardEvent) => {
+			if (!this.isKeyboardTarget(e)) return;
 			if (this.activeSkipOverlay || this.activeCompletionOverlay) return;
 			const target = e.target as HTMLElement;
 			if (target.tagName === "INPUT" && (target as HTMLInputElement).type !== "radio") return;
@@ -815,12 +816,28 @@ export class PracticeView extends ItemView {
 	private installAnsweredKeyHandler(): void {
 		this.removeKeyHandler();
 		this.keyHandler = (e: KeyboardEvent) => {
+			if (!this.isKeyboardTarget(e)) return;
 			if (this.activeCompletionOverlay) return;
 			const target = e.target as HTMLElement;
 			if (target.tagName === "INPUT") return;
 			this.handleArrowNavigation(e);
 		};
 		document.addEventListener("keydown", this.keyHandler);
+	}
+
+	/**
+	 * Only react to keys meant for this pane: either the event originates
+	 * inside the practice view, or the practice view is the active leaf.
+	 * Without this, typing "a"/"1"/Enter while editing a note in another pane
+	 * silently selected and submitted answers.
+	 */
+	private isKeyboardTarget(e: KeyboardEvent): boolean {
+		const target = e.target as HTMLElement | null;
+		if (target && this.containerEl.contains(target)) return true;
+		if (target && (target.isContentEditable || target.tagName === "TEXTAREA")) {
+			return false;
+		}
+		return this.app.workspace.getActiveViewOfType(PracticeView) === this;
 	}
 
 	private handleArrowNavigation(e: KeyboardEvent): void {

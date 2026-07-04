@@ -28,7 +28,7 @@ export function buildOpenAiResponsesBody(
 				content: buildResponsesContent(user, imageAttachments, config),
 			},
 		],
-		max_output_tokens: MAX_OUTPUT_TOKENS,
+		max_output_tokens: prompt.maxOutputTokens ?? MAX_OUTPUT_TOKENS,
 		store: false,
 	};
 	if (supportsCustomTemperature(config.model)) {

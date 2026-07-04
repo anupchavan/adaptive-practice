@@ -40,7 +40,19 @@ export interface StructuredPrompt {
 	systemPrompt?: string;
 	/** Per-session material (calibration, topics, generation trigger). */
 	userPrompt?: string;
+	/** Output budget scaled to the requested question count (billing guard). */
+	maxOutputTokens?: number;
 	attachments: PromptAttachment[];
+}
+
+/**
+ * Output tokens scale with the question count instead of always paying for the
+ * 8192-token ceiling: ~650 tokens covers a generous question + explanation,
+ * plus fixed JSON overhead. Floor keeps retries viable; cap stays provider-safe.
+ */
+export function outputTokenBudget(questionCount: number): number {
+	const count = Math.max(1, Math.min(30, Math.floor(questionCount) || 1));
+	return Math.max(2048, Math.min(8192, 1200 + count * 650));
 }
 
 /**
@@ -236,6 +248,7 @@ Generate exactly ${questionCount} questions now.`;
 		textPrompt,
 		systemPrompt,
 		userPrompt,
+		maxOutputTokens: outputTokenBudget(questionCount),
 		attachments: [...pdfAttachments, ...mediaAttachments],
 	};
 }
