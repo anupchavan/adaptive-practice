@@ -331,10 +331,11 @@ function sequenceForFlow(questions: Question[]): Question[] {
 	}
 
 	const out: Question[] = [];
-	takeFirstAvailable(out, buckets, ["easy", "medium", "hard"]);
+	takeFirstAvailable(out, buckets, ["easy", "medium", "hard"], null);
 
 	while (hasRemaining(buckets)) {
-		const last = out[out.length - 1]?.difficulty;
+		const lastQuestion = out[out.length - 1];
+		const last = lastQuestion?.difficulty;
 		const preferences = nextDifficultyPreferences(last);
 		const recent = out.slice(-2).map((question) => question.difficulty);
 		const avoid =
@@ -344,12 +345,25 @@ function sequenceForFlow(questions: Question[]): Question[] {
 		const preferred = avoid
 			? preferences.filter((difficulty) => difficulty !== avoid)
 			: preferences;
-		if (!takeFirstAvailable(out, buckets, preferred)) {
-			takeFirstAvailable(out, buckets, preferences);
+		// Interleave topics: prefer a question from a different note than the
+		// previous one (contextual-interference effect). Topic alternation
+		// outranks the difficulty-streak avoidance; both fall away only when a
+		// single topic remains.
+		const avoidTopic = lastQuestion ? primaryTopicKey(lastQuestion) : null;
+		if (
+			!takeFirstAvailable(out, buckets, preferred, avoidTopic) &&
+			!takeFirstAvailable(out, buckets, preferences, avoidTopic) &&
+			!takeFirstAvailable(out, buckets, preferred, null)
+		) {
+			takeFirstAvailable(out, buckets, preferences, null);
 		}
 	}
 
 	return out;
+}
+
+function primaryTopicKey(question: Question): string {
+	return normalize(question.sourceTopics[0] ?? "");
 }
 
 function nextDifficultyPreferences(last: Difficulty | undefined): Difficulty[] {
@@ -362,12 +376,21 @@ function nextDifficultyPreferences(last: Difficulty | undefined): Difficulty[] {
 function takeFirstAvailable(
 	out: Question[],
 	buckets: Record<Difficulty, Question[]>,
-	preferences: Difficulty[]
+	preferences: Difficulty[],
+	avoidTopic: string | null
 ): boolean {
 	for (const difficulty of preferences) {
-		const next = buckets[difficulty].shift();
-		if (!next) continue;
-		out.push(next);
+		const bucket = buckets[difficulty];
+		if (bucket.length === 0) continue;
+		let index = 0;
+		if (avoidTopic) {
+			const alternative = bucket.findIndex(
+				(question) => primaryTopicKey(question) !== avoidTopic
+			);
+			if (alternative < 0) continue;
+			index = alternative;
+		}
+		out.push(bucket.splice(index, 1)[0]!);
 		return true;
 	}
 	return false;

@@ -6435,6 +6435,145 @@ test("editing a practiced note halves its stability and makes it due", () => {
 	assert.equal(again.notes[topic.path]?.stabilityDays, 10);
 });
 
+test("session results record per-subtopic stability that compounds", () => {
+	const now = Date.UTC(2026, 5, 26, 12);
+	const topic = makeTopic({ skill: 70 });
+	const delta: SkillDelta = {
+		path: topic.path,
+		title: topic.title,
+		before: topic.skill,
+		after: topic.skill,
+	};
+	const question = makeQuestion({
+		sourceTopics: [topic.title],
+		sourceSubtopics: ["pivot detection"],
+	});
+
+	const first = updatePracticeMemoryAfterSession(
+		undefined, [topic], [makeResult(question)], [delta], now
+	);
+	const firstSub = first.notes[topic.path]?.practicedSubtopics["pivot detection"];
+	assert.ok(firstSub);
+	assert.ok((firstSub.stabilityDays ?? 0) > 0);
+
+	const later = now + 3 * 24 * 60 * 60 * 1000;
+	const second = updatePracticeMemoryAfterSession(
+		first, [topic], [makeResult(question)], [delta], later
+	);
+	const secondSub = second.notes[topic.path]?.practicedSubtopics["pivot detection"];
+	assert.ok(secondSub);
+	assert.ok((secondSub.stabilityDays ?? 0) > (firstSub.stabilityDays ?? 0));
+	assert.equal(secondSub.attempts, 2);
+});
+
+test("a fading subtopic pulls its note into daily selection", () => {
+	const now = Date.UTC(2026, 5, 26, 12);
+	const twentyDaysAgo = now - 20 * 24 * 60 * 60 * 1000;
+	const base = {
+		skill: 80,
+		attempts: 4,
+		correct: 4,
+		lastPracticedAt: twentyDaysAgo,
+		dueAt: now + 10 * 24 * 60 * 60 * 1000,
+		stabilityDays: 40,
+		lastSessionAccuracy: 1,
+		lastSessionFluency: 1,
+	};
+	const fading = makeTopic({ path: "a/fading.md", title: "Fading note", skill: 80 });
+	const solid = makeTopic({ path: "b/solid.md", title: "Solid note", skill: 80 });
+	const memory = normalizePracticeMemory({
+		version: 1,
+		notes: {
+			[fading.path]: makeNoteState(fading, {
+				...base,
+				practicedSubtopics: {
+					"edge cases": {
+						lastPracticedAt: twentyDaysAgo,
+						attempts: 3,
+						correct: 2,
+						stabilityDays: 2,
+					},
+				},
+			}),
+			[solid.path]: makeNoteState(solid, { ...base }),
+		},
+		index: {},
+		daily: {
+			lastReminderDate: "",
+			lastReminderAttemptAt: 0,
+			lastPracticeDate: "",
+			streak: 0,
+			lastScanAt: 0,
+		},
+		questionFeedback: [],
+	} as unknown as PracticeMemory);
+
+	const selected = selectDailyTopics([fading, solid], memory, 1, now);
+	assert.equal(selected.length, 1);
+	assert.equal(selected[0]?.path, fading.path);
+	assert.match(selected[0]?.scheduleReason ?? "", /fading subtopic: edge cases/);
+});
+
+test("flow sequencing interleaves topics instead of blocking them", () => {
+	const questions = [
+		...["a1", "a2", "a3"].map((id) =>
+			makeQuestion({ id, questionText: `Alpha ${id}`, sourceTopics: ["Alpha"], difficulty: "medium" })
+		),
+		...["b1", "b2", "b3"].map((id) =>
+			makeQuestion({ id, questionText: `Beta ${id}`, sourceTopics: ["Beta"], difficulty: "medium" })
+		),
+	];
+	const sequenced = prepareGeneratedQuestionsForSession(questions, {
+		questionCount: 6,
+		topics: [
+			makeTopic({ path: "a.md", title: "Alpha" }),
+			makeTopic({ path: "b.md", title: "Beta" }),
+		],
+		challengeMode: "steady",
+	});
+	const topicsInOrder = sequenced.map((question) => question.sourceTopics[0]);
+	let alternations = 0;
+	for (let i = 1; i < topicsInOrder.length; i++) {
+		if (topicsInOrder[i] !== topicsInOrder[i - 1]) alternations++;
+	}
+	assert.equal(sequenced.length, 6);
+	assert.equal(alternations, 5, `expected full alternation, got ${topicsInOrder.join(",")}`);
+});
+
+test("new-note throttle holds at three even for large topic limits", () => {
+	const now = Date.UTC(2026, 5, 26, 12);
+	const reviewed = makeTopic({ path: "old/reviewed.md", title: "Reviewed note" });
+	const untouched = Array.from({ length: 10 }, (_, index) =>
+		makeTopic({ path: `new/note-${index}.md`, title: `New note ${index}` })
+	);
+	const memory = normalizePracticeMemory({
+		version: 1,
+		notes: {
+			[reviewed.path]: makeNoteState(reviewed, {
+				attempts: 4,
+				correct: 3,
+				lastPracticedAt: now - 8 * DAY_MS,
+				dueAt: now - DAY_MS,
+			}),
+		},
+		index: {},
+		daily: {
+			lastReminderDate: "",
+			lastReminderAttemptAt: 0,
+			lastPracticeDate: "",
+			streak: 0,
+			lastScanAt: now,
+		},
+		questionFeedback: [],
+	} as unknown as PracticeMemory);
+
+	const selected = selectDailyTopics([reviewed, ...untouched], memory, 12, now);
+	const untouchedCount = selected.filter((topic) => topic.path.startsWith("new/")).length;
+	// Old behavior allowed ceil(12/2) = 6 new notes; the throttle holds at 3.
+	assert.equal(untouchedCount, 3);
+	assert.ok(selected.some((topic) => topic.path === reviewed.path));
+});
+
 test("target retention setting stretches or tightens review intervals", () => {
 	const now = Date.UTC(2026, 5, 26, 12);
 	const topic = makeTopic({ skill: 80 });

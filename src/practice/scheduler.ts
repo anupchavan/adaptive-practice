@@ -225,13 +225,18 @@ function selectDailyTopicMix(
 		const state = memory.notes[item.topic.path];
 		return !!state && state.attempts === 0;
 	});
+	// A vault with no practiced notes yet has no review debt to displace, so
+	// day one honors the user's topic limit outright.
 	if (reviewed.length === 0) return untouched.slice(0, limit);
 
 	const selected = reviewed.slice(0, limit);
 	const remaining = limit - selected.length;
 	if (remaining <= 0) return selected;
 
-	const maxUntouched = Math.max(1, Math.ceil(limit / 2));
+	// New-material throttle: once reviews exist, at most three never-practiced
+	// notes join a session regardless of the topic limit, so novelty cannot
+	// displace review debt.
+	const maxUntouched = Math.max(1, Math.min(3, Math.ceil(limit / 2)));
 	selected.push(...untouched.slice(0, Math.min(remaining, maxUntouched)));
 	return selected;
 }
@@ -444,10 +449,27 @@ export function updatePracticeMemoryAfterSession(
 				attempts: 0,
 				correct: 0,
 			};
+			const subElapsedDays = previous.lastPracticedAt > 0
+				? Math.max(0, (now - previous.lastPracticedAt) / MS_PER_DAY)
+				: 0;
+			const subRate = subStats.attempts > 0
+				? subStats.correct / subStats.attempts
+				: 0;
 			state.practicedSubtopics[key] = {
 				lastPracticedAt: now,
 				attempts: previous.attempts + subStats.attempts,
 				correct: previous.correct + subStats.correct,
+				// DAS3H-style component memory: each subtopic carries its own
+				// stability so a note's weakest concept can pull it back before
+				// the note-level schedule would.
+				stabilityDays: nextStabilityDays(
+					previous.stabilityDays ?? 0,
+					subElapsedDays,
+					skill,
+					subRate,
+					sessionFluency,
+					0
+				),
 			};
 		}
 	}
@@ -822,6 +844,10 @@ function scoreTopic(topic: TopicNote, memory: PracticeMemory, now: number): Topi
 		? Math.max(0, (0.72 - state.lastSessionAccuracy) * 1.4) +
 			Math.max(0, (0.55 - state.lastSessionFluency) * 1.1)
 		: 0;
+	const weakSubtopic = weakestSubtopicRetrievability(state, now);
+	const subtopicBoost = weakSubtopic
+		? Math.max(0, 0.85 - weakSubtopic.retrievability) * 1.6
+		: 0;
 	const score =
 		dueBase +
 		daysOverdue * 0.75 +
@@ -830,7 +856,8 @@ function scoreTopic(topic: TopicNote, memory: PracticeMemory, now: number): Topi
 		changeBoost +
 		newBoost +
 		spacingBoost +
-		fragileBoost;
+		fragileBoost +
+		subtopicBoost;
 
 	const reasons: string[] = [];
 	if (state.attempts === 0) reasons.push("new");
@@ -844,9 +871,34 @@ function scoreTopic(topic: TopicNote, memory: PracticeMemory, now: number): Topi
 	if (state.lastSessionFluency > 0 && state.lastSessionFluency < 0.55) {
 		reasons.push("slow recall");
 	}
+	if (weakSubtopic && weakSubtopic.retrievability < 0.7) {
+		reasons.push(`fading subtopic: ${weakSubtopic.name}`);
+	}
 	if (reasons.length === 0) reasons.push("spacing");
 
 	return { topic, score, reason: reasons.join(", ") };
+}
+
+/**
+ * The weakest practiced subtopic's predicted recall, DAS3H-style: due-ness can
+ * key off a single fading concept even when the note as a whole is not due.
+ * Subtopics need >=2 attempts so one noisy label cannot drag a note back.
+ */
+function weakestSubtopicRetrievability(
+	state: NotePracticeState,
+	now: number
+): { name: string; retrievability: number } | null {
+	let weakest: { name: string; retrievability: number } | null = null;
+	for (const [name, sub] of Object.entries(state.practicedSubtopics)) {
+		const stability = sub.stabilityDays ?? 0;
+		if (sub.attempts < 2 || stability <= 0 || sub.lastPracticedAt <= 0) continue;
+		const elapsedDays = Math.max(0, (now - sub.lastPracticedAt) / MS_PER_DAY);
+		const r = retrievability(stability, elapsedDays);
+		if (!weakest || r < weakest.retrievability) {
+			weakest = { name, retrievability: r };
+		}
+	}
+	return weakest;
 }
 
 function wasTouchedToday(state: NotePracticeState, now: number): boolean {

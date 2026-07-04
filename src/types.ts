@@ -171,6 +171,8 @@ export interface SubtopicPracticeState {
 	lastPracticedAt: number;
 	attempts: number;
 	correct: number;
+	/** Per-subtopic FSRS stability (DAS3H-style component memory). */
+	stabilityDays?: number;
 }
 
 export interface NotePracticeState {
