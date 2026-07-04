@@ -28,6 +28,7 @@ import { computeSkillDeltas } from "./grader";
 import { getProviderAttachmentSupport } from "./provider-capabilities";
 import { generateQuestionsFromClient } from "./generation-loop";
 import type { LlmClient } from "./generation-loop";
+import { FlowSessionGenerator } from "./flow-engine";
 
 function createClient(
 	provider: LlmProvider,
@@ -76,6 +77,41 @@ function createClient(
 	}
 }
 
+function assertModelConfigured(
+	provider: LlmProvider,
+	settings: AdaptivePracticeSettings
+): void {
+	if (
+		(provider === "gemini" || provider === "anthropic" || OPENAI_COMPATIBLE_PROVIDERS.includes(provider)) &&
+		!(settings.providerModels[provider] || PROVIDER_PRESETS[provider].model)
+	) {
+		throw new Error("Choose a model before starting practice.");
+	}
+}
+
+/**
+ * Create a just-in-time flow generator for a session: same contexts, client,
+ * and calibration machinery as single-shot generation, but questions arrive
+ * in adaptive micro-batches (see flow-engine).
+ */
+export async function createFlowSessionGenerator(
+	app: App,
+	apiKey: string,
+	config: SessionConfig,
+	provider: LlmProvider,
+	settings: AdaptivePracticeSettings
+): Promise<FlowSessionGenerator> {
+	assertModelConfigured(provider, settings);
+	const topicContexts = await buildSessionTopicContexts(app, config, provider, settings);
+	const client = createClient(provider, apiKey, settings);
+	return new FlowSessionGenerator(client, topicContexts, config, {
+		challengeMode: config.challengeMode,
+		challengeReason: config.challengeReason,
+		intent: settings.practiceIntent,
+		questionFeedback: settings.practiceMemory.questionFeedback ?? [],
+	});
+}
+
 export async function generateQuestions(
 	app: App,
 	apiKey: string,
@@ -83,13 +119,26 @@ export async function generateQuestions(
 	provider: LlmProvider,
 	settings: AdaptivePracticeSettings
 ): Promise<Question[]> {
-	if (
-		(provider === "gemini" || provider === "anthropic" || OPENAI_COMPATIBLE_PROVIDERS.includes(provider)) &&
-		!(settings.providerModels[provider] || PROVIDER_PRESETS[provider].model)
-	) {
-		throw new Error("Choose a model before starting practice.");
-	}
+	assertModelConfigured(provider, settings);
+	const topicContexts = await buildSessionTopicContexts(app, config, provider, settings);
+	const prompt = buildPrompt(topicContexts, config.questionCount, {
+		challengeMode: config.challengeMode,
+		challengeReason: config.challengeReason,
+		questionFeedback: settings.practiceMemory.questionFeedback ?? [],
+		intent: settings.practiceIntent,
+		now: Date.now(),
+	});
+	const client = createClient(provider, apiKey, settings);
 
+	return generateQuestionsFromClient(client, prompt, config, topicContexts);
+}
+
+async function buildSessionTopicContexts(
+	app: App,
+	config: SessionConfig,
+	provider: LlmProvider,
+	settings: AdaptivePracticeSettings
+): Promise<TopicContext[]> {
 	const attachmentSupport = getProviderAttachmentSupport(provider, settings);
 	const topicContexts: TopicContext[] = await Promise.all(
 		config.topics.map(async (note) => {
@@ -122,17 +171,7 @@ export async function generateQuestions(
 	);
 
 	shuffle(topicContexts);
-
-	const prompt = buildPrompt(topicContexts, config.questionCount, {
-		challengeMode: config.challengeMode,
-		challengeReason: config.challengeReason,
-		questionFeedback: settings.practiceMemory.questionFeedback ?? [],
-		intent: settings.practiceIntent,
-		now: Date.now(),
-	});
-	const client = createClient(provider, apiKey, settings);
-
-	return generateQuestionsFromClient(client, prompt, config, topicContexts);
+	return topicContexts;
 }
 
 export async function finalizeSession(

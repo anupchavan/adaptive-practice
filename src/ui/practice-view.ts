@@ -24,6 +24,13 @@ interface PracticeState {
 	onDiscard?: () => void | Promise<void>;
 	onStateChange?: (questions: Question[], results: QuizResult[], currentIndex: number) => void;
 	questionPaneSide: "left" | "right";
+	/** Flow mode: how many questions the whole session will eventually have. */
+	totalPlannedCount?: number;
+	/** Flow mode: fetch the next adaptive micro-batch. */
+	onNeedMoreQuestions?: (
+		results: QuizResult[],
+		asked: Question[]
+	) => Promise<Question[]>;
 }
 
 type PracticeReaction = "good" | "better";
@@ -128,6 +135,7 @@ export class PracticeView extends ItemView {
 	private hasChecked = false;
 	private questionStartTime = 0;
 	private keyHandler: ((e: KeyboardEvent) => void) | null = null;
+	private fetchingMoreQuestions = false;
 	private timerId: number | null = null;
 	private savedIndices = new Set<number>();
 	private completed = false;
@@ -203,6 +211,51 @@ export class PracticeView extends ItemView {
 
 		this.renderSidebar(sidebar);
 		this.renderMainContent(stage);
+		this.maybeRequestMoreQuestions();
+	}
+
+	/**
+	 * Flow mode: keep a small buffer of unanswered questions ahead of the
+	 * learner. The next micro-batch is requested in the background while they
+	 * are still answering, so there is normally no visible wait. On failure the
+	 * session simply ends at the questions generated so far.
+	 */
+	private maybeRequestMoreQuestions(): void {
+		const s = this.state;
+		if (!s?.onNeedMoreQuestions || this.fetchingMoreQuestions) return;
+		const planned = s.totalPlannedCount ?? s.questions.length;
+		if (s.questions.length >= planned) return;
+		const answered = s.results.filter(Boolean).length;
+		if (s.questions.length - answered > 2) return;
+
+		this.fetchingMoreQuestions = true;
+		s.onNeedMoreQuestions(s.results, s.questions)
+			.then((batch) => {
+				this.fetchingMoreQuestions = false;
+				if (this.state !== s) return;
+				if (!batch || batch.length === 0) {
+					s.totalPlannedCount = s.questions.length;
+				} else {
+					s.questions.push(...batch);
+					this.emitStateChange();
+				}
+				this.render();
+			})
+			.catch(() => {
+				this.fetchingMoreQuestions = false;
+				if (this.state !== s) return;
+				s.totalPlannedCount = s.questions.length;
+				new Notice("Could not generate the next questions; the session ends here.");
+				this.render();
+			});
+	}
+
+	/** Flow mode: more questions are planned or being generated right now. */
+	private hasPendingFlowQuestions(): boolean {
+		const s = this.state;
+		if (!s) return false;
+		const planned = s.totalPlannedCount ?? s.questions.length;
+		return s.questions.length < planned;
 	}
 
 	private renderTopbar(container: HTMLElement): void {
@@ -249,6 +302,14 @@ export class PracticeView extends ItemView {
 
 		const grid = container.createDiv({ cls: "ap-practice-navigator" });
 		const furthestReachable = this.getFurthestReachableIndex();
+		if (this.hasPendingFlowQuestions()) {
+			container.createDiv({
+				cls: "ap-flow-pending",
+				text: this.fetchingMoreQuestions
+					? "Generating the next questions…"
+					: "More questions adapt to your answers…",
+			});
+		}
 
 		for (let i = 0; i < s.questions.length; i++) {
 			const cell = grid.createEl("button", { text: `${i + 1}`, cls: "ap-nav-cell" });
@@ -886,7 +947,14 @@ export class PracticeView extends ItemView {
 
 	private hasAnsweredAllQuestions(): boolean {
 		const s = this.state;
-		return !!s && hasAnsweredEveryQuestion(s.questions, s.results);
+		// In flow mode the session is only complete once every PLANNED question
+		// exists and is answered — answering the current buffer while the next
+		// batch generates must not end the session.
+		return (
+			!!s &&
+			!this.hasPendingFlowQuestions() &&
+			hasAnsweredEveryQuestion(s.questions, s.results)
+		);
 	}
 
 	private finishCompletedSession(): void {

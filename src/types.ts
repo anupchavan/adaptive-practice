@@ -156,6 +156,8 @@ export interface AdaptivePracticeSettings {
 	targetRetention: number;
 	/** What the learner is practicing for; conditions question style. */
 	practiceIntent: PracticeIntent;
+	/** Generate sessions in adaptive micro-batches instead of one shot. */
+	flowGeneration: boolean;
 	pdfSkills: Record<string, number>;
 	practiceMemory: PracticeMemory;
 	practiceDraft: PracticeDraft | null;
@@ -256,6 +258,7 @@ export const DEFAULT_SETTINGS: AdaptivePracticeSettings = {
 	dailyTopicLimit: 6,
 	targetRetention: 0.9,
 	practiceIntent: "mastery",
+	flowGeneration: true,
 	pdfSkills: {},
 	practiceMemory: JSON.parse(JSON.stringify(DEFAULT_PRACTICE_MEMORY)) as PracticeMemory,
 	practiceDraft: null,

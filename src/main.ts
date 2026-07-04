@@ -19,7 +19,8 @@ import { PracticeView, PRACTICE_VIEW_TYPE } from "./ui/practice-view";
 import { DashboardView, DASHBOARD_VIEW_TYPE } from "./ui/dashboard-view";
 import { ConfirmationModal } from "./ui/confirmation-modal";
 import { ADAPTIVE_PRACTICE_HOVER_SOURCE } from "./ui/markdown";
-import { generateQuestions, finalizeSession } from "./practice/session";
+import { createFlowSessionGenerator, generateQuestions, finalizeSession } from "./practice/session";
+import { FlowSessionGenerator } from "./practice/flow-engine";
 import { hasPracticedToday as memoryHasPracticedToday } from "./practice/daily-status";
 import { resolvePracticeCredit } from "./practice/daily-credit";
 import { recordQuestionFeedback as recordQuestionFeedbackInMemory } from "./practice/question-feedback";
@@ -194,6 +195,14 @@ export default class AdaptivePracticePlugin extends Plugin {
 			name: "Scan vault for practice plan",
 			callback: () => {
 				void this.refreshPracticePlan(true);
+			},
+		});
+
+		this.addCommand({
+			id: "export-practice-dataset",
+			name: "Export practice dataset",
+			callback: () => {
+				void this.exportPracticeDataset();
 			},
 		});
 
@@ -427,6 +436,46 @@ export default class AdaptivePracticePlugin extends Plugin {
 		if (!this.settings.pdfSkills) this.settings.pdfSkills = {};
 		this.settings.pdfSkills[path] = skill;
 		await this.saveSettings();
+	}
+
+	/**
+	 * Write the accumulated learning signals as JSONL — question feedback rows
+	 * plus per-note practice state. This is the $0 groundwork for any future
+	 * validator/judge model: labeled data accrues from normal use.
+	 */
+	private async exportPracticeDataset(): Promise<void> {
+		const memory = this.settings.practiceMemory;
+		const rows: string[] = [];
+		for (const entry of memory.questionFeedback ?? []) {
+			rows.push(JSON.stringify({ record: "question_feedback", ...entry }));
+		}
+		for (const note of Object.values(memory.notes ?? {})) {
+			rows.push(JSON.stringify({
+				record: "note_state",
+				path: note.path,
+				skill: note.skill,
+				attempts: note.attempts,
+				correct: note.correct,
+				skipped: note.skipped,
+				stabilityDays: note.stabilityDays,
+				lastSessionAccuracy: note.lastSessionAccuracy,
+				lastSessionFluency: note.lastSessionFluency,
+				practicedSubtopics: note.practicedSubtopics,
+			}));
+		}
+		if (rows.length === 0) {
+			new Notice("No practice data to export yet.");
+			return;
+		}
+		const path = normalizePath("adaptive-practice-dataset.jsonl");
+		const content = rows.join("\n") + "\n";
+		const existing = this.app.vault.getAbstractFileByPath(path);
+		if (existing instanceof TFile) {
+			await this.app.vault.modify(existing, content);
+		} else {
+			await this.app.vault.create(path, content);
+		}
+		new Notice(`Exported ${rows.length} rows to ${path}.`);
 	}
 
 	private scheduleIncrementalIndexRefresh(file: TAbstractFile): void {
@@ -876,13 +925,33 @@ export default class AdaptivePracticePlugin extends Plugin {
 				return;
 			}
 
-			const questions = await generateQuestions(
-				this.app,
-				apiKey,
-				config,
-				this.settings.llmProvider,
-				this.settings
-			);
+			// Flow mode: generate a small opening batch for fast time-to-first-
+			// question; later batches arrive in the background, conditioned on
+			// how the session is going. Single-shot remains for small sessions
+			// and as the fallback when flow is disabled.
+			const useFlow =
+				this.settings.flowGeneration &&
+				config.questionCount > 4;
+			let flow: FlowSessionGenerator | undefined;
+			let questions: Question[];
+			if (useFlow) {
+				flow = await createFlowSessionGenerator(
+					this.app,
+					apiKey,
+					config,
+					this.settings.llmProvider,
+					this.settings
+				);
+				questions = await flow.firstBatch();
+			} else {
+				questions = await generateQuestions(
+					this.app,
+					apiKey,
+					config,
+					this.settings.llmProvider,
+					this.settings
+				);
+			}
 
 			if (this.isStaleGeneration(generationId, canceled)) {
 				loadingNotice.hide();
@@ -906,10 +975,12 @@ export default class AdaptivePracticePlugin extends Plugin {
 				usedTopics.has(t.title)
 			).length;
 			new Notice(
-				`${questions.length} questions generated from ${usedCount} / ${selectedCount} selected notes.`
+				flow
+					? `Practice started — ${questions.length} of ${config.questionCount} questions ready; the rest adapt to your answers.`
+					: `${questions.length} questions generated from ${usedCount} / ${selectedCount} selected notes.`
 			);
 
-			await this.openPracticeView(questions, [], 0, config.topics, config);
+			await this.openPracticeView(questions, [], 0, config.topics, config, flow);
 		} catch (e) {
 			if (this.isStaleGeneration(generationId, canceled)) return;
 			loadingNotice.hide();
@@ -1051,7 +1122,8 @@ export default class AdaptivePracticePlugin extends Plugin {
 		results: QuizResult[],
 		currentIndex: number,
 		topics: TopicNote[],
-		config: SessionConfig
+		config: SessionConfig,
+		flow?: FlowSessionGenerator
 	): Promise<void> {
 		await this.savePracticeDraft(config, questions, results, currentIndex, topics);
 		const leaf = this.app.workspace.getLeaf("tab");
@@ -1066,7 +1138,8 @@ export default class AdaptivePracticePlugin extends Plugin {
 				results,
 				currentIndex,
 				topics,
-				config
+				config,
+				flow
 			);
 		}
 	}
@@ -1077,7 +1150,8 @@ export default class AdaptivePracticePlugin extends Plugin {
 		results: QuizResult[],
 		currentIndex: number,
 		topics: TopicNote[],
-		config: SessionConfig
+		config: SessionConfig,
+		flow?: FlowSessionGenerator
 	): void {
 		const onComplete = (completedResults: QuizResult[]) => {
 			void this.completeSession(config, completedResults);
@@ -1103,6 +1177,11 @@ export default class AdaptivePracticePlugin extends Plugin {
 				);
 			},
 			questionPaneSide: this.settings.questionPaneSide,
+			totalPlannedCount: flow ? flow.totalPlanned : undefined,
+			onNeedMoreQuestions: flow
+				? (sessionResults: QuizResult[], asked: Question[]) =>
+					flow.nextBatch(sessionResults, asked)
+				: undefined,
 		});
 	}
 
@@ -1222,6 +1301,7 @@ function normalizeSettings(raw: unknown): AdaptivePracticeSettings {
 	) {
 		settings.practiceIntent = DEFAULT_SETTINGS.practiceIntent;
 	}
+	settings.flowGeneration = settings.flowGeneration !== false;
 	settings.practiceMemory = normalizePracticeMemory(settings.practiceMemory);
 	settings.practiceDraft = normalizePracticeDraft(settings.practiceDraft);
 	return settings;

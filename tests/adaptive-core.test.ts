@@ -3,6 +3,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { buildPrompt, outputTokenBudget, resolvePromptParts } from "../src/llm/prompt";
 import type { StructuredPrompt, TopicContext } from "../src/llm/prompt";
 import { geminiQuestionSchema, questionSchema } from "../src/llm/openai-shared";
+import {
+	FlowSessionGenerator,
+	FlowSignal,
+	flowSkillAdjustment,
+	planFlowBatches,
+} from "../src/practice/flow-engine";
 import { parseQuestions } from "../src/llm/parse";
 import {
 	detectFormatIssues,
@@ -6348,6 +6354,97 @@ test("output token budget scales with question count within provider bounds", ()
 	assert.equal(outputTokenBudget(1), 2048);
 	assert.equal(outputTokenBudget(20), 8192);
 	assert.equal(outputTokenBudget(0), 2048);
+});
+
+test("flow batch plan opens small and avoids one-question round-trips", () => {
+	assert.deepEqual(planFlowBatches(8), [3, 3, 2]);
+	assert.deepEqual(planFlowBatches(7), [3, 2, 2]);
+	assert.deepEqual(planFlowBatches(6), [3, 3]);
+	assert.deepEqual(planFlowBatches(4), [4]);
+	assert.deepEqual(planFlowBatches(3), [3]);
+	assert.deepEqual(planFlowBatches(1), [1]);
+	for (const total of [5, 6, 7, 8, 12, 20]) {
+		const plan = planFlowBatches(total);
+		assert.equal(plan.reduce((sum, size) => sum + size, 0), total);
+		assert.ok(plan.every((size) => size >= 2) || total <= 1);
+	}
+});
+
+test("flow controller holds the target band with hysteresis", () => {
+	const fastCorrect = (): FlowSignal => ({
+		isCorrect: true, skipped: false, timeTakenMs: 30_000, difficulty: "medium",
+	});
+	const miss = (): FlowSignal => ({
+		isCorrect: false, skipped: false, timeTakenMs: 80_000, difficulty: "medium",
+	});
+	const skip = (): FlowSignal => ({
+		isCorrect: false, skipped: true, timeTakenMs: 5_000, difficulty: "medium",
+	});
+
+	// Too few answers: no movement.
+	assert.equal(flowSkillAdjustment([fastCorrect(), fastCorrect()]).skillDelta, 0);
+	// Fast and accurate: step up.
+	assert.ok(flowSkillAdjustment([fastCorrect(), fastCorrect(), fastCorrect(), fastCorrect()]).skillDelta > 0);
+	// Struggling: step down.
+	assert.ok(flowSkillAdjustment([miss(), miss(), fastCorrect(), miss()]).skillDelta < 0);
+	// Two skips read as overload.
+	assert.ok(flowSkillAdjustment([fastCorrect(), skip(), fastCorrect(), skip()]).skillDelta < 0);
+	// Mid-band accuracy with slow answers: hold steady.
+	const steady = flowSkillAdjustment([
+		fastCorrect(), miss(), fastCorrect(), fastCorrect(),
+		{ isCorrect: true, skipped: false, timeTakenMs: 170_000, difficulty: "medium" },
+	]);
+	assert.equal(steady.skillDelta, 0);
+});
+
+test("flow generator conditions later batches on session results", async () => {
+	const topic = makeTopic({ title: "Any topic", skill: 60 });
+	const config: SessionConfig = {
+		topics: [topic],
+		questionCount: 6,
+		challengeMode: "steady",
+		challengeReason: "flow test",
+	};
+	const makeBatch = (prefix: string): Question[] =>
+		Array.from({ length: 3 }, (_, index) =>
+			makeQuestion({
+				id: `${prefix}-${index}`,
+				questionText: `Given scenario ${prefix}-${index}, trace the state change across two steps and explain why the naive shortcut fails.`,
+				correctAnswer: `answer ${prefix}-${index}`,
+				sourceTopics: [topic.title],
+				sourceSubtopics: [`subtopic ${prefix}-${index}`],
+				difficulty: "medium",
+			})
+		);
+	const prompts: string[] = [];
+	const client = {
+		generateQuestions: (prompt: StructuredPrompt): Promise<Question[]> => {
+			prompts.push(prompt.textPrompt);
+			return Promise.resolve(makeBatch(`b${prompts.length}`));
+		},
+	};
+	const contexts = [makeTopicContext(topic, "Content about the topic with enough substance.")];
+	const generator = new FlowSessionGenerator(client, contexts, config);
+
+	const first = await generator.firstBatch();
+	assert.equal(first.length, 3);
+	assert.equal(generator.exhausted, false);
+
+	const results = first.map((question) =>
+		makeResult(question, { isCorrect: true, timeTakenMs: 20_000 })
+	);
+	const second = await generator.nextBatch(results, first);
+	assert.equal(second.length, 3);
+	assert.equal(generator.exhausted, true);
+	// The continuation prompt carries the flow note and the asked stems.
+	assert.match(prompts[1] ?? "", /Flow continuation/);
+	assert.match(prompts[1] ?? "", /raising challenge after fast, accurate answers/);
+	assert.match(prompts[1] ?? "", /Given scenario b1-0/);
+	// No duplicates across batches.
+	const ids = [...first, ...second].map((question) => question.id);
+	assert.equal(new Set(ids).size, ids.length);
+	// Exhausted generator returns nothing.
+	assert.deepEqual(await generator.nextBatch(results, [...first, ...second]), []);
 });
 
 test("system prompt carries one format exemplar", () => {

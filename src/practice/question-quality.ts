@@ -95,6 +95,41 @@ Return only JSON for the replacement questions.`;
 }
 
 /**
+ * Continuation block for just-in-time flow batches: the session so far, the
+ * controller's difficulty note, and every already-asked stem to avoid.
+ */
+export function buildFlowContinuationPrompt(
+	basePrompt: StructuredPrompt,
+	asked: Question[],
+	flowNote: string,
+	batchSize: number
+): StructuredPrompt {
+	const askedStems = asked
+		.slice(-24)
+		.map((question, index) =>
+			`${index + 1}. [${question.difficulty}] ${truncateForPrompt(question.questionText, 200)}`
+		)
+		.join("\n");
+
+	const correction = `
+
+## Flow continuation
+
+This session is already in progress and is generated in small adaptive batches.
+Flow controller: ${flowNote}
+Generate exactly ${batchSize} new question${batchSize === 1 ? "" : "s"} that continue the session.
+- Do not repeat or lightly reword any stem below; use different setups, subtopics, and reasoning targets.
+- Keep every question answerable from the provided material.
+
+Already asked in this session:
+${askedStems || "None yet."}
+
+Return only the JSON for the new question${batchSize === 1 ? "" : "s"}.`;
+
+	return appendCorrection(basePrompt, correction);
+}
+
+/**
  * Append a per-session correction block to a base prompt, keeping the system
  * instructions intact and routing the dynamic text into the user turn (and the
  * combined textPrompt for fallback/tests).
