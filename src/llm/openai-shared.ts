@@ -12,6 +12,19 @@ export function modelOmitsSamplingParams(model: string): boolean {
 	return /claude-(?:sonnet-5|opus-4-[7-9]|fable|mythos)/i.test(model);
 }
 
+/**
+ * Fable/Mythos-family models think always-on and reject an explicit
+ * `thinking: {type: "disabled"}` — for them the thinking field must be
+ * omitted and max_tokens needs headroom, because thinking spend counts
+ * against it. Every other Claude model gets thinking explicitly disabled
+ * for question JSON: newer models (Sonnet 5) run adaptive thinking BY
+ * DEFAULT when the field is omitted, silently consuming the output budget
+ * and truncating the JSON mid-questions.
+ */
+export function modelHasAlwaysOnThinking(model: string): boolean {
+	return /claude-(?:fable|mythos)/i.test(model);
+}
+
 export function arrayBufferToBase64(buffer: ArrayBuffer): string {
 	const bytes = new Uint8Array(buffer);
 	let binary = "";

@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { buildPrompt, outputTokenBudget, resolvePromptParts } from "../src/llm/prompt";
 import type { StructuredPrompt, TopicContext } from "../src/llm/prompt";
-import { geminiQuestionSchema, modelOmitsSamplingParams, questionSchema } from "../src/llm/openai-shared";
+import {
+	geminiQuestionSchema,
+	modelHasAlwaysOnThinking,
+	modelOmitsSamplingParams,
+	questionSchema,
+} from "../src/llm/openai-shared";
 import {
 	FlowSessionGenerator,
 	FlowSignal,
@@ -6374,6 +6379,18 @@ test("sampling params are omitted for models that removed them", () => {
 	assert.equal(modelOmitsSamplingParams("claude-sonnet-4-6"), false);
 	assert.equal(modelOmitsSamplingParams("claude-opus-4-6"), false);
 	assert.equal(modelOmitsSamplingParams("claude-haiku-4-5"), false);
+});
+
+test("thinking is disabled everywhere except always-on models", () => {
+	// Fable/Mythos think always-on and 400 on an explicit "disabled".
+	assert.equal(modelHasAlwaysOnThinking("claude-fable-5"), true);
+	assert.equal(modelHasAlwaysOnThinking("claude-mythos-5"), true);
+	// Sonnet 5 runs adaptive thinking BY DEFAULT when the field is omitted —
+	// it must receive an explicit disable or thinking eats the output budget.
+	assert.equal(modelHasAlwaysOnThinking("claude-sonnet-5"), false);
+	assert.equal(modelHasAlwaysOnThinking("claude-opus-4-8"), false);
+	assert.equal(modelHasAlwaysOnThinking("claude-sonnet-4-6"), false);
+	assert.equal(modelHasAlwaysOnThinking("claude-haiku-4-5-20251001"), false);
 });
 
 test("sampling and thinking rejections are retryable, auth errors are not", () => {

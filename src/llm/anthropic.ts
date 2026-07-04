@@ -6,8 +6,9 @@ import {
 	extractProviderErrorDetail,
 	formatProviderError,
 	isSamplingParamRejection,
+	isThinkingConfigRejection,
 } from "./errors";
-import { modelOmitsSamplingParams } from "./openai-shared";
+import { modelHasAlwaysOnThinking, modelOmitsSamplingParams } from "./openai-shared";
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 
@@ -67,8 +68,34 @@ export class AnthropicClient {
 		// Sonnet 5 / Opus 4.7+ / Fable removed sampling parameters entirely —
 		// sending temperature 400s. Known models skip it up front; unknown
 		// future models self-heal via the sampling-rejection retry below.
-		const withTemperature = !modelOmitsSamplingParams(this.config.model);
-		let response = await this.requestMessages(system, content, prompt, withTemperature);
+		let withTemperature = !modelOmitsSamplingParams(this.config.model);
+		// Newer Claude models (Sonnet 5+) run adaptive thinking BY DEFAULT when
+		// the `thinking` field is omitted, and thinking tokens count against
+		// max_tokens — so thinking silently eats the budget and the question
+		// JSON truncates mid-array. The schema already forces reasoning before
+		// answering (explanation precedes correctAnswer), so thinking is
+		// explicitly disabled here. Fable/Mythos-family models reject
+		// "disabled" (thinking is always on); they get max_tokens headroom
+		// instead, and unknown models self-heal via the rejection retry.
+		let withThinkingDisabled = !modelHasAlwaysOnThinking(this.config.model);
+		let response = await this.requestMessages(system, content, prompt, {
+			withTemperature,
+			withThinkingDisabled,
+		});
+		if (
+			response.status !== 200 &&
+			withThinkingDisabled &&
+			isThinkingConfigRejection(
+				response.status,
+				extractProviderErrorDetail(response.text)
+			)
+		) {
+			withThinkingDisabled = false;
+			response = await this.requestMessages(system, content, prompt, {
+				withTemperature,
+				withThinkingDisabled,
+			});
+		}
 		if (
 			response.status !== 200 &&
 			withTemperature &&
@@ -77,7 +104,11 @@ export class AnthropicClient {
 				extractProviderErrorDetail(response.text)
 			)
 		) {
-			response = await this.requestMessages(system, content, prompt, false);
+			withTemperature = false;
+			response = await this.requestMessages(system, content, prompt, {
+				withTemperature,
+				withThinkingDisabled,
+			});
 		}
 
 		if (response.status !== 200) {
@@ -108,12 +139,21 @@ export class AnthropicClient {
 		system: string,
 		content: Array<Record<string, unknown>>,
 		prompt: StructuredPrompt,
-		withTemperature: boolean
+		options: { withTemperature: boolean; withThinkingDisabled: boolean }
 	): Promise<{ status: number; text: string; json: unknown }> {
+		// max_tokens is a cap, not a spend — Anthropic bills actual output —
+		// so floor it at 8192 for slack on long questions. Requests that run
+		// with thinking on (always-on models, or a retry that dropped the
+		// disable flag) share that cap with thinking tokens and need more.
+		const maxTokens = Math.max(
+			prompt.maxOutputTokens ?? 8192,
+			options.withThinkingDisabled ? 8192 : 16384
+		);
 		const body = {
 			model: this.config.model,
-			max_tokens: prompt.maxOutputTokens ?? 8192,
-			...(withTemperature ? { temperature: GENERATION_TEMPERATURE } : {}),
+			max_tokens: maxTokens,
+			...(options.withTemperature ? { temperature: GENERATION_TEMPERATURE } : {}),
+			...(options.withThinkingDisabled ? { thinking: { type: "disabled" } } : {}),
 			// The system prompt is identical across sessions (and across the
 			// micro-batches of one session), so mark it as a cache breakpoint —
 			// repeat requests within the cache TTL read it at ~10% input price.
