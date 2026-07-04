@@ -82,6 +82,11 @@ export function estimateQuestionDifficulty(
 	if (question.type === "integer" || question.type === "decimal") {
 		add(0.7, "constructed-answer");
 	}
+	if (question.type === "multi") {
+		// Select-all-that-apply denies partial-recognition credit: every option
+		// must be judged independently.
+		add(0.5, "select-all");
+	}
 	if (sourceSubtopicCount >= 2) add(0.6, "multi-subtopic");
 	if (questionText.length >= 280) add(0.6, "long-stem");
 

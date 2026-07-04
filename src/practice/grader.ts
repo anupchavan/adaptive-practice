@@ -23,6 +23,22 @@ export function checkAnswer(question: Question, userAnswer: string): boolean {
 		return correct === given;
 	}
 
+	if (question.type === "multi") {
+		// All-or-nothing set equality over the newline-joined selections;
+		// order never matters.
+		const correctSet = new Set(
+			multiCorrectAnswers(question).map(normalizeTextAnswer).filter(Boolean)
+		);
+		const givenSet = new Set(
+			userAnswer.split("\n").map(normalizeTextAnswer).filter(Boolean)
+		);
+		if (correctSet.size === 0 || givenSet.size !== correctSet.size) return false;
+		for (const entry of correctSet) {
+			if (!givenSet.has(entry)) return false;
+		}
+		return true;
+	}
+
 	const correctNum = parseNumericAnswer(question.correctAnswer);
 	const givenNum = parseNumericAnswer(userAnswer);
 	if (correctNum === null || givenNum === null) return false;
@@ -38,6 +54,14 @@ export function checkAnswer(question: Question, userAnswer: string): boolean {
 	// decimal (and mislabeled-integer) answers: allow 1% relative tolerance or 0.01 absolute
 	const absDiff = Math.abs(correctNum - givenNum);
 	return absDiff <= 0.01 || absDiff <= Math.abs(correctNum) * 0.01;
+}
+
+/** The correct options of a multi question, tolerating older saved drafts. */
+export function multiCorrectAnswers(question: Question): string[] {
+	if (question.correctAnswers && question.correctAnswers.length > 0) {
+		return question.correctAnswers;
+	}
+	return question.correctAnswer.split("\n").filter(Boolean);
 }
 
 function normalizeTextAnswer(input: string): string {

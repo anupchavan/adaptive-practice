@@ -180,10 +180,11 @@ Respond with ONLY valid JSON. No markdown fences, no explanation. Prefer a JSON 
 
 {
   "id": "q1",
-  "type": "mcq" | "integer" | "decimal",
+  "type": "mcq" | "multi" | "integer" | "decimal",
   "questionText": "The full question text",
   "options": ["option text 1", "option text 2", "option text 3", "option text 4"],
   "correctAnswer": "option text 1" or "42" or "3.14",
+  "correctAnswers": ["option text 1", "option text 3"] (multi only; null otherwise),
   "explanation": "Brief explanation of why this is correct",
   "sourceTopics": ["Topic Title 1", "Topic Title 2"],
   "sourceSubtopics": ["Heading or subtopic 1"],
@@ -191,7 +192,8 @@ Respond with ONLY valid JSON. No markdown fences, no explanation. Prefer a JSON 
 }
 
 For MCQ: "options" is required, "correctAnswer" must exactly match one option. Do NOT prefix options with letters like "A)", "B)", etc.
-For integer/decimal: "options" should be omitted, "correctAnswer" is the numeric string.
+For multi (select all that apply): 4-5 single-line options, and "correctAnswers" lists every correct option (at least 2, never all). Use multi when the material supports several independently verifiable assertions — properties that hold, statements that are true, steps that are required — with tempting near-misses among the foils. Never use "all of the above".
+For integer/decimal: "options" should be omitted, "correctAnswer" is the numeric string. Prefer integer/decimal whenever the answer is genuinely a computed number the learner should produce (counts, results, magnitudes) rather than recognize.
 
 For explanation: be concise but include the key reasoning step, not just the final answer.
 

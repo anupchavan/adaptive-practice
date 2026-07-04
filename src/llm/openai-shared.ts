@@ -37,6 +37,7 @@ export function questionSchema(): Record<string, unknown> {
 						"questionText",
 						"options",
 						"correctAnswer",
+						"correctAnswers",
 						"explanation",
 						"sourceTopics",
 						"sourceSubtopics",
@@ -44,7 +45,7 @@ export function questionSchema(): Record<string, unknown> {
 					],
 					properties: {
 						id: { type: "string" },
-						type: { type: "string", enum: ["mcq", "integer", "decimal"] },
+						type: { type: "string", enum: ["mcq", "multi", "integer", "decimal"] },
 						questionText: { type: "string" },
 						// Nullable: numeric questions return null, MCQs return strings.
 						options: {
@@ -52,6 +53,11 @@ export function questionSchema(): Record<string, unknown> {
 							items: { type: "string" },
 						},
 						correctAnswer: { type: "string" },
+						// Only "multi" (select-all-that-apply) uses this; null otherwise.
+						correctAnswers: {
+							type: ["array", "null"],
+							items: { type: "string" },
+						},
 						explanation: { type: "string" },
 						sourceTopics: {
 							type: "array",
@@ -95,7 +101,7 @@ export function geminiQuestionSchema(): Record<string, unknown> {
 					],
 					properties: {
 						id: { type: "string" },
-						type: { type: "string", enum: ["mcq", "integer", "decimal"] },
+						type: { type: "string", enum: ["mcq", "multi", "integer", "decimal"] },
 						questionText: { type: "string" },
 						options: {
 							type: "array",
@@ -103,6 +109,11 @@ export function geminiQuestionSchema(): Record<string, unknown> {
 							nullable: true,
 						},
 						correctAnswer: { type: "string" },
+						correctAnswers: {
+							type: "array",
+							items: { type: "string" },
+							nullable: true,
+						},
 						explanation: { type: "string" },
 						sourceTopics: { type: "array", items: { type: "string" } },
 						sourceSubtopics: { type: "array", items: { type: "string" } },

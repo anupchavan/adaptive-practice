@@ -132,6 +132,18 @@ function normalizeQuestion(input: unknown): Question | null {
 		if (options.length !== 4) return null;
 		question.options = options;
 	}
+	if (type === "multi") {
+		const options = normalizeStringList(input["options"]);
+		if (options.length < 4 || options.length > 5) return null;
+		question.options = options;
+		const correctAnswers = normalizeStringList(input["correctAnswers"]).filter(
+			(entry) => options.includes(entry)
+		);
+		question.correctAnswers = correctAnswers.length > 0
+			? correctAnswers
+			: correctAnswer.split("\n").filter((entry) => options.includes(entry));
+		if (question.correctAnswers.length < 2) return null;
+	}
 	return question;
 }
 
@@ -203,7 +215,9 @@ function normalizeSessionConfig(
 }
 
 function normalizeQuestionType(value: unknown): QuestionType {
-	return value === "integer" || value === "decimal" ? value : "mcq";
+	return value === "integer" || value === "decimal" || value === "multi"
+		? value
+		: "mcq";
 }
 
 function normalizeChallengeMode(value: unknown): DailyChallengeMode {

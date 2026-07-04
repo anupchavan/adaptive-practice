@@ -68,9 +68,10 @@ function normalizeQuestion(rawItem: unknown, i: number): Question | null {
 		sourceSubtopics: normalizeStringList(item["sourceSubtopics"]),
 		difficulty: validateDifficulty(item["difficulty"]),
 	};
-	if (!q.questionText || !q.correctAnswer) return null;
+	if (!q.questionText) return null;
 	if (!q.explanation) q.explanation = "No explanation provided by the model.";
 	if (q.type === "mcq" && Array.isArray(item["options"])) {
+		if (!q.correctAnswer) return null;
 		const rawOptions = item["options"].map((o) => String(o));
 		q.options = rawOptions
 			.map(stripOptionPrefix)
@@ -84,9 +85,11 @@ function normalizeQuestion(rawItem: unknown, i: number): Question | null {
 			q.questionText,
 			q.correctAnswer,
 		].join("\n"));
-	} else if (q.type === "mcq") {
+	} else if (q.type === "multi" && Array.isArray(item["options"])) {
+		if (!normalizeMultiQuestion(q, item, rawCorrectAnswer)) return null;
+	} else if (q.type === "mcq" || q.type === "multi") {
 		return null;
-	} else if (!isValidNumericQuestion(q)) {
+	} else if (!q.correctAnswer || !isValidNumericQuestion(q)) {
 		return null;
 	}
 	// Apply provider-agnostic formatting repairs (math delimiters, etc.) before
@@ -94,6 +97,53 @@ function normalizeQuestion(rawItem: unknown, i: number): Question | null {
 	const formatted = normalizeQuestionFormatting(q);
 	formatted.difficulty = normalizeQuestionDifficulty(formatted);
 	return formatted;
+}
+
+/**
+ * Validate and normalize a select-all-that-apply question in place. Options
+ * are collapsed to single lines (the newline join of `correctAnswer` and the
+ * user's answer relies on that), 4-5 unique options are required, and there
+ * must be at least two correct options but never all of them.
+ */
+function normalizeMultiQuestion(
+	q: Question,
+	item: Record<string, unknown>,
+	rawCorrectAnswer: string
+): boolean {
+	const rawOptions = (item["options"] as unknown[]).map((o) => String(o));
+	q.options = rawOptions
+		.map(stripOptionPrefix)
+		.map((option) => option.replace(/\s+/g, " ").trim())
+		.filter(Boolean);
+	if (
+		q.options.length < 4 ||
+		q.options.length > 5 ||
+		new Set(q.options).size !== q.options.length
+	) {
+		return false;
+	}
+
+	const rawCorrect = Array.isArray(item["correctAnswers"])
+		? (item["correctAnswers"] as unknown[]).map((o) => String(o))
+		: rawCorrectAnswer.split(/\n|;/);
+	const matched = [...new Set(
+		rawCorrect
+			.map((entry) => entry.replace(/\s+/g, " ").trim())
+			.filter(Boolean)
+			.map((entry) => normalizeMcqCorrectAnswer(entry, rawOptions, q.options!))
+	)];
+	if (matched.some((entry) => !q.options!.includes(entry))) return false;
+	if (matched.length < 2 || matched.length >= q.options.length) return false;
+
+	q.options = shuffleMcqOptions(q.options, matched[0]!, [
+		q.id,
+		q.questionText,
+		...matched,
+	].join("\n"));
+	// Keep the correct answers in the shuffled display order.
+	q.correctAnswers = q.options.filter((option) => matched.includes(option));
+	q.correctAnswer = q.correctAnswers.join("\n");
+	return true;
 }
 
 function isValidNumericQuestion(question: Question): boolean {
@@ -284,7 +334,7 @@ function normalizeStringList(value: unknown): string[] {
 }
 
 function validateType(v: unknown): Question["type"] {
-	if (v === "mcq" || v === "integer" || v === "decimal") return v;
+	if (v === "mcq" || v === "multi" || v === "integer" || v === "decimal") return v;
 	return "mcq";
 }
 

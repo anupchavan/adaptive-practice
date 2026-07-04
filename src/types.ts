@@ -266,7 +266,7 @@ export const DEFAULT_SETTINGS: AdaptivePracticeSettings = {
 
 export type PracticeIntent = "mastery" | "cram" | "review";
 
-export type QuestionType = "mcq" | "integer" | "decimal";
+export type QuestionType = "mcq" | "multi" | "integer" | "decimal";
 export type Difficulty = "easy" | "medium" | "hard";
 
 export interface Question {
@@ -275,6 +275,12 @@ export interface Question {
 	questionText: string;
 	options?: string[];
 	correctAnswer: string;
+	/**
+	 * "multi" (select-all-that-apply) questions: every correct option. For
+	 * multi, `correctAnswer` holds these joined with newlines for display and
+	 * fingerprinting; grading uses this array.
+	 */
+	correctAnswers?: string[];
 	explanation: string;
 	sourceTopics: string[];
 	sourceSubtopics?: string[];

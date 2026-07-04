@@ -7,7 +7,7 @@ import {
 	WorkspaceLeaf,
 } from "obsidian";
 import { Question, QuizResult, TopicNote } from "../types";
-import { checkAnswer } from "../practice/grader";
+import { checkAnswer, multiCorrectAnswers } from "../practice/grader";
 import { adaptQuestionOrderForFlow } from "../practice/flow-navigation";
 import { hasAnsweredEveryQuestion } from "../practice/results";
 import { appendSingleQuestion, removeSingleQuestion } from "../notes/writer";
@@ -39,7 +39,7 @@ type ChoiceBadgeIcon = "check" | "x";
 type StatusTone = "correct" | "wrong" | "skipped";
 
 const MAX_VISIBLE_TOPICS = 3;
-const OPTION_LETTERS = ["A", "B", "C", "D"];
+const OPTION_LETTERS = ["A", "B", "C", "D", "E"];
 const SKIP_REASONS = [
 	{ label: "Difficult\nQuestion", icon: "thinking" },
 	{ label: "Didn't\nUnderstand", icon: "confused" },
@@ -132,6 +132,7 @@ export class PracticeView extends ItemView {
 	private state: PracticeState | null = null;
 	private renderComponent: Component;
 	private selectedAnswer = "";
+	private selectedMulti = new Set<string>();
 	private hasChecked = false;
 	private questionStartTime = 0;
 	private keyHandler: ((e: KeyboardEvent) => void) | null = null;
@@ -166,6 +167,7 @@ export class PracticeView extends ItemView {
 		this.state = state;
 		this.completed = false;
 		this.selectedAnswer = "";
+		this.selectedMulti.clear();
 		this.hasChecked = false;
 		this.savedIndices.clear();
 		this.questionReactions.clear();
@@ -399,6 +401,7 @@ export class PracticeView extends ItemView {
 
 	private renderUnansweredQuestion(card: HTMLElement, stage: HTMLElement, q: Question): void {
 		this.selectedAnswer = "";
+		this.selectedMulti.clear();
 		this.hasChecked = false;
 		this.renderAnswerArea(card, q, null);
 
@@ -457,14 +460,17 @@ export class PracticeView extends ItemView {
 	}
 
 	private renderAnswerArea(container: HTMLElement, q: Question, result: QuizResult | null): void {
-		container.createDiv({ text: "Select your answer", cls: "ap-answer-label" });
-		if (q.type === "mcq" && q.options) {
+		container.createDiv({
+			text: q.type === "multi" ? "Select all that apply" : "Select your answer",
+			cls: "ap-answer-label",
+		});
+		if ((q.type === "mcq" || q.type === "multi") && q.options) {
 			const grid = container.createDiv({ cls: "ap-choice-grid" });
 			if (q.options.some(hasBlockMarkdown)) grid.addClass("has-block-options");
 			if (result) {
 				this.renderAnsweredChoices(grid, q, result);
 			} else {
-				this.renderChoiceOptions(grid, q.options);
+				this.renderChoiceOptions(grid, q.options, q.type === "multi");
 			}
 			return;
 		}
@@ -472,16 +478,13 @@ export class PracticeView extends ItemView {
 		this.renderNumericAnswer(container, q, result);
 	}
 
-	private renderChoiceOptions(container: HTMLElement, options: string[]): void {
+	private renderChoiceOptions(container: HTMLElement, options: string[], multi: boolean): void {
 		for (let i = 0; i < options.length; i++) {
 			const option = options[i]!;
 			const choice = container.createDiv({ cls: "ap-choice" });
 			if (hasBlockMarkdown(option)) choice.addClass("has-block-content");
 			choice.addEventListener("click", () => {
-				this.selectedAnswer = option;
-				container.querySelectorAll(".ap-choice").forEach((el) => el.removeClass("is-selected"));
-				choice.addClass("is-selected");
-				this.updateSubmitButton();
+				this.applyChoiceSelection(container, options, option, multi, choice);
 			});
 
 			this.renderChoiceBadge(choice, OPTION_LETTERS[i] ?? String(i + 1));
@@ -490,16 +493,57 @@ export class PracticeView extends ItemView {
 		}
 	}
 
+	/**
+	 * Single-answer questions replace the selection; select-all questions
+	 * toggle it. `selectedAnswer` always carries the newline-joined selections
+	 * in display order — the same encoding grading uses.
+	 */
+	private applyChoiceSelection(
+		container: HTMLElement,
+		options: string[],
+		option: string,
+		multi: boolean,
+		choice: HTMLElement
+	): void {
+		if (multi) {
+			if (this.selectedMulti.has(option)) {
+				this.selectedMulti.delete(option);
+				choice.removeClass("is-selected");
+			} else {
+				this.selectedMulti.add(option);
+				choice.addClass("is-selected");
+			}
+			this.selectedAnswer = options
+				.filter((candidate) => this.selectedMulti.has(candidate))
+				.join("\n");
+		} else {
+			this.selectedAnswer = option;
+			container.querySelectorAll(".ap-choice").forEach((el) => el.removeClass("is-selected"));
+			choice.addClass("is-selected");
+		}
+		this.updateSubmitButton();
+	}
+
 	private renderAnsweredChoices(container: HTMLElement, q: Question, result: QuizResult): void {
 		const options = q.options ?? [];
 		const wasAttempted = !result.skipped;
+		const userSelections = q.type === "multi"
+			? new Set(result.userAnswer.split("\n"))
+			: null;
+		const multiCorrect = q.type === "multi"
+			? new Set(multiCorrectAnswers(q))
+			: null;
 
 		for (let i = 0; i < options.length; i++) {
 			const option = options[i]!;
 			// Use the same normalized equality as grading so the highlighted
 			// "correct" option never disagrees with the Correct/Incorrect verdict.
-			const isCorrectOption = checkAnswer(q, option);
-			const isUserChoice = option === result.userAnswer;
+			const isCorrectOption = multiCorrect
+				? multiCorrect.has(option)
+				: checkAnswer(q, option);
+			const isUserChoice = userSelections
+				? userSelections.has(option)
+				: option === result.userAnswer;
 			const choice = container.createDiv({ cls: "ap-choice is-locked" });
 			if (hasBlockMarkdown(option)) choice.addClass("has-block-content");
 
@@ -847,17 +891,22 @@ export class PracticeView extends ItemView {
 			if (target.tagName === "INPUT" && (target as HTMLInputElement).type !== "radio") return;
 
 			if (!this.hasChecked) {
-				if (q.type === "mcq" && q.options) {
-					const letterMap: Record<string, number> = { a: 0, b: 1, c: 2, d: 3 };
+				if ((q.type === "mcq" || q.type === "multi") && q.options) {
+					const letterMap: Record<string, number> = { a: 0, b: 1, c: 2, d: 3, e: 4 };
 					const idx = letterMap[e.key.toLowerCase()];
 					if (idx !== undefined && idx < q.options.length) {
 						e.preventDefault();
-						this.selectedAnswer = q.options[idx]!;
-						container.querySelectorAll(".ap-choice").forEach((el, i) => {
-							el.removeClass("is-selected");
-							if (i === idx) el.addClass("is-selected");
-						});
-						this.updateSubmitButton();
+						const grid = container.querySelector(".ap-choice-grid");
+						const choice = grid?.querySelectorAll(".ap-choice")[idx];
+						if (grid instanceof HTMLElement && choice instanceof HTMLElement) {
+							this.applyChoiceSelection(
+								grid,
+								q.options,
+								q.options[idx]!,
+								q.type === "multi",
+								choice
+							);
+						}
 					}
 				}
 

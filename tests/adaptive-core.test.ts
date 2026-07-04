@@ -3418,6 +3418,93 @@ test("checkAnswer accepts normalized MCQ text and option prefixes", () => {
 	assert.equal(checkAnswer(question, "left half is always sorted"), false);
 });
 
+test("checkAnswer grades select-all questions by exact set match", () => {
+	const question = makeQuestion({
+		type: "multi",
+		options: ["stable under duplicates", "runs in place", "needs extra memory", "always logarithmic"],
+		correctAnswers: ["stable under duplicates", "runs in place"],
+		correctAnswer: "stable under duplicates\nruns in place",
+	});
+
+	assert.equal(checkAnswer(question, "stable under duplicates\nruns in place"), true);
+	// Order never matters.
+	assert.equal(checkAnswer(question, "runs in place\nstable under duplicates"), true);
+	// Subset, superset, and swaps all fail.
+	assert.equal(checkAnswer(question, "stable under duplicates"), false);
+	assert.equal(
+		checkAnswer(question, "stable under duplicates\nruns in place\nneeds extra memory"),
+		false
+	);
+	assert.equal(checkAnswer(question, "stable under duplicates\nalways logarithmic"), false);
+	assert.equal(checkAnswer(question, ""), false);
+});
+
+test("parseQuestions validates and normalizes select-all questions", () => {
+	const valid = parseQuestions(JSON.stringify({
+		questions: [
+			{
+				id: "m1",
+				type: "multi",
+				questionText: "A learner claims several properties hold for the algorithm. Select every property the note actually supports, and be ready to justify why the rest fail.",
+				options: [
+					"It preserves relative order of equal keys",
+					"It sorts in place with constant extra memory",
+					"It always runs in logarithmic time",
+					"It degrades to quadratic time on adversarial input",
+					"It requires the input to be pre-sorted",
+				],
+				correctAnswers: [
+					"It preserves relative order of equal keys",
+					"It degrades to quadratic time on adversarial input",
+				],
+				correctAnswer: "",
+				explanation: "Stability and the adversarial worst case are stated in the note; the others contradict it.",
+				sourceTopics: ["Sorting"],
+				sourceSubtopics: ["stability", "worst case"],
+				difficulty: "medium",
+			},
+		],
+	}));
+	assert.equal(valid.length, 1);
+	const question = valid[0]!;
+	assert.equal(question.type, "multi");
+	assert.equal(question.options?.length, 5);
+	assert.equal(question.correctAnswers?.length, 2);
+	assert.ok(question.correctAnswers?.every((entry) => question.options?.includes(entry)));
+	assert.equal(question.correctAnswer, question.correctAnswers?.join("\n"));
+
+	// All options correct is not a valid select-all question; neither is one.
+	const degenerate = parseQuestions(JSON.stringify({
+		questions: [
+			{
+				id: "m2",
+				type: "multi",
+				questionText: "Pick everything.",
+				options: ["a", "b", "c", "d"],
+				correctAnswers: ["a", "b", "c", "d"],
+				correctAnswer: "",
+				explanation: "x",
+				sourceTopics: ["Sorting"],
+				sourceSubtopics: [],
+				difficulty: "easy",
+			},
+			{
+				id: "m3",
+				type: "multi",
+				questionText: "Pick one thing only.",
+				options: ["a", "b", "c", "d"],
+				correctAnswers: ["a"],
+				correctAnswer: "",
+				explanation: "x",
+				sourceTopics: ["Sorting"],
+				sourceSubtopics: [],
+				difficulty: "easy",
+			},
+		],
+	}));
+	assert.equal(degenerate.length, 0);
+});
+
 test("checkAnswer accepts common numeric formatting for decimals", () => {
 	assert.equal(
 		checkAnswer(

@@ -27,10 +27,15 @@ export function calibrateQuestionsForPractice(
  * occur naturally in technical prose.
  */
 export function isAnswerLeakQuestion(question: Question): boolean {
-	if (question.type !== "mcq") return false;
-	const answer = normalizeText(question.correctAnswer);
-	if (answer.length < 12) return false;
-	return normalizeText(question.questionText).includes(answer);
+	if (question.type !== "mcq" && question.type !== "multi") return false;
+	const stem = normalizeText(question.questionText);
+	const answers = question.type === "multi"
+		? question.correctAnswers ?? question.correctAnswer.split("\n")
+		: [question.correctAnswer];
+	return answers.some((answer) => {
+		const key = normalizeText(answer);
+		return key.length >= 12 && stem.includes(key);
+	});
 }
 
 /**

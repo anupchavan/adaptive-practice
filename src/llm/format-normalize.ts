@@ -126,11 +126,14 @@ export function normalizeQuestionFormatting(question: Question): Question {
 			seenLinks
 		),
 	};
-	if (question.type === "mcq" && question.options) {
+	if ((question.type === "mcq" || question.type === "multi") && question.options) {
 		// Options/correctAnswer get math normalization only (no link dedup), so
 		// their string equality — relied on by grading/highlighting — is preserved.
 		normalized.options = question.options.map(normalizeObsidianMath);
 		normalized.correctAnswer = normalizeObsidianMath(question.correctAnswer);
+		if (question.correctAnswers) {
+			normalized.correctAnswers = question.correctAnswers.map(normalizeObsidianMath);
+		}
 	}
 	return normalized;
 }
