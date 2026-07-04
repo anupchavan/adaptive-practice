@@ -2,6 +2,7 @@ import {
 	DailyChallengeMode,
 	NoteMediaReference,
 	NoteStructure,
+	PracticeIntent,
 	PromptAttachment,
 	QuestionFeedbackEntry,
 	QuestionFeedbackKind,
@@ -70,6 +71,7 @@ export interface PromptBuildOptions {
 	challengeMode?: DailyChallengeMode;
 	challengeReason?: string;
 	questionFeedback?: QuestionFeedbackEntry[];
+	intent?: PracticeIntent;
 	now?: number;
 }
 
@@ -156,7 +158,7 @@ Aim questions at where the note's substance is. If a note opens with a brief int
 1. Use Obsidian-compatible Markdown.
 2. Use LaTeX wrapped in dollar signs: $x^2$ inline and $$\\sum_{i=1}^{n} i$$ for display. Never output bare LaTeX.
 3. Use fenced code blocks for code, traces, or pseudo-code when it clarifies the problem.
-4. For MCQ, provide exactly 4 plausible options. Distractors should reflect common mistakes: sign errors, off-by-one errors, wrong formula choice, missing condition, overgeneralization, confusing best/worst/average case, or violating an invariant.
+4. For MCQ, provide exactly 4 plausible options. Draft five or six candidates internally and keep the four most plausible; every distractor must embody a specific, nameable mistake: sign errors, off-by-one errors, wrong formula choice, missing condition, overgeneralization, confusing best/worst/average case, or violating an invariant. Never include an option the stem already rules out.
 5. If images, SVG notes, or PDFs are attached or described, inspect and use them. Treat diagrams and whiteboard images as first-class source material.
 6. Each question must list exact "sourceTopics" using the topic titles provided in the session material, and "sourceSubtopics" using the concept target, section name, invariant, mechanism, or trap being tested. Do not put the note title in "sourceSubtopics" unless the note has no more specific concept.
 
@@ -207,6 +209,7 @@ One exemplar of the signature format — match its formatting discipline (inline
 Session mode: ${formatChallengeMode(challengeMode)}
 Scheduler reason: ${challengeReason}
 ${challengeModeInstructions(challengeMode)}
+${intentInstructions(options.intent ?? "mastery")}
 ${renderDifficultyTargetGuidance(topics, questionCount, challengeMode)}
 ${feedbackGuidance}
 
@@ -240,6 +243,30 @@ Generate exactly ${questionCount} questions now.`;
 function formatChallengeMode(mode: DailyChallengeMode): string {
 	if (mode === "warmup") return "warm-up";
 	return mode;
+}
+
+/**
+ * The learner's declared purpose shifts question STYLE, not the difficulty
+ * distribution (skill and session mode govern that). Cram legitimizes
+ * exam-typical recall; review trades depth for breadth.
+ */
+function intentInstructions(intent: PracticeIntent): string {
+	if (intent === "cram") {
+		return [
+			"Learner intent: exam cram.",
+			"Prioritize high-yield facts, formulas, definitions, named results, and the classic traps of the field. Exam-typical single-concept items are acceptable at their honest difficulty label; keep stems fast to read and answers unambiguous.",
+		].join("\n");
+	}
+	if (intent === "review") {
+		return [
+			"Learner intent: broad review.",
+			"Favor breadth over depth: touch as many distinct subtopics as the question count allows with quick, targeted checks. Reserve deep multi-step constructions for subtopics flagged weak in the memory data.",
+		].join("\n");
+	}
+	return [
+		"Learner intent: durable mastery.",
+		"Favor understanding and transfer over recognition; recall items must earn their place by centrality.",
+	].join("\n");
 }
 
 function challengeModeInstructions(mode: DailyChallengeMode): string {

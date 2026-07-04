@@ -127,6 +127,7 @@ export async function generateQuestions(
 		challengeMode: config.challengeMode,
 		challengeReason: config.challengeReason,
 		questionFeedback: settings.practiceMemory.questionFeedback ?? [],
+		intent: settings.practiceIntent,
 		now: Date.now(),
 	});
 	const client = createClient(provider, apiKey, settings);

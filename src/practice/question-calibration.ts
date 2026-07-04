@@ -13,9 +13,40 @@ export function calibrateQuestionsForPractice(
 		.filter((question) =>
 			!isLowConceptRecallQuestion(question, topics) &&
 			!isTitleDependentProblemQuestion(question, topics) &&
-			!isMissingVisualReferenceQuestion(question)
+			!isMissingVisualReferenceQuestion(question) &&
+			!isAnswerLeakQuestion(question) &&
+			!hasNearDuplicateOptions(question)
 		)
 		.map((question) => linkSourceTopicMentions(question, topics));
+}
+
+/**
+ * The stem gives the answer away: an MCQ whose full correct-option text
+ * appears verbatim in the question. Numeric questions are exempt (stems
+ * legitimately restate given numbers), as are very short option strings that
+ * occur naturally in technical prose.
+ */
+export function isAnswerLeakQuestion(question: Question): boolean {
+	if (question.type !== "mcq") return false;
+	const answer = normalizeText(question.correctAnswer);
+	if (answer.length < 12) return false;
+	return normalizeText(question.questionText).includes(answer);
+}
+
+/**
+ * Options that collapse to the same normalized text (case, punctuation, or
+ * whitespace variants) make the question unanswerable; the parser only
+ * enforces exact-string uniqueness.
+ */
+export function hasNearDuplicateOptions(question: Question): boolean {
+	if (question.type !== "mcq" || !question.options) return false;
+	// Pure-symbol options ("/", "$") normalize to nothing; key them by their
+	// raw text so they stay distinct instead of colliding as empties.
+	const keys = question.options.map((option) => {
+		const key = normalizeText(option);
+		return key || `raw:${option.trim()}`;
+	});
+	return new Set(keys).size !== question.options.length;
 }
 
 export function calibrateQuestionForPractice(

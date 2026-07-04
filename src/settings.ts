@@ -214,6 +214,21 @@ export class AdaptivePracticeSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
+			.setName("Practice intent")
+			.setDesc("What you are practicing for. Mastery favors understanding and transfer; exam cram favors high-yield facts and classic traps; review favors quick checks across many subtopics.")
+			.addDropdown((dropdown) => {
+				dropdown.addOption("mastery", "Durable mastery");
+				dropdown.addOption("cram", "Exam cram");
+				dropdown.addOption("review", "Broad review");
+				dropdown.setValue(this.plugin.settings.practiceIntent);
+				dropdown.onChange(async (value) => {
+					this.plugin.settings.practiceIntent =
+						value === "cram" || value === "review" ? value : "mastery";
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new Setting(containerEl)
 			.setName("Review intensity")
 			.setDesc("How well you want to remember a note when it comes due again. Higher means shorter gaps and more frequent reviews; lower means fewer reviews with harder recall.")
 			.addDropdown((dropdown) => {

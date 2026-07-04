@@ -154,6 +154,8 @@ export interface AdaptivePracticeSettings {
 	dailyTopicLimit: number;
 	/** Desired recall probability when a note comes due (0.7–0.97). */
 	targetRetention: number;
+	/** What the learner is practicing for; conditions question style. */
+	practiceIntent: PracticeIntent;
 	pdfSkills: Record<string, number>;
 	practiceMemory: PracticeMemory;
 	practiceDraft: PracticeDraft | null;
@@ -253,10 +255,13 @@ export const DEFAULT_SETTINGS: AdaptivePracticeSettings = {
 	dailyQuestionCount: 8,
 	dailyTopicLimit: 6,
 	targetRetention: 0.9,
+	practiceIntent: "mastery",
 	pdfSkills: {},
 	practiceMemory: JSON.parse(JSON.stringify(DEFAULT_PRACTICE_MEMORY)) as PracticeMemory,
 	practiceDraft: null,
 };
+
+export type PracticeIntent = "mastery" | "cram" | "review";
 
 export type QuestionType = "mcq" | "integer" | "decimal";
 export type Difficulty = "easy" | "medium" | "hard";

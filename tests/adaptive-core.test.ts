@@ -6281,6 +6281,63 @@ test("gemini schema dialect avoids unsupported keywords", () => {
 	assert.equal(options?.["nullable"], true);
 });
 
+test("answer-leak and near-duplicate-option questions are filtered out", () => {
+	const leak = makeQuestion({
+		id: "leak",
+		questionText:
+			"The pivot always lies in the unsorted half of the array, so which statement is true? The pivot always lies in the unsorted half of the array.",
+		options: [
+			"The pivot always lies in the unsorted half of the array",
+			"The pivot always lies in the sorted half",
+			"The pivot can lie in either half",
+			"There is no pivot after rotation",
+		],
+		correctAnswer: "The pivot always lies in the unsorted half of the array",
+	});
+	const nearDuplicate = makeQuestion({
+		id: "near-dupe",
+		questionText: "Which complexity class fits the loop?",
+		options: ["O(n log n)", "O(N LOG N)", "O(n)", "O(1)"],
+		correctAnswer: "O(n)",
+	});
+	const clean = makeQuestion({
+		id: "clean",
+		questionText: "Given a rotated array, why does comparing with the right boundary locate the sorted half?",
+		options: [
+			"The right half is sorted when mid is less than the right boundary",
+			"The left half is always sorted",
+			"Rotation preserves global order",
+			"The comparison sorts the array",
+		],
+		correctAnswer: "The right half is sorted when mid is less than the right boundary",
+		sourceSubtopics: ["sorted-half detection"],
+	});
+
+	const kept = calibrateQuestionsForPractice(
+		[leak, nearDuplicate, clean],
+		[],
+		[makeTopic({ title: "Rotated binary search" })]
+	);
+	assert.deepEqual(kept.map((question) => question.id), ["clean"]);
+});
+
+test("practice intent conditions the session calibration block", () => {
+	const context = {
+		note: makeTopic({ title: "Any note" }),
+		content: "Some content.",
+		history: "",
+	};
+	const cram = buildPrompt([context], 4, { intent: "cram", now: Date.UTC(2026, 5, 26) });
+	assert.match(cram.userPrompt ?? "", /Learner intent: exam cram/);
+	assert.match(cram.userPrompt ?? "", /high-yield facts/);
+
+	const review = buildPrompt([context], 4, { intent: "review", now: Date.UTC(2026, 5, 26) });
+	assert.match(review.userPrompt ?? "", /Learner intent: broad review/);
+
+	const defaulted = buildPrompt([context], 4, { now: Date.UTC(2026, 5, 26) });
+	assert.match(defaulted.userPrompt ?? "", /Learner intent: durable mastery/);
+});
+
 test("system prompt carries one format exemplar", () => {
 	const prompt = buildPrompt(
 		[

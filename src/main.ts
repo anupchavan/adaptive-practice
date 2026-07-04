@@ -1184,6 +1184,13 @@ function normalizeSettings(raw: unknown): AdaptivePracticeSettings {
 	settings.dailyQuestionCount = clamp(settings.dailyQuestionCount, 3, 20, DEFAULT_SETTINGS.dailyQuestionCount);
 	settings.dailyTopicLimit = clamp(settings.dailyTopicLimit, 1, 12, DEFAULT_SETTINGS.dailyTopicLimit);
 	settings.targetRetention = clamp(settings.targetRetention, 0.7, 0.97, DEFAULT_SETTINGS.targetRetention);
+	if (
+		settings.practiceIntent !== "mastery" &&
+		settings.practiceIntent !== "cram" &&
+		settings.practiceIntent !== "review"
+	) {
+		settings.practiceIntent = DEFAULT_SETTINGS.practiceIntent;
+	}
 	settings.practiceMemory = normalizePracticeMemory(settings.practiceMemory);
 	settings.practiceDraft = normalizePracticeDraft(settings.practiceDraft);
 	return settings;
