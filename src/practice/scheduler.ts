@@ -229,15 +229,31 @@ function selectDailyTopicMix(
 	// day one honors the user's topic limit outright.
 	if (reviewed.length === 0) return untouched.slice(0, limit);
 
-	const selected = reviewed.slice(0, limit);
+	// Old AND new every day: when never-practiced notes exist, reserve up to
+	// two slots for them so a large review backlog cannot crowd fresh material
+	// out entirely. The reviews it displaces stay due and return tomorrow.
+	const reservedNew = Math.min(2, untouched.length, Math.max(0, limit - 1));
+	const selected = reviewed.slice(0, limit - reservedNew);
 	const remaining = limit - selected.length;
 	if (remaining <= 0) return selected;
 
 	// New-material throttle: once reviews exist, at most three never-practiced
 	// notes join a session regardless of the topic limit, so novelty cannot
 	// displace review debt.
-	const maxUntouched = Math.max(1, Math.min(3, Math.ceil(limit / 2)));
+	const maxUntouched = Math.max(reservedNew, Math.min(3, Math.ceil(limit / 2)));
 	selected.push(...untouched.slice(0, Math.min(remaining, maxUntouched)));
+	// Backfill with remaining due reviews if fewer new notes existed than the
+	// reservation assumed.
+	if (selected.length < limit) {
+		const chosen = new Set(selected);
+		for (const item of reviewed) {
+			if (selected.length >= limit) break;
+			if (!chosen.has(item)) {
+				selected.push(item);
+				chosen.add(item);
+			}
+		}
+	}
 	return selected;
 }
 

@@ -47,12 +47,14 @@ export interface StructuredPrompt {
 
 /**
  * Output tokens scale with the question count instead of always paying for the
- * 8192-token ceiling: ~650 tokens covers a generous question + explanation,
- * plus fixed JSON overhead. Floor keeps retries viable; cap stays provider-safe.
+ * 8192-token ceiling: ~800 tokens covers a question with reason-paired options
+ * plus explanation, with fixed JSON overhead on top. The 8192 cap is the
+ * lowest common provider ceiling — which is why callers must never request
+ * more than ~8 questions in one call (large sessions are chunked upstream).
  */
 export function outputTokenBudget(questionCount: number): number {
 	const count = Math.max(1, Math.min(30, Math.floor(questionCount) || 1));
-	return Math.max(2048, Math.min(8192, 1200 + count * 650));
+	return Math.max(2048, Math.min(8192, 1200 + count * 800));
 }
 
 /**

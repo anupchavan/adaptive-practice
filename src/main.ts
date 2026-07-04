@@ -1292,7 +1292,7 @@ function normalizeSettings(raw: unknown): AdaptivePracticeSettings {
 	settings.dashboardOpen = settings.dashboardOpen === true;
 	settings.defaultQuestionCount = clamp(settings.defaultQuestionCount, 5, 30, DEFAULT_SETTINGS.defaultQuestionCount);
 	settings.dailyQuestionCount = clamp(settings.dailyQuestionCount, 3, 20, DEFAULT_SETTINGS.dailyQuestionCount);
-	settings.dailyTopicLimit = clamp(settings.dailyTopicLimit, 1, 12, DEFAULT_SETTINGS.dailyTopicLimit);
+	settings.dailyTopicLimit = clamp(settings.dailyTopicLimit, 1, 30, DEFAULT_SETTINGS.dailyTopicLimit);
 	settings.targetRetention = clamp(settings.targetRetention, 0.7, 0.97, DEFAULT_SETTINGS.targetRetention);
 	if (
 		settings.practiceIntent !== "mastery" &&

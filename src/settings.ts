@@ -201,10 +201,10 @@ export class AdaptivePracticeSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Daily topic limit")
-			.setDesc("Maximum number of due notes to mix into one daily session.")
+			.setDesc("Maximum notes mixed into one daily session. Sessions always blend due reviews with new notes when both exist; notes that don't fit stay due and return the next day. Higher limits send more note content to the model per session.")
 			.addSlider((slider) =>
 				slider
-					.setLimits(1, 12, 1)
+					.setLimits(1, 30, 1)
 					.setValue(this.plugin.settings.dailyTopicLimit)
 					.setDynamicTooltip()
 					.onChange(async (value) => {

@@ -28,7 +28,12 @@ import { computeSkillDeltas } from "./grader";
 import { getProviderAttachmentSupport } from "./provider-capabilities";
 import { generateQuestionsFromClient } from "./generation-loop";
 import type { LlmClient } from "./generation-loop";
-import { FlowSessionGenerator } from "./flow-engine";
+import {
+	FlowSessionGenerator,
+	planUpfrontBatches,
+	UPFRONT_CHUNK_SIZE,
+} from "./flow-engine";
+import { prepareGeneratedQuestionsForSession } from "./flow-calibration";
 
 function createClient(
 	provider: LlmProvider,
@@ -99,7 +104,8 @@ export async function createFlowSessionGenerator(
 	apiKey: string,
 	config: SessionConfig,
 	provider: LlmProvider,
-	settings: AdaptivePracticeSettings
+	settings: AdaptivePracticeSettings,
+	batchPlan?: number[]
 ): Promise<FlowSessionGenerator> {
 	assertModelConfigured(provider, settings);
 	const topicContexts = await buildSessionTopicContexts(app, config, provider, settings);
@@ -109,7 +115,7 @@ export async function createFlowSessionGenerator(
 		challengeReason: config.challengeReason,
 		intent: settings.practiceIntent,
 		questionFeedback: settings.practiceMemory.questionFeedback ?? [],
-	});
+	}, batchPlan);
 }
 
 export async function generateQuestions(
@@ -120,6 +126,29 @@ export async function generateQuestions(
 	settings: AdaptivePracticeSettings
 ): Promise<Question[]> {
 	assertModelConfigured(provider, settings);
+
+	// No provider reliably fits more than ~8 reason-rich questions inside the
+	// shared 8192-token output ceiling, so large up-front sessions generate in
+	// balanced chunks and merge — same request shape, never a truncation.
+	if (config.questionCount > UPFRONT_CHUNK_SIZE) {
+		const generator = await createFlowSessionGenerator(
+			app,
+			apiKey,
+			config,
+			provider,
+			settings,
+			planUpfrontBatches(config.questionCount)
+		);
+		const all: Question[] = [];
+		let batch = await generator.firstBatch();
+		while (batch.length > 0) {
+			all.push(...batch);
+			if (generator.exhausted) break;
+			batch = await generator.nextBatch([], all);
+		}
+		return prepareGeneratedQuestionsForSession(all, config);
+	}
+
 	const topicContexts = await buildSessionTopicContexts(app, config, provider, settings);
 	const prompt = buildPrompt(topicContexts, config.questionCount, {
 		challengeMode: config.challengeMode,

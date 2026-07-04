@@ -8,6 +8,7 @@ import {
 	FlowSignal,
 	flowSkillAdjustment,
 	planFlowBatches,
+	planUpfrontBatches,
 } from "../src/practice/flow-engine";
 import { parseQuestions } from "../src/llm/parse";
 import {
@@ -6479,10 +6480,114 @@ test("output token budget scales with question count within provider bounds", ()
 		4,
 		{ now: Date.UTC(2026, 5, 26) }
 	);
-	assert.equal(prompt.maxOutputTokens, 1200 + 4 * 650);
+	assert.equal(prompt.maxOutputTokens, 1200 + 4 * 800);
 	assert.equal(outputTokenBudget(1), 2048);
 	assert.equal(outputTokenBudget(20), 8192);
 	assert.equal(outputTokenBudget(0), 2048);
+	// The largest chunk a caller may send still fits under the shared ceiling.
+	assert.ok(outputTokenBudget(8) <= 8192);
+});
+
+test("upfront chunk plan keeps every request under the provider ceiling", () => {
+	assert.deepEqual(planUpfrontBatches(20), [7, 7, 6]);
+	assert.deepEqual(planUpfrontBatches(9), [5, 4]);
+	assert.deepEqual(planUpfrontBatches(8), [8]);
+	assert.deepEqual(planUpfrontBatches(30), [8, 8, 7, 7]);
+	for (const total of [9, 12, 16, 20, 25, 30]) {
+		const plan = planUpfrontBatches(total);
+		assert.equal(plan.reduce((sum, size) => sum + size, 0), total);
+		assert.ok(plan.every((size) => size <= 8 && size >= 2));
+	}
+});
+
+test("large upfront sessions drain through chunked generation without duplicates", async () => {
+	const topic = makeTopic({ title: "Any topic", skill: 60 });
+	const config: SessionConfig = {
+		topics: [topic],
+		questionCount: 20,
+		challengeMode: "steady",
+		challengeReason: "chunk test",
+	};
+	let calls = 0;
+	const client = {
+		generateQuestions: (prompt: StructuredPrompt): Promise<Question[]> => {
+			calls += 1;
+			const match = prompt.textPrompt.match(/Generate exactly (\d+) questions/);
+			const size = Number(match?.[1] ?? 0);
+			// Every chunked request must fit the ceiling on its own.
+			assert.ok(size <= 8 && size > 0, `chunk of ${size} exceeds the per-request cap`);
+			const call = calls;
+			return Promise.resolve(Array.from({ length: size }, (_, index) =>
+				makeQuestion({
+					id: `c${call}-${index}`,
+					questionText: `Given chunk scenario c${call}-${index}, trace the state change across steps and explain why the naive shortcut fails.`,
+					correctAnswer: `answer c${call}-${index}`,
+					sourceTopics: [topic.title],
+					sourceSubtopics: [`subtopic c${call}-${index}`],
+					difficulty: "medium",
+				})
+			));
+		},
+	};
+	const contexts = [makeTopicContext(topic, "Content with enough substance to question.")];
+	const generator = new FlowSessionGenerator(
+		client,
+		contexts,
+		config,
+		{},
+		planUpfrontBatches(config.questionCount)
+	);
+	const all: Question[] = [];
+	let batch = await generator.firstBatch();
+	while (batch.length > 0) {
+		all.push(...batch);
+		if (generator.exhausted) break;
+		batch = await generator.nextBatch([], all);
+	}
+	assert.equal(all.length, 20);
+	assert.equal(new Set(all.map((question) => question.id)).size, 20);
+	assert.equal(calls, 3);
+});
+
+test("daily selection reserves slots for new notes even under review backlog", () => {
+	const now = Date.UTC(2026, 5, 26, 12);
+	const reviewed = Array.from({ length: 10 }, (_, index) =>
+		makeTopic({ path: `old/due-${index}.md`, title: `Due note ${index}` })
+	);
+	const fresh = Array.from({ length: 5 }, (_, index) =>
+		makeTopic({ path: `new/fresh-${index}.md`, title: `Fresh note ${index}` })
+	);
+	const notes: Record<string, unknown> = {};
+	for (const topic of reviewed) {
+		notes[topic.path] = makeNoteState(topic, {
+			attempts: 5,
+			correct: 3,
+			lastPracticedAt: now - 9 * DAY_MS,
+			dueAt: now - DAY_MS,
+			lastSessionAccuracy: 0.6,
+		});
+	}
+	const memory = normalizePracticeMemory({
+		version: 1,
+		notes,
+		index: {},
+		daily: {
+			lastReminderDate: "",
+			lastReminderAttemptAt: 0,
+			lastPracticeDate: "",
+			streak: 0,
+			lastScanAt: now,
+		},
+		questionFeedback: [],
+	} as unknown as PracticeMemory);
+
+	const selected = selectDailyTopics([...reviewed, ...fresh], memory, 6, now);
+	const freshCount = selected.filter((topic) => topic.path.startsWith("new/")).length;
+	const dueCount = selected.filter((topic) => topic.path.startsWith("old/")).length;
+	assert.equal(selected.length, 6);
+	// Old behavior: 6 due, 0 new. Now fresh material always gets a foothold.
+	assert.equal(freshCount, 2);
+	assert.equal(dueCount, 4);
 });
 
 test("flow batch plan opens small and avoids one-question round-trips", () => {

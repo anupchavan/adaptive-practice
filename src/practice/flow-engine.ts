@@ -114,6 +114,27 @@ export function planFlowBatches(totalCount: number): number[] {
 	return batches;
 }
 
+/**
+ * Balanced chunks for generating a whole session up front. No chunk exceeds
+ * the size a single request can reliably fit inside the 8192-token output
+ * ceiling shared by every provider — a 20-question single call cannot fit and
+ * truncates mid-JSON, which is exactly the failure this prevents.
+ */
+export const UPFRONT_CHUNK_SIZE = 8;
+
+export function planUpfrontBatches(
+	totalCount: number,
+	maxChunk = UPFRONT_CHUNK_SIZE
+): number[] {
+	const total = Math.max(1, Math.floor(totalCount));
+	const chunkCount = Math.ceil(total / Math.max(1, maxChunk));
+	const base = Math.floor(total / chunkCount);
+	const extra = total % chunkCount;
+	return Array.from({ length: chunkCount }, (_, index) =>
+		base + (index < extra ? 1 : 0)
+	);
+}
+
 export function adjustTopicsForFlow(
 	topics: TopicNote[],
 	skillDelta: number
@@ -149,13 +170,14 @@ export class FlowSessionGenerator {
 		client: LlmClient,
 		contexts: TopicContext[],
 		config: SessionConfig,
-		promptOptions: FlowPromptOptions = {}
+		promptOptions: FlowPromptOptions = {},
+		batchPlan?: number[]
 	) {
 		this.client = client;
 		this.contexts = contexts;
 		this.config = config;
 		this.promptOptions = promptOptions;
-		this.batches = planFlowBatches(config.questionCount);
+		this.batches = batchPlan ?? planFlowBatches(config.questionCount);
 	}
 
 	get totalPlanned(): number {
