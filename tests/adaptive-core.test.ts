@@ -128,7 +128,7 @@ import {
 	shouldRequestChallengeTopUp,
 } from "../src/practice/flow-calibration";
 import {
-	isDeepShellHardQuestion,
+	isDeepHardQuestion,
 	normalizeQuestionDifficulty,
 } from "../src/practice/difficulty-quality";
 import {
@@ -757,8 +757,8 @@ test("flow calibration requires deep shell hard questions for 90-plus Linux skil
 		sourceSubtopics: [`deep hard subtopic ${index}`],
 	}));
 
-	assert.equal(isDeepShellHardQuestion(makeLinuxWeakHardQuestion("weak-hard-probe")), false);
-	assert.equal(isDeepShellHardQuestion(makeLinuxHardQuestion("deep-hard-probe")), true);
+	assert.equal(isDeepHardQuestion(makeLinuxWeakHardQuestion("weak-hard-probe")), false);
+	assert.equal(isDeepHardQuestion(makeLinuxHardQuestion("deep-hard-probe")), true);
 	assert.equal(shouldRequestChallengeTopUp(weakHardBatch, [topic], "steady"), true);
 	assert.match(
 		challengeShortfallMessage(weakHardBatch, [topic], "steady", 8),
@@ -841,15 +841,15 @@ test("flow calibration rejects repetitive high-skill Linux subtopics", () => {
 	);
 	const diverseCandidates = [
 		{
-			...makeLinuxHardQuestion("diverse-redirection"),
+			...makeLinuxHardQuestion("diverse-redirection-1"),
 			sourceSubtopics: ["redirection order", "stdout", "stderr"],
 		},
 		{
-			...makeLinuxHardQuestion("diverse-permissions"),
+			...makeLinuxHardQuestion("diverse-permissions-2"),
 			sourceSubtopics: ["umask", "chmod", "creation modes"],
 		},
 		{
-			...makeLinuxHardQuestion("diverse-signals"),
+			...makeLinuxHardQuestion("diverse-signals-3"),
 			sourceSubtopics: ["signals", "jobs", "SIGTERM vs SIGKILL"],
 		},
 	];
@@ -885,22 +885,22 @@ test("flow calibration rejects cosmetically varied hard Linux questions with one
 	}));
 	const diverseCandidates = [
 		{
-			...makeLinuxHardQuestion("cosmetic-redirection-repair"),
+			...makeLinuxHardQuestion("cosmetic-redirection-repair-1"),
 			sourceSubtopics: ["redirection order", "stdout", "stderr"],
 		},
 		{
-			...makeLinuxHardQuestion("cosmetic-permissions-repair"),
+			...makeLinuxHardQuestion("cosmetic-permissions-repair-2"),
 			sourceSubtopics: ["umask", "chmod", "creation modes"],
 		},
 		{
-			...makeLinuxHardQuestion("cosmetic-signals-repair"),
+			...makeLinuxHardQuestion("cosmetic-signals-repair-3"),
 			sourceSubtopics: ["signals", "jobs", "SIGTERM vs SIGKILL"],
 		},
 	];
 
 	assert.match(
 		challengeShortfallMessage(repeatedMechanic, [topic], "steady", 8),
-		/too narrow.*at least 2 Linux shell mechanics; got 1/
+		/too narrow.*at least 2 distinct question setups; got 1/
 	);
 
 	const balanced = selectFlowBalancedQuestions(
@@ -1479,15 +1479,15 @@ test("session generation repairs repetitive hard Linux subtopics for skill 83", 
 		),
 		[
 			{
-				...makeLinuxHardQuestion("repair-redirection"),
+				...makeLinuxHardQuestion("repair-redirection-1"),
 				sourceSubtopics: ["redirection order", "stdout", "stderr"],
 			},
 			{
-				...makeLinuxHardQuestion("repair-permissions"),
+				...makeLinuxHardQuestion("repair-permissions-2"),
 				sourceSubtopics: ["umask", "chmod", "creation modes"],
 			},
 			{
-				...makeLinuxHardQuestion("repair-signals"),
+				...makeLinuxHardQuestion("repair-signals-3"),
 				sourceSubtopics: ["signals", "jobs", "SIGTERM vs SIGKILL"],
 			},
 		],
@@ -1633,8 +1633,8 @@ test("session generation treats shallow Linux comparison questions as too easy f
 	assert.equal(challengeShortfallMessage(questions, [topic], "steady", 8), "");
 });
 
-test("session generation accepts shell source aliases for high-skill Linux coverage", async () => {
-	const linux = makeTopic({ title: "Linux Commands", skill: 83 });
+test("session generation accepts note-alias source labels for high-skill coverage", async () => {
+	const linux = makeTopic({ title: "Linux Commands", skill: 83, aliases: ["Shell"] });
 	const novice = makeTopic({ title: "Intro Networks", skill: 25 });
 	const config: SessionConfig = {
 		topics: [linux, novice],
@@ -3583,18 +3583,21 @@ test("reconcileSourceTopics matches frontmatter aliases when title differs", () 
 	);
 });
 
-test("reconcileSourceTopics maps shell aliases to selected Linux command notes", () => {
+test("reconcileSourceTopics maps note aliases and loose title mentions to the note", () => {
 	const linux = makeTopic({
 		path: "ocr_output/L01-LinuxCommands/Linux Commands.md",
 		title: "Linux Commands",
 		skill: 83,
+		aliases: ["Shell", "Bash", "CLI"],
 	});
 	const networks = makeTopic({
 		path: "networks/Intro Networks.md",
 		title: "Intro Networks",
 	});
 
-	for (const source of ["Shell", "Bash", "Terminal", "Linux shell", "Shell commands", "CLI"]) {
+	// Frontmatter aliases resolve exactly; bare mentions of a title token
+	// ("Linux") resolve by containment — no domain knowledge involved.
+	for (const source of ["Shell", "Bash", "CLI", "Linux", "Linux Commands.md", "commands"]) {
 		assert.deepEqual(
 			reconcileSourceTopics([source], [linux, networks]),
 			[linux.title],
@@ -3724,8 +3727,8 @@ test("question quality gate asks challenge retries for genuinely hard questions"
 	assert.match(prompt.textPrompt, /direct complexity recall/);
 	assert.match(prompt.textPrompt, /one-branch checks/);
 	assert.match(prompt.textPrompt, /\[medium\] Explain why `ls -a` shows dotfiles/);
-	assert.match(prompt.textPrompt, /do not repeat direct command-purpose, option-purpose, pipe-definition/);
-	assert.match(prompt.textPrompt, /command-choice stems as medium/);
+	assert.match(prompt.textPrompt, /do not repeat name-the-tool, option-purpose, definition/);
+	assert.match(prompt.textPrompt, /comparison stems as medium/);
 });
 
 test("difficulty calibration treats shell recall as easy but multi-constraint shell reasoning as hard", () => {
@@ -5083,7 +5086,7 @@ test("buildPrompt keeps high-skill Linux warmups medium-hard", () => {
 	assert.match(prompt.textPrompt, /Session mode: warm-up/);
 	assert.match(prompt.textPrompt, /Target mix for this session: 0 easy, 4 medium, 4 hard/);
 	assert.match(prompt.textPrompt, /High-skill rule: do not generate easy questions/);
-	assert.match(prompt.textPrompt, /For high-skill Linux\/shell notes, hard questions should use command construction/);
+	assert.match(prompt.textPrompt, /When a high-skill note teaches procedures, tools, notation, or methods, hard questions must require doing/);
 });
 
 test("buildPrompt includes stretch calibration for fluent daily review", () => {
@@ -5181,8 +5184,8 @@ test("buildPrompt targets hard shell practice for high-skill Linux notes", () =>
 
 	assert.match(prompt.textPrompt, /Target mix for this session: 0 easy, 2 medium, 6 hard/);
 	assert.match(prompt.textPrompt, /High-skill rule: do not generate easy questions/);
-	assert.match(prompt.textPrompt, /For high-skill Linux\/shell notes, hard questions should use command construction/);
-	assert.match(prompt.textPrompt, /each option should include the command plus its reasoning\/trap/);
+	assert.match(prompt.textPrompt, /When a high-skill note teaches procedures, tools, notation, or methods, hard questions must require doing/);
+	assert.match(prompt.textPrompt, /each option should pair the choice with its reasoning or trap/);
 	assert.doesNotMatch(prompt.textPrompt, /<concept_targets>\n(?:.|\n)*- License/);
 	assert.doesNotMatch(prompt.textPrompt, /<concept_targets>\n(?:.|\n)*- Agenda/);
 	assert.doesNotMatch(prompt.textPrompt, /<outline>\n(?:.|\n)*- License/);
@@ -5200,7 +5203,7 @@ test("buildPrompt raises shell depth guidance for 90-plus Linux notes", () => {
 	);
 
 	assert.match(prompt.textPrompt, /Target mix for this session: 0 easy, 1 medium, 7 hard/);
-	assert.match(prompt.textPrompt, /For 90\+ Linux\/shell topics, a hard question must combine at least two reasoning moves/);
+	assert.match(prompt.textPrompt, /For topics at skill 90\+, a hard question must combine at least two reasoning moves/);
 });
 
 test("buildPrompt keeps high-skill Linux guidance in mixed-skill sessions", () => {
@@ -5220,7 +5223,7 @@ test("buildPrompt keeps high-skill Linux guidance in mixed-skill sessions", () =
 
 	assert.match(prompt.textPrompt, /Target mix for this session: 2 easy, 4 medium, 2 hard/);
 	assert.match(prompt.textPrompt, /High-skill topic rule: for Linux Commands \(83\/100\), do not generate easy questions/);
-	assert.match(prompt.textPrompt, /For high-skill Linux\/shell notes, hard questions should use command construction/);
+	assert.match(prompt.textPrompt, /When a high-skill note teaches procedures, tools, notation, or methods, hard questions must require doing/);
 });
 
 test("buildPrompt focuses the real high-skill Linux Commands note on shell mechanics", () => {
@@ -5277,23 +5280,19 @@ test("buildPrompt focuses the real high-skill Linux Commands note on shell mecha
 	);
 	assert.match(prompt.textPrompt, new RegExp(`skill: ${escapeRegExp(String(skill))}`));
 	assert.match(prompt.textPrompt, /High-skill rule: do not generate easy questions/);
-	assert.match(prompt.textPrompt, /For high-skill Linux\/shell notes, hard questions should use command construction/);
+	assert.match(prompt.textPrompt, /When a high-skill note teaches procedures, tools, notation, or methods, hard questions must require doing/);
+	// Boilerplate is excluded by general low-value filters, not by any
+	// vault-specific heading knowledge.
 	assert.doesNotMatch(conceptBlock, /License|Agenda/);
-	assert.doesNotMatch(sectionsBlock, /# License|# Agenda|# uname\b|# Login\b/);
-	assert.match(sectionsBlock, /# Shell wildcard characters/);
-	assert.match(sectionsBlock, /# Output redirection/);
-	assert.match(sectionsBlock, /# Error redirection/);
-	assert.match(sectionsBlock, /# Pipes/);
-	assert.match(sectionsBlock, /# Command substitution/);
-	assert.match(sectionsBlock, /# Arguments' injection/);
-	assert.match(sectionsBlock, /Use command \[options\] \[args\] > filename/);
-	assert.match(sectionsBlock, /Use `command \[options\] \[args\] 2> filename`/);
-	assert.match(sectionsBlock, /\$ ls -l \| cat/);
-	assert.match(sectionsBlock, /awk -F: '\{print \$7\}' \| sort \| uniq \| wc -l/);
-	assert.match(sectionsBlock, /\$ kill `pidof firefox`/);
-	assert.match(sectionsBlock, /xargs du -c \| tail -1/);
-	assert.match(conceptBlock, /Redirection, Pipes and Filters/);
-	assert.match(conceptBlock, /Sending signals to processes|Default permissions/);
+	assert.doesNotMatch(sectionsBlock, /# License|# Agenda/);
+	// A large note renders a real spread of sections with technical substance,
+	// and the outline names what the excerpts omit.
+	const renderedHeadings = sectionsBlock.match(/^#{1,6} .+$/gm) ?? [];
+	assert.ok(renderedHeadings.length >= 8, `rendered ${renderedHeadings.length} sections`);
+	assert.match(sectionsBlock, /`[^`\n]+`|\$ [a-z]/);
+	assert.match(prompt.textPrompt, /<outline>/);
+	assert.match(prompt.textPrompt, /additional sections omitted from excerpts/);
+	assert.ok(conceptBlock.trim().split("\n").length >= 6, "expected several concept targets");
 });
 
 test("session generation repairs fake-medium output for the real high-skill Linux Commands note", async () => {
@@ -5642,7 +5641,7 @@ function makeLinuxFakeMediumRecallQuestion(id: string): Question {
 			sourceSubtopics: ["Processes and signals"],
 		},
 	];
-	const variant = variants[Math.abs(hashString(id)) % variants.length]!;
+	const variant = pickVariant(variants, id);
 	return makeQuestion({
 		id,
 		...variant,
@@ -5685,7 +5684,7 @@ function makeLinuxSimplePredictionQuestion(id: string): Question {
 			sourceSubtopics: ["Paths", "cd", "pwd"],
 		},
 	];
-	const variant = variants[Math.abs(hashString(id)) % variants.length]!;
+	const variant = pickVariant(variants, id);
 	return makeQuestion({
 		id,
 		...variant,
@@ -5727,7 +5726,7 @@ function makeLinuxBasicSectionQuestion(id: string): Question {
 			sourceSubtopics: ["Manual pages"],
 		},
 	];
-	const variant = variants[Math.abs(hashString(id)) % variants.length]!;
+	const variant = pickVariant(variants, id);
 	return makeQuestion({
 		id,
 		...variant,
@@ -5875,6 +5874,7 @@ function makeLinuxHardQuestion(id: string): Question {
 			questionText: [
 				`Given case ${id}: \`{ printf "a\\nb\\n"; printf "warn\\n" >&2; } 2>producer.err | grep b >out.txt 2>grep.err\`.`,
 				"Predict terminal output and the contents of all three files, then explain which process each redirection applies to.",
+				"Debug why the tempting belief that both error files stay empty fails.",
 			].join(" "),
 			options: [
 				"Terminal prints nothing; `producer.err` contains `warn`; `out.txt` contains `b`; `grep.err` is empty",
@@ -5887,13 +5887,26 @@ function makeLinuxHardQuestion(id: string): Question {
 			sourceSubtopics: ["pipes", "stdout", "stderr", "process-local redirection"],
 		},
 	];
-	const variant = variants[Math.abs(hashString(id)) % variants.length]!;
+	const variant = pickVariant(variants, id);
 	return makeQuestion({
 		id,
 		...variant,
 		sourceTopics: ["Linux Commands"],
 		difficulty: "hard",
 	});
+}
+
+/**
+ * Deterministic variant selection: a trailing number in the id picks the
+ * variant directly, so diversity-sensitive tests control which scenario each
+ * fixture uses; ids without digits fall back to the string hash.
+ */
+function pickVariant<T>(variants: T[], id: string): T {
+	const digits = id.match(/(\d+)\s*$/)?.[1];
+	const index = digits !== undefined
+		? Number(digits) % variants.length
+		: Math.abs(hashString(id)) % variants.length;
+	return variants[index]!;
 }
 
 function makeQuestion(overrides: Partial<Question> = {}): Question {
@@ -6380,6 +6393,78 @@ test("FSRS grows stability faster for higher-skill (easier) notes", () => {
 	const easy = nextStabilityDays(10, 10, 90, 1, 0.8, 0);
 	const hard = nextStabilityDays(10, 10, 30, 1, 0.8, 0);
 	assert.ok(easy > hard);
+});
+
+test("editing a practiced note halves its stability and makes it due", () => {
+	const practicedAt = Date.UTC(2026, 5, 20, 12);
+	const editedAt = Date.UTC(2026, 5, 25, 12);
+	const now = Date.UTC(2026, 5, 26, 12);
+	const topic = makeTopic({ updatedAt: editedAt });
+	const memory = normalizePracticeMemory({
+		version: 1,
+		notes: {
+			[topic.path]: makeNoteState(topic, {
+				updatedAt: practicedAt - 1,
+				lastPracticedAt: practicedAt,
+				dueAt: now + 30 * 24 * 60 * 60 * 1000,
+				attempts: 4,
+				correct: 4,
+				stabilityDays: 20,
+			}),
+		},
+		index: {},
+		daily: {
+			lastReminderDate: "",
+			lastReminderAttemptAt: 0,
+			lastPracticeDate: "",
+			streak: 0,
+			lastScanAt: 0,
+		},
+		questionFeedback: [],
+	} as unknown as PracticeMemory);
+
+	// No results: only the reconcile against the edited topic runs.
+	const next = updatePracticeMemoryAfterSession(memory, [topic], [], [], now);
+	const state = next.notes[topic.path];
+	assert.ok(state);
+	assert.equal(state.stabilityDays, 10);
+	assert.ok(state.dueAt <= now);
+
+	// Reconciling again without a new edit must not halve stability again.
+	const again = updatePracticeMemoryAfterSession(next, [topic], [], [], now + 1000);
+	assert.equal(again.notes[topic.path]?.stabilityDays, 10);
+});
+
+test("target retention setting stretches or tightens review intervals", () => {
+	const now = Date.UTC(2026, 5, 26, 12);
+	const topic = makeTopic({ skill: 80 });
+	const delta: SkillDelta = {
+		path: topic.path,
+		title: topic.title,
+		before: topic.skill,
+		after: topic.skill,
+	};
+	const results = [
+		makeResult(
+			makeQuestion({ sourceTopics: [topic.title], difficulty: "medium" }),
+			{ isCorrect: true, timeTakenMs: 30_000 }
+		),
+	];
+
+	const relaxed = updatePracticeMemoryAfterSession(
+		undefined, [topic], results, [delta], now, { targetRetention: 0.8 }
+	);
+	const intensive = updatePracticeMemoryAfterSession(
+		undefined, [topic], results, [delta], now, { targetRetention: 0.95 }
+	);
+	const relaxedDue = relaxed.notes[topic.path]?.dueAt ?? 0;
+	const intensiveDue = intensive.notes[topic.path]?.dueAt ?? 0;
+	assert.ok(relaxedDue > intensiveDue);
+	// Same stability either way — only the due date moves.
+	assert.equal(
+		relaxed.notes[topic.path]?.stabilityDays,
+		intensive.notes[topic.path]?.stabilityDays
+	);
 });
 
 async function runAllTests(): Promise<void> {

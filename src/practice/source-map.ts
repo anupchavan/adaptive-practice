@@ -75,35 +75,7 @@ function topicAliases(topic: TopicNote): string[] {
 		topic.path,
 		withoutExtension,
 		basename,
-		...domainAliases(topic),
 	].map(normalizeTopicKey).filter(Boolean);
-}
-
-function domainAliases(topic: TopicNote): string[] {
-	const labels = [
-		topic.title,
-		topic.path,
-		...(topic.aliases ?? []),
-	]
-		.map(normalizeTopicKey)
-		.join(" ");
-	if (!/\b(linux|unix|bash|shell|terminal)\b/.test(labels)) {
-		return [];
-	}
-	return [
-		"Linux",
-		"Linux shell",
-		"Linux commands",
-		"Shell",
-		"Shell commands",
-		"Bash",
-		"Bash shell",
-		"Terminal",
-		"Terminal commands",
-		"Unix shell",
-		"Command line",
-		"CLI",
-	];
 }
 
 function topicSimilarity(a: string, b: string): number {
@@ -113,11 +85,25 @@ function topicSimilarity(a: string, b: string): number {
 	const aTokens = new Set(a.split(" ").filter((token) => token.length > 2));
 	const bTokens = new Set(b.split(" ").filter((token) => token.length > 2));
 	if (aTokens.size === 0 || bTokens.size === 0) return 0;
+	// A short label whose significant tokens all appear in the other label is a
+	// loose mention of the same note ("Linux" → "Linux Commands", "Sorting" →
+	// "Sorting Algorithms"), whatever the domain.
+	if (containsAllTokens(bTokens, aTokens) || containsAllTokens(aTokens, bTokens)) {
+		return 0.7;
+	}
 	let overlap = 0;
 	for (const token of aTokens) {
 		if (bTokens.has(token)) overlap++;
 	}
 	return overlap / Math.max(aTokens.size, bTokens.size);
+}
+
+function containsAllTokens(haystack: Set<string>, needles: Set<string>): boolean {
+	if (needles.size === 0 || needles.size > haystack.size) return false;
+	for (const needle of needles) {
+		if (!haystack.has(needle)) return false;
+	}
+	return true;
 }
 
 function normalizeStringList(values: string[]): string[] {

@@ -35,6 +35,8 @@ interface SessionTopicStats {
 
 interface PracticeMemoryUpdateOptions {
 	countDailyCredit?: boolean;
+	/** Desired recall probability when a note comes due (0.7–0.97). */
+	targetRetention?: number;
 }
 
 export interface PracticeMeaningfulnessEvaluation {
@@ -117,6 +119,14 @@ export function reconcilePracticeMemory(
 				? Math.min(existing.dueAt, now)
 				: existing.dueAt
 			: now;
+		// An edit after practice partially invalidates the memory model for the
+		// note: some content is new, some is intact. Halve stability (rather than
+		// resetting it) so the note comes back soon but recovers quickly if the
+		// change was minor. Fires once per observed edit, because updatedAt is
+		// persisted below.
+		const stabilityDays = practicedAfterKnownUpdate
+			? partialStabilityReset(existing?.stabilityDays ?? 0)
+			: existing?.stabilityDays ?? 0;
 
 		notes[topic.path] = {
 			path: topic.path,
@@ -130,7 +140,7 @@ export function reconcilePracticeMemory(
 			correct: existing?.correct ?? 0,
 			skipped: existing?.skipped ?? 0,
 			correctStreak: existing?.correctStreak ?? 0,
-			stabilityDays: existing?.stabilityDays ?? 0,
+			stabilityDays,
 			averageTimeMs: existing?.averageTimeMs ?? 0,
 			lastSessionAccuracy: existing?.lastSessionAccuracy ?? 0,
 			lastSessionFluency: existing?.lastSessionFluency ?? 0,
@@ -402,7 +412,10 @@ export function updatePracticeMemoryAfterSession(
 			sessionFluency,
 			skipRate
 		);
-		const intervalDays = Math.max(1, Math.round(intervalForRetention(newStability)));
+		const intervalDays = Math.max(
+			1,
+			Math.round(intervalForRetention(newStability, options.targetRetention))
+		);
 
 		state.skill = skill;
 		state.attempts += stats.attempts;
@@ -945,6 +958,11 @@ function initialStabilityDays(grade: number, difficulty: number): number {
 	const base = 0.5 + grade * 4; // 0.5 .. 4.5 days
 	const difficultyScale = 1.1 - (difficulty - 1) / 18; // ~1.1 (easy) .. ~0.6 (hard)
 	return Math.max(MIN_STABILITY_DAYS, base * difficultyScale);
+}
+
+export function partialStabilityReset(stabilityDays: number): number {
+	if (stabilityDays <= 0) return stabilityDays;
+	return Math.max(MIN_STABILITY_DAYS, stabilityDays * 0.5);
 }
 
 export function nextStabilityDays(

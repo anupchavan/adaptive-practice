@@ -130,7 +130,7 @@ Difficulty is domain-relative:
 
 **Medium** = 2-3 connected steps, choosing a method, interpreting a diagram/code/pathway, or spotting a common misconception.
 
-**Hard** = genuinely non-routine transfer to a new setting, edge cases, proof/counterexample, multi-topic synthesis, debugging from symptoms, or a trap a competent learner might miss. A hard CS question should usually require tracing an algorithm, preserving an invariant under an awkward case, deriving complexity from a failure mode, comparing implementations, or finding a counterexample.
+**Hard** = genuinely non-routine transfer to a new setting, edge cases, proof/counterexample, multi-topic synthesis, debugging from symptoms, or a trap a competent learner might miss.
 
 Label a question "hard" only if a prepared learner needs at least two substantial reasoning moves. Do not mark a direct fact lookup, single formula substitution, or one-iteration trace as hard. Hard distractors must be tempting for a real reason, not obviously silly.
 
@@ -140,13 +140,16 @@ Adjust the distribution based on skill level and recent results:
 - Skill 61-80: 10% easy, 40% medium, 50% hard
 - Skill 81-100: 0% easy, 25% medium, 75% hard
 
-## Domain rules
+## Depth is domain-relative
 
-- Computer science: prefer invariants, complexity, edge cases, trace tables, code behavior, debugging, and implementation tradeoffs. Do not ask biographical trivia unless the note is explicitly historical.
-- Mathematics: prefer problem solving, representation changes, counterexamples, proof sketches, and method selection. Interleave similar-looking problem types.
-- Physics: prefer modelling assumptions, units, limiting cases, diagrams, and numerical reasoning.
-- Chemistry: prefer mechanism/structure-property reasoning, equilibria, thermodynamics, trends, and exceptions.
-- Humanities/history: factual recall can be valid when facts are core, but connect facts to chronology, causality, comparison, or interpretation.
+Infer each note's field and what mastery means there from its structure, vocabulary, and emphasis, then test the kind of thinking that field rewards. Classify per question, not per note — one note can mix these:
+
+- Procedural material (tools, commands, syntax, notation, protocols, techniques): have the learner construct or debug a solution under constraints, predict outputs or resulting state, pick the right technique for a scenario, or explain why a tempting alternative fails. Never merely ask to name the tool, option, or step.
+- Quantitative/formal material (mathematics, physics, engineering, algorithms, logic): have the learner solve, derive, prove or refute, analyze limiting and edge cases, translate between representations, or select and justify a method. Interleave problem types that look similar but require different methods.
+- Conceptual/mechanistic material (natural and social sciences, medicine, systems): have the learner explain mechanisms, predict what changes when a variable changes, connect structure to function or property, or say what evidence distinguishes competing explanations.
+- Factual/interpretive material (history, law, humanities, arts, language): core facts are fair game when the field genuinely rewards them, but connect them to chronology, causation, comparison, significance, or interpretation whenever the note supports it.
+
+Aim questions at where the note's substance is. If a note opens with a brief introduction and then goes deep, quiz the depth, not the introduction. If the whole note is genuinely introductory, test the definitions and simple applications it actually contains instead of inventing depth it cannot support. Biographical or naming trivia is only valid when the note itself treats it as central.
 
 ## Formatting and media
 
@@ -231,7 +234,7 @@ function challengeModeInstructions(mode: DailyChallengeMode): string {
 	if (mode === "stretch") {
 		return [
 			"Calibration rule: this is a stretch session after strong recent accuracy and fluency.",
-			"Favor transfer: mostly medium/hard questions, edge cases, mixed topics, proof/counterexample, diagrams, code traces, or JEE-style traps.",
+			"Favor transfer: mostly medium/hard questions, edge cases, mixed topics, proof/counterexample, diagrams, traces, or the classic traps of the field.",
 			"Keep the questions answerable from the notes, but avoid direct copy-paste recall unless a fact is genuinely central.",
 		].join("\n");
 	}
@@ -262,21 +265,19 @@ function renderDifficultyTargetGuidance(
 			.join(", ");
 		lines.push(
 			allHighSkill
-				? "High-skill rule: do not generate easy questions for this session. If a stem can be answered by recalling one command, one definition, one branch update, or one complexity label, rewrite it until it requires transfer."
-				: `High-skill topic rule: for ${topicNames}, do not generate easy questions. Questions from these topics should be medium/hard only, and most should be hard. If a stem can be answered by recalling one command, one definition, one branch update, or one complexity label, rewrite it until it requires transfer.`
+				? "High-skill rule: do not generate easy questions for this session. If a stem can be answered by recalling a single name, definition, formula, option, or label, rewrite it until it requires transfer."
+				: `High-skill topic rule: for ${topicNames}, do not generate easy questions. Questions from these topics should be medium/hard only, and most should be hard. If a stem can be answered by recalling a single name, definition, formula, option, or label, rewrite it until it requires transfer.`
 		);
 		lines.push(
-			"For each high-skill topic, spread questions across multiple concrete sourceSubtopics instead of making the whole session variations of one trap or section."
+			"For each high-skill topic, spread questions across multiple concrete sourceSubtopics and genuinely different setups instead of making the whole session variations of one trap, scenario, or section."
 		);
-		if (highSkillTopics.some(isShellPracticeTopic)) {
-				lines.push(
-					"For high-skill Linux/shell notes, hard questions should use command construction, output prediction, debugging symptoms, quoting/wildcards, pipes/redirection, stdin/stdout/stderr, find/grep/xargs, permissions/umask/chmod, process/job/signal behavior, or hard-link/symlink/inode reasoning. Avoid bare command-name recall, shallow option-purpose questions, shallow command comparisons, and MCQs where the learner merely picks the right command. If a hard shell question is MCQ, each option should include the command plus its reasoning/trap so the selected answer tests why it works, not just which command looks right."
-				);
-			if (highSkillTopics.some((topic) => topic.note.skill >= 90)) {
-				lines.push(
-					"For 90+ Linux/shell topics, a hard question must combine at least two reasoning moves, such as constructing or debugging a command under constraints plus predicting stdout/stderr/file/process state or explaining why a tempting command fails."
-				);
-			}
+		lines.push(
+			"When a high-skill note teaches procedures, tools, notation, or methods, hard questions must require doing: construct or debug a solution under constraints, predict the output or resulting state, or explain why a tempting alternative fails. If such a question is MCQ, each option should pair the choice with its reasoning or trap, so the answer tests why it works rather than which name looks right."
+		);
+		if (highSkillTopics.some((topic) => topic.note.skill >= 90)) {
+			lines.push(
+				"For topics at skill 90+, a hard question must combine at least two reasoning moves, such as constructing or debugging under constraints plus predicting the resulting output/state, or solving plus explaining why a plausible alternative fails."
+			);
 		}
 	}
 
@@ -286,19 +287,6 @@ function renderDifficultyTargetGuidance(
 function averageTopicSkill(topics: TopicNote[]): number {
 	if (topics.length === 0) return 50;
 	return topics.reduce((sum, topic) => sum + topic.skill, 0) / topics.length;
-}
-
-function isShellPracticeTopic(topic: TopicContext): boolean {
-	const structureText = topic.structure
-		? [
-			topic.structure.title,
-			...topic.structure.headings.map((heading) => heading.heading),
-			topic.structure.cleanedText.slice(0, 4000),
-		].join("\n")
-		: topic.content.slice(0, 4000);
-	return /\b(linux|unix|bash|shell|command|cli|terminal|process|job|signal|file system|permission|chmod|umask|redirection|pipe|grep|find|xargs|stdin|stdout|stderr)\b/i.test(
-		`${topic.note.title}\n${structureText}`
-	);
 }
 
 function renderQuestionFeedbackGuidance(
@@ -553,12 +541,19 @@ function conceptTargetPriority(
 		return Number.NEGATIVE_INFINITY;
 	}
 	let score = 0;
-	if (highSkill && isShellChallengeText(key)) score += 8;
-	if (/\b(invariant|edge case|failure mode|trap|complexity|permission|redirection|pipe|signal|wildcard|substitution)\b/.test(key)) {
-		score += 3;
-	}
+	if (hasReasoningCue(key)) score += highSkill ? 4 : 3;
 	if (key.split(" ").length >= 2) score += 0.5;
 	return score;
+}
+
+/**
+ * Concept/section names that promise reasoning depth rather than enumeration,
+ * in any field: failure modes, tradeoffs, mechanisms, proofs, exceptions.
+ */
+function hasReasoningCue(normalizedText: string): boolean {
+	return /\b(invariant|edge case|corner case|failure|failure mode|trap|pitfall|gotcha|misconception|complexity|tradeoff|trade off|proof|derivation|mechanism|exception|limitation|caveat|comparison|versus|debug|why|analysis|interaction)\b/.test(
+		normalizedText
+	);
 }
 
 function renderSections(topic: TopicContext, contentBudget: number, now: number): string {
@@ -737,34 +732,27 @@ function isLowValueHeading(heading: string, noteTitle: string): boolean {
 	return /^(body|license|agenda|table of contents|contents|references|bibliography|q a|q and a|questions|thank you|appendix)$/.test(key);
 }
 
+/**
+ * How promising a section is as hard-question material for a high-skill
+ * learner, judged from domain-neutral depth signals: reasoning-cue language,
+ * worked/applied detail, and formal notation (code, math, tables) in the raw
+ * content. Enumerative name-and-purpose sections naturally score ~0.
+ */
 function hardChallengeSectionPriority(
 	section: NoteStructure["sections"][number],
 	topic: TopicContext
 ): number {
 	if (topic.note.skill < 75) return 0;
-	const heading = normalizeHeading(section.heading);
-	if (isBasicShellRecallHeading(heading)) return 0;
-	const text = normalizeHeading(`${section.heading} ${section.content.slice(0, 2000)}`);
+	const raw = section.content.slice(0, 2000);
+	const text = normalizeHeading(`${section.heading} ${raw}`);
 	let score = 0;
-	if (isShellChallengeText(text)) score += 3.5;
-	if (/\b(edge case|trap|failure|debug|symptom|invariant|why|compare|construct)\b/.test(text)) score += 1.5;
-	if (/\b(example|syntax|option|argument|output|exit status|error)\b/.test(text)) score += 0.8;
+	if (hasReasoningCue(text)) score += 2;
+	if (/\b(edge case|trap|failure|debug|symptom|invariant|why|compare|construct|derive|counterexample)\b/.test(text)) score += 1.5;
+	if (/\b(example|worked|walkthrough|application|apply|analysis|case study|derivation|step by step)\b/.test(text)) score += 0.8;
+	// Causal/mechanism prose separates explanation from bare enumeration.
+	if (/\b(because|so that|prevents?|instead of|rather than|otherwise|whereas|which means|allows?|causes?|depends on|affects?)\b/.test(text)) score += 0.8;
+	if (/```|~~~|\$[^$\n]+\$|\n\s*\|.+\|/.test(raw) || /`[^`\n]+`/.test(raw)) score += 1.2;
 	return Math.min(5, score);
-}
-
-function isBasicShellRecallHeading(heading: string): boolean {
-	return /^(login|login session logout|uname|session identification|other sessions|session history|logout|bash shell|shell|commands|internal commands|external commands|users|groups|home directories|paths|file operations|listing files|viewing files|creating files|creating directories|copying files|moving files|renaming files|removing files)$/.test(heading);
-}
-
-function isShellChallengeText(text: string): boolean {
-	const groups = [
-		/\b(pipe|pipes|pipeline|redirection|redirect|stdin|stdout|stderr|file descriptor|tee|filter|xargs|command substitution)\b/,
-		/\b(permission|permissions|chmod|umask|owner|group|execute bit|sticky bit|setuid|setgid)\b/,
-		/\b(process|processes|job|jobs|signal|signals|kill|pkill|pgrep|pidof|foreground|background)\b/,
-		/\b(find|grep|sort|uniq|cut|awk|sed|wildcard|wildcards|glob|globbing|quote|quoting)\b/,
-		/\b(hard link|symbolic link|symlink|inode|mount|path|directory tree)\b/,
-	];
-	return groups.some((pattern) => pattern.test(text));
 }
 
 function normalizeHeading(value: string): string {

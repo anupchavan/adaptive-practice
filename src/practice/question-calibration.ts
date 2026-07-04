@@ -38,22 +38,7 @@ export function calibrateQuestionForPractice(
 		sourceSubtopics,
 	};
 	calibrated.difficulty = normalizeQuestionDifficulty(calibrated);
-	return calibrateHighSkillLinuxDifficulty(calibrated, topics);
-}
-
-function calibrateHighSkillLinuxDifficulty(
-	question: Question,
-	topics: TopicNote[]
-): Question {
-	if (
-		question.difficulty === "easy" ||
-		!targetsHighSkillLinuxTopic(question, topics) ||
-		!isBasicLinuxSectionQuestion(question) ||
-		hasHardLinuxMechanicsCue(question)
-	) {
-		return question;
-	}
-	return { ...question, difficulty: "easy" };
+	return calibrated;
 }
 
 export function isLowConceptRecallQuestion(
@@ -432,56 +417,6 @@ function endsWithTokens(candidate: string[], suffix: string[]): boolean {
 
 function topicMatchesContext(sourceTopic: string, note: TopicNote): boolean {
 	return topicLabelKeys(note).some((label) => titlesOverlap(sourceTopic, label));
-}
-
-function targetsHighSkillLinuxTopic(
-	question: Question,
-	topics: TopicNote[]
-): boolean {
-	return topics.some((topic) => {
-		if (topic.skill <= 80 || !isLinuxPracticeTopic(topic)) return false;
-		if (question.sourceTopics.length === 0) {
-			return topics.length === 1;
-		}
-		return question.sourceTopics.some((sourceTopic) =>
-			topicMatchesContext(sourceTopic, topic)
-		);
-	});
-}
-
-function isLinuxPracticeTopic(topic: TopicNote): boolean {
-	const labels = [topic.title, ...(topic.aliases ?? [])]
-		.map(normalizeText)
-		.join(" ");
-	return /\b(linux|unix|bash|shell|terminal|command|cli)\b/.test(labels);
-}
-
-function isBasicLinuxSectionQuestion(question: Question): boolean {
-	const subtopics = (question.sourceSubtopics ?? []).map(normalizeText);
-	if (subtopics.some(isBasicLinuxSectionKey)) return true;
-
-	const combined = normalizeText([
-		question.questionText,
-		question.correctAnswer,
-		question.explanation,
-		...(question.options ?? []),
-	].join(" "));
-	return /\b(?:ssh|telnet|rsh|rlogin|uname|tty|who|last|logout|manual pages?|man section|apropos)\b/.test(combined);
-}
-
-function isBasicLinuxSectionKey(value: string): boolean {
-	return /^(?:login|login session logout|uname|session identification|other sessions|session history|logout|manuals?|manual pages?|apropos|commands|internal commands|external commands)$/.test(value);
-}
-
-function hasHardLinuxMechanicsCue(question: Question): boolean {
-	const combined = normalizeText([
-		question.questionText,
-		question.correctAnswer,
-		question.explanation,
-		...(question.options ?? []),
-		...(question.sourceSubtopics ?? []),
-	].join(" "));
-	return /\b(?:construct|debug|fix|failure|fails|trap|permission denied|stderr|stdout|file descriptor|pipeline|pipe|xargs|race|redirection order|spaces|quoting|quote|glob|wildcard|null delimited|umask|chmod|inode|symbolic link|hard link)\b/.test(combined);
 }
 
 function topicLabelKeys(topic: TopicNote): string[] {

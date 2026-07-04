@@ -75,6 +75,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 	private sessionGenerationInProgress = false;
 	private sessionGenerationId = 0;
 	private dailyReminderNotice: Notice | null = null;
+	private practiceStatusBarEl: HTMLElement | null = null;
 	private dailyReminderCheckInProgress = false;
 	private unloading = false;
 	private practicePlanRefresh: Promise<TopicNote[]> | null = null;
@@ -118,6 +119,17 @@ export default class AdaptivePracticePlugin extends Plugin {
 		this.registerInterval(window.setInterval(() => {
 			void this.refreshPracticePlan(false);
 		}, 30 * 60 * 1000));
+
+		this.practiceStatusBarEl = this.addStatusBarItem();
+		this.practiceStatusBarEl.addClass("mod-clickable");
+		this.practiceStatusBarEl.setAttribute(
+			"aria-label",
+			"Practice streak and due notes. Click to open the dashboard."
+		);
+		this.practiceStatusBarEl.addEventListener("click", () => {
+			void this.openDashboard();
+		});
+		this.updatePracticeStatusBar();
 
 		this.addRibbonIcon("graduation-cap", "Start practice session", () => {
 			this.openSetupModal();
@@ -704,8 +716,12 @@ export default class AdaptivePracticePlugin extends Plugin {
 		this.dailyReminderNotice = notice;
 		this.watchNoticeDismissal(notice);
 		notice.messageEl.empty();
+		const streak = this.settings.practiceMemory?.daily?.streak ?? 0;
+		const streakPrefix = streak > 0
+			? `🔥 ${streak}-day streak. `
+			: "";
 		notice.messageEl.createSpan({
-			text: `${topicCount} Adaptive Practice topic${topicCount === 1 ? "" : "s"} ready for ${plan.questionCount} ${formatChallengeMode(plan.challengeMode)} questions. `,
+			text: `${streakPrefix}${topicCount} Adaptive Practice topic${topicCount === 1 ? "" : "s"} ready for ${plan.questionCount} ${formatChallengeMode(plan.challengeMode)} questions. `,
 		});
 		const button = notice.messageEl.createEl("button", { text: "Start" });
 		button.addEventListener("click", () => {
@@ -954,7 +970,10 @@ export default class AdaptivePracticePlugin extends Plugin {
 					results,
 					deltas,
 					completedAt,
-					{ countDailyCredit: config.mode === "daily" }
+					{
+						countDailyCredit: config.mode === "daily",
+						targetRetention: this.settings.targetRetention,
+					}
 				);
 			}
 			const practiceCredit = config.mode === "daily"
@@ -1093,6 +1112,27 @@ export default class AdaptivePracticePlugin extends Plugin {
 				view.renderCurrentState(topics);
 			}
 		});
+		this.updatePracticeStatusBar();
+	}
+
+	private updatePracticeStatusBar(): void {
+		const el = this.practiceStatusBarEl;
+		if (!el) return;
+		if (!this.settings.dailyPracticeEnabled) {
+			el.toggle(false);
+			return;
+		}
+		const memory = this.settings.practiceMemory;
+		const streak = memory?.daily?.streak ?? 0;
+		const now = Date.now();
+		const due = Object.values(memory?.notes ?? {}).filter(
+			(note) => note.attempts > 0 && note.dueAt > 0 && note.dueAt <= now
+		).length;
+		const parts: string[] = [];
+		if (streak > 0) parts.push(`🔥 ${streak}d`);
+		parts.push(`${due} due`);
+		el.setText(`Practice ${parts.join(" · ")}`);
+		el.toggle(true);
 	}
 }
 
@@ -1143,6 +1183,7 @@ function normalizeSettings(raw: unknown): AdaptivePracticeSettings {
 	settings.defaultQuestionCount = clamp(settings.defaultQuestionCount, 5, 30, DEFAULT_SETTINGS.defaultQuestionCount);
 	settings.dailyQuestionCount = clamp(settings.dailyQuestionCount, 3, 20, DEFAULT_SETTINGS.dailyQuestionCount);
 	settings.dailyTopicLimit = clamp(settings.dailyTopicLimit, 1, 12, DEFAULT_SETTINGS.dailyTopicLimit);
+	settings.targetRetention = clamp(settings.targetRetention, 0.7, 0.97, DEFAULT_SETTINGS.targetRetention);
 	settings.practiceMemory = normalizePracticeMemory(settings.practiceMemory);
 	settings.practiceDraft = normalizePracticeDraft(settings.practiceDraft);
 	return settings;

@@ -41,24 +41,24 @@ export function estimateQuestionDifficulty(
 	const hasTransferTrap = /\b(new setting|variant|modified|duplicate|trap|subtle|symptom|debug|off[- ]by[- ]one|hidden condition|not enough|ambiguous)\b/.test(combined);
 	const hasWhyOrExplain = /\bwhy\b|\bexplain\b|\bwhat happens next\b|\bunder what condition\b/.test(combined);
 	const hasConcreteExample = /(?:\[[^\]]+\]|\bnums\s*=|\barr\s*=|\btarget\s*=|\bk\s*=|\$\s*[-+]?\d)/i.test(questionText);
-	const shellReasoning = analyzeShellReasoning(combined);
-	const shellChoiceOnly = isShellChoiceOnlyQuestion(
+	const procedural = analyzeProceduralReasoning(combined, lowerQuestion);
+	const toolChoiceOnly = isToolChoiceOnlyQuestion(
 		lowerQuestion,
 		question.options?.length ?? 0
 	);
-	const shellCommandOptionSpotting = isBareShellCommandOptionChoice(
+	const bareOptionSpotting = isBareTechnicalOptionChoice(
 		question.options ?? [],
 		question.correctAnswer
 	);
-	const simpleShellPrediction = isSimpleShellPredictionQuestion(lowerQuestion);
+	const simplePrediction = isSingleStepPredictionQuestion(lowerQuestion);
 	const conditionCount = countMatches(lowerQuestion, /\b(if|when|given|consider|suppose|after|under|unless|while)\b/g);
 	const hasMultiCondition = conditionCount >= 2 || questionText.length >= 210;
 	const sourceSubtopicCount = question.sourceSubtopics?.length ?? 0;
 	const titleFramed = hasTitleFraming(question);
 	const directOneStep =
 		isDirectOneStepQuestion(lowerQuestion) ||
-		shellReasoning.hasShallowRecall ||
-		shellChoiceOnly;
+		procedural.hasShallowRecall ||
+		toolChoiceOnly;
 
 	let score = 0;
 	const reasons: string[] = [];
@@ -74,10 +74,10 @@ export function estimateQuestionDifficulty(
 	if (hasModelingOrDerivation) add(1.2, "modeling-or-derivation");
 	if (hasTransferTrap) add(1.4, "transfer-trap");
 	if (hasWhyOrExplain) add(0.7, "asks-why");
-	if (shellReasoning.hasCommandComposition) add(1.4, "shell-command-composition");
-	if (shellReasoning.hasMultiConstraint) add(1.2, "shell-multi-constraint");
-	if (shellReasoning.hasOutputOrStateReasoning) add(0.9, "shell-output-or-state");
-	if (shellReasoning.hasDescriptorOrderReasoning) add(1.6, "shell-descriptor-order");
+	if (procedural.hasComposition) add(1.4, "procedural-composition");
+	if (procedural.hasMultiConstraint) add(1.2, "procedural-multi-constraint");
+	if (procedural.hasOutputOrStateReasoning) add(0.9, "output-or-state");
+	if (procedural.hasOrderSensitivity) add(1.6, "order-sensitivity");
 	if (hasMultiCondition) add(1, "multi-condition");
 	if (question.type === "integer" || question.type === "decimal") {
 		add(0.7, "constructed-answer");
@@ -89,17 +89,17 @@ export function estimateQuestionDifficulty(
 		score -= 2.2;
 		reasons.push("direct-one-step");
 	}
-	if (shellReasoning.hasShallowRecall) {
+	if (procedural.hasShallowRecall) {
 		score -= 0.8;
-		reasons.push("shell-shallow-recall");
+		reasons.push("shallow-tool-recall");
 	}
-	if (shellChoiceOnly) {
+	if (toolChoiceOnly) {
 		score -= 0.6;
-		reasons.push("shell-choice-only");
+		reasons.push("tool-choice-only");
 	}
-	if (shellCommandOptionSpotting) {
+	if (bareOptionSpotting) {
 		score -= 1.2;
-		reasons.push("shell-command-option-spotting");
+		reasons.push("bare-option-spotting");
 	}
 	if (titleFramed && sourceSubtopicCount === 0) {
 		score -= 1;
@@ -117,7 +117,7 @@ export function estimateQuestionDifficulty(
 		hasComparisonOrTradeoff,
 		hasModelingOrDerivation,
 		hasTransferTrap,
-		shellReasoning.hasHardReasoning,
+		procedural.hasHardReasoning,
 	].filter(Boolean).length;
 	const substantialReasoningMoves = [
 		hasMultiStepTrace(combined),
@@ -126,14 +126,14 @@ export function estimateQuestionDifficulty(
 		hasComparisonOrTradeoff,
 		hasModelingOrDerivation,
 		hasTransferReasoning(combined),
-		shellReasoning.hasSubstantialReasoning,
+		procedural.hasSubstantialReasoning,
 	].filter(Boolean).length;
 
 	if (
 		!directOneStep &&
-		!shellChoiceOnly &&
-		!shellCommandOptionSpotting &&
-		!simpleShellPrediction &&
+		!toolChoiceOnly &&
+		!bareOptionSpotting &&
+		!simplePrediction &&
 		score >= 5 &&
 		reasoningCategories >= 2 &&
 		substantialReasoningMoves >= 2 &&
@@ -141,17 +141,24 @@ export function estimateQuestionDifficulty(
 			hasWhyOrExplain ||
 			hasComplexityAnalysis ||
 			hasProofOrFailureMode ||
-			shellReasoning.hasMultiConstraint)
+			procedural.hasMultiConstraint)
 	) {
 		return { difficulty: "hard", score, reasons };
 	}
-	if (shellChoiceOnly) {
+	if (toolChoiceOnly) {
 		return { difficulty: "easy", score, reasons };
 	}
-	if (shellCommandOptionSpotting) {
-		return { difficulty: "medium", score, reasons };
+	if (bareOptionSpotting) {
+		// Spotting the right bare token caps at medium — and only earns that
+		// when the scenario itself carries real analytical weight.
+		const substantiveScenario =
+			hasComplexityAnalysis ||
+			hasProofOrFailureMode ||
+			hasModelingOrDerivation ||
+			hasTransferTrap;
+		return { difficulty: substantiveScenario ? "medium" : "easy", score, reasons };
 	}
-	if (simpleShellPrediction) {
+	if (simplePrediction) {
 		return { difficulty: "easy", score, reasons };
 	}
 	if (score >= 2.8 && !directOneStep) {
@@ -167,7 +174,13 @@ export function isGenuinelyHardQuestion(question: QuestionDifficultyInput): bool
 	return estimateQuestionDifficulty(question).difficulty === "hard";
 }
 
-export function isDeepShellHardQuestion(
+/**
+ * A hard question that survives independent verification: no shallow-recall
+ * flags and at least two verified reasoning moves. Domain-neutral — procedural
+ * questions qualify through construction/constraint/state mechanics, and
+ * conceptual/quantitative questions qualify through stacked reasoning moves.
+ */
+export function isDeepHardQuestion(
 	question: QuestionDifficultyInput
 ): boolean {
 	const estimate = estimateQuestionDifficulty(question);
@@ -176,19 +189,19 @@ export function isDeepShellHardQuestion(
 	const reasons = new Set(estimate.reasons);
 	if (
 		reasons.has("direct-one-step") ||
-		reasons.has("shell-choice-only") ||
-		reasons.has("shell-command-option-spotting") ||
-		reasons.has("shell-shallow-recall") ||
+		reasons.has("tool-choice-only") ||
+		reasons.has("bare-option-spotting") ||
+		reasons.has("shallow-tool-recall") ||
 		reasons.has("title-framed-without-concept")
 	) {
 		return false;
 	}
 
-	const shellMechanics = countReasonHits(reasons, [
-		"shell-command-composition",
-		"shell-multi-constraint",
-		"shell-output-or-state",
-		"shell-descriptor-order",
+	const proceduralMechanics = countReasonHits(reasons, [
+		"procedural-composition",
+		"procedural-multi-constraint",
+		"output-or-state",
+		"order-sensitivity",
 	]);
 	const substantialMoves = countReasonHits(reasons, [
 		"code-or-trace",
@@ -200,17 +213,19 @@ export function isDeepShellHardQuestion(
 		"multi-condition",
 		"multi-subtopic",
 	]);
-	const strongestShellMoves = countReasonHits(reasons, [
-		"shell-command-composition",
-		"shell-multi-constraint",
-		"shell-descriptor-order",
+	const strongestProceduralMoves = countReasonHits(reasons, [
+		"procedural-composition",
+		"procedural-multi-constraint",
+		"order-sensitivity",
 	]);
+	const deepProcedural =
+		proceduralMechanics >= 2 && strongestProceduralMoves >= 1;
+	const deepConceptual = substantialMoves >= 3;
 
 	return (
 		estimate.score >= 5.5 &&
-		shellMechanics >= 2 &&
-		strongestShellMoves >= 1 &&
-		substantialMoves >= 2
+		substantialMoves >= 2 &&
+		(deepProcedural || deepConceptual)
 	);
 }
 
@@ -223,7 +238,8 @@ function countMatches(value: string, pattern: RegExp): number {
 }
 
 function isDirectOneStepQuestion(lowerQuestion: string): boolean {
-	if (isDirectShellRecallQuestion(lowerQuestion)) return true;
+	if (isNameSelectionRecallQuestion(lowerQuestion)) return true;
+	if (isTokenDifferenceRecallQuestion(lowerQuestion)) return true;
 	if (
 		lowerQuestion.length >= 140 &&
 		/\b(why|explain|derive|prove|counterexample|compare|construct|debug|predict)\b/.test(lowerQuestion)
@@ -231,7 +247,7 @@ function isDirectOneStepQuestion(lowerQuestion: string): boolean {
 		return false;
 	}
 	return /\b(what does it do|what is the returned|what is returned|which element is recorded|which half is eliminated|which half|who introduced|who discovered|which option|what is the name|which statement is true|select the correct)\b/.test(lowerQuestion) ||
-		/\b(what|which)\s+command\s+(?:prints?|shows?|displays?|lists?|finds?|searches?|changes?|creates?|removes?|copies?|moves?)\b/.test(lowerQuestion) ||
+		/\b(what|which)\s+(?:command|function|method|formula|tool|operator|keyword|tag|clause|reagent)\s+(?:prints?|shows?|displays?|lists?|finds?|searches?|changes?|creates?|removes?|copies?|moves?|computes?|returns?|produces?|gives?|yields?)\b/.test(lowerQuestion) ||
 		/\b(what|which)\s+(?:boundary\s+)?update\b/.test(lowerQuestion) ||
 		/\bwhat\s+update\s+(?:is|remains)\s+safe\b/.test(lowerQuestion) ||
 		/\bwhat\s+is\s+the\s+(?:worst[- ]case|best[- ]case|average[- ]case|time|space)\s+complexity\b/.test(lowerQuestion) ||
@@ -240,65 +256,133 @@ function isDirectOneStepQuestion(lowerQuestion: string): boolean {
 		/\bafter\b.+\bwhat is the returned\b/.test(lowerQuestion);
 }
 
-function isDirectShellRecallQuestion(lowerQuestion: string): boolean {
-	if (
-		/\b(construct|debug|fix|safest|safe|failure|trap|spaces|permission denied|stderr|stdout|xargs|quoting|recursive|modified|preserve|one[- ]line|derive)\b/.test(lowerQuestion)
-	) {
-		return false;
-	}
-	return /\b(which|what)\s+(?:command|option)\b/.test(lowerQuestion) ||
-		/\bwhich\s+one\s+(?:prints?|shows?|displays?|lists?|finds?|searches?)\b/.test(lowerQuestion) ||
-		/\bwhat\s+does\s+(?:the\s+)?(?:pipe|command|option)\s+(?:connect|do|show|print)\b/.test(lowerQuestion) ||
+/**
+ * "Name the right tool/option/term" recall — pick or state a name without
+ * having to construct, predict, debug, or justify anything. Domain-neutral:
+ * commands, functions, formulas, reagents, clauses, and keywords all count.
+ */
+function isNameSelectionRecallQuestion(lowerQuestion: string): boolean {
+	if (hasDeepReasoningCue(lowerQuestion)) return false;
+	return /\b(which|what)\s+(?:command|option|flag|function|method|formula|operator|keyword|tag|clause|reagent|shortcut|switch)\b/.test(lowerQuestion) ||
+		/\bwhich\s+one\s+(?:prints?|shows?|displays?|lists?|finds?|searches?|computes?|returns?)\b/.test(lowerQuestion) ||
+		/\bwhat\s+does\s+(?:the\s+)?[^\s?]{1,30}\s+(?:connect|do|show|print|mean|return|stand\s+for)\b/.test(lowerQuestion) ||
 		/\bwhat\s+does\s+`?-[a-z0-9-]+`?\s+(?:do|mean)\b/.test(lowerQuestion) ||
-		/\bcompare\b.+\b(?:which one|which command|what command)\b/.test(lowerQuestion);
+		/\bcompare\b.+\b(?:which one|which command|what command|which function|which method)\b/.test(lowerQuestion);
 }
 
-function isShellChoiceOnlyQuestion(
+/**
+ * Comparing two near-identical technical tokens (`ls` vs `ls -a`, `kill` vs
+ * `kill -9`, `commit` vs `commit --amend`) where the answer is the meaning of
+ * the differing flag/argument — single-fact recall dressed as comparison.
+ */
+function isTokenDifferenceRecallQuestion(lowerQuestion: string): boolean {
+	if (hasDeepReasoningCue(lowerQuestion)) return false;
+	if (!/\b(compare|versus|vs\.?|difference|differs?|while plain|instead of|rather than)\b/.test(lowerQuestion)) {
+		return false;
+	}
+	const spans = [...lowerQuestion.matchAll(/`([^`\n]+)`/g)]
+		.map((match) => match[1]!.trim().split(/\s+/).filter(Boolean))
+		.filter((tokens) => tokens.length > 0);
+	if (spans.length < 2) return false;
+
+	// Same leading token with different token sets = a flag/argument variation
+	// (recall). The same tokens rearranged = an order/evaluation question, which
+	// is genuine reasoning, not recall.
+	let hasFlagDifference = false;
+	for (let i = 0; i < spans.length; i++) {
+		for (let j = i + 1; j < spans.length; j++) {
+			const a = spans[i]!;
+			const b = spans[j]!;
+			if (a[0] !== b[0]) continue;
+			if (a.join(" ") === b.join(" ")) continue;
+			if (sameTokenSet(a, b)) return false;
+			hasFlagDifference = true;
+		}
+	}
+	return hasFlagDifference;
+}
+
+function sameTokenSet(a: string[], b: string[]): boolean {
+	const setA = new Set(a);
+	const setB = new Set(b);
+	if (setA.size !== setB.size) return false;
+	for (const token of setA) {
+		if (!setB.has(token)) return false;
+	}
+	return true;
+}
+
+function hasDeepReasoningCue(lowerQuestion: string): boolean {
+	return /\b(construct|write|compose|build|debug|fix|repair|trace|derive|prove|counterexample|safest|safe|failure|fails?|trap|spaces|preserve|recursive|modified|one[- ]line|state after|end up|race|edge case)\b/.test(lowerQuestion);
+}
+
+/**
+ * "Pick/write the right command or expression" MCQs with no requirement to
+ * justify, debug, or predict — choosing a tool is not reasoning about it.
+ */
+function isToolChoiceOnlyQuestion(
 	lowerQuestion: string,
 	optionCount: number
 ): boolean {
 	if (optionCount < 2) return false;
 	if (
-		!/\b(?:(?:which|choose|select)\s+(?:the\s+)?command(?:\s+sequence|\s+pipeline)?|(?:write|give|provide)\s+(?:the\s+|a\s+)?command|what\s+command\s+would\s+you\s+use)\b/.test(lowerQuestion)
+		!/\b(?:(?:which|choose|select)\s+(?:the\s+)?(?:command|query|expression|formula|function|call|statement)(?:\s+sequence|\s+pipeline)?|(?:write|give|provide)\s+(?:the\s+|a\s+)?(?:command|query|expression|formula)|what\s+(?:command|query|formula)\s+would\s+you\s+use)\b/.test(lowerQuestion)
 	) {
 		return false;
 	}
 	return !/\b(why|explain|justify|construct|debug|fix|trace|predict|derive|avoid|failure|trap|race|invariant)\b/.test(lowerQuestion);
 }
 
-function isBareShellCommandOptionChoice(
+/**
+ * MCQ where most options (and the answer) are bare technical tokens — code,
+ * commands, formulas — with no attached reasoning. The learner spots the
+ * plausible-looking token instead of reasoning about why it works.
+ */
+function isBareTechnicalOptionChoice(
 	options: string[],
 	correctAnswer: string
 ): boolean {
-	if (options.length < 2 || !isBareShellCommandOption(correctAnswer)) {
+	if (options.length < 2 || !isBareTechnicalOption(correctAnswer)) {
 		return false;
 	}
-	const bareCommandOptions = options.filter(isBareShellCommandOption).length;
-	return bareCommandOptions >= Math.ceil(options.length * 0.75);
+	const bareOptions = options.filter(isBareTechnicalOption).length;
+	return bareOptions >= Math.ceil(options.length * 0.75);
 }
 
-function isBareShellCommandOption(option: string): boolean {
-	const cleaned = option.trim().replace(/^`|`$/g, "");
+function isBareTechnicalOption(option: string): boolean {
+	const cleaned = option.trim().replace(/^`|`$/g, "").trim();
 	if (!cleaned) return false;
 	const lower = cleaned.toLowerCase();
-	if (
-		/\b(because|since|so that|therefore|avoids?|preserves?|keeps?|prevents?|handles?|fails? because|redirects? before|not after|trap|spaces in filenames|permission denied|null-delimited|left-to-right|is masked|would start|explicitly|ignores|applies|permanently|affected by|overrides?)\b/.test(lower)
-	) {
-		return false;
-	}
-	return /^`?\s*(?:sudo\s+|env\s+)?(?:cd|pwd|ls|cat|less|more|head|tail|wc|grep|find|xargs|chmod|chown|umask|uname|who|last|ps|kill|jobs|fg|bg|mkdir|touch|cp|mv|rm|ln|sort|uniq|cut|awk|sed|echo|tee)\b/.test(lower);
+	if (hasReasoningConnective(lower)) return false;
+	// Technical shape: flags, paths, pipes, operators, calls, assignments.
+	const looksTechnical =
+		/(?:^|\s)--?[a-z0-9][\w-]*|[|<>&\\/=(){}[\];$%^*+]|\w\.\w|\d{2,}/.test(lower) &&
+		!/[.!?]$/.test(cleaned);
+	if (!looksTechnical) return false;
+	// A bare token run, not prose: however long the expression, it carries no
+	// English sentence structure explaining itself.
+	return !/\b(the|a|an|because|which|that|this|it|is|are|was|were)\b/.test(lower);
 }
 
-function isSimpleShellPredictionQuestion(lowerQuestion: string): boolean {
+function hasReasoningConnective(lower: string): boolean {
+	return /\b(because|since|so that|therefore|avoids?|preserves?|keeps?|prevents?|handles?|fails? because|before|not after|trap|explicitly|ignores|applies|permanently|affected by|overrides?|ensures?|guarantees?)\b/.test(lower);
+}
+
+/**
+ * Predicting the immediate result of one given expression with no state
+ * chaining, no failure mode, and no interacting parts — a one-step check.
+ */
+function isSingleStepPredictionQuestion(lowerQuestion: string): boolean {
 	if (!/\b(predict|what)\b.+\b(output|prints?|expands?|result)\b/.test(lowerQuestion)) {
 		return false;
 	}
-	return !/\b(pipe|pipeline|\||stderr|stdout|file descriptor|xargs|find|permission denied|process|signal|inode|link count|terminal output|contents? of|debug|fix|failure|trap|race|after|state)\b/.test(lowerQuestion);
+	if (hasDeepReasoningCue(lowerQuestion)) return false;
+	return !/\b(after|then|state|contents? of|intermediate|each step|sequence|order|combined|pipeline|versus|compare|error|status|process|signal)\b|[|]/.test(lowerQuestion);
 }
 
 function hasMultiStepTrace(combined: string): boolean {
 	return /\b(trace|dry run|simulate|step through|after two|two iterations|multiple iterations|state after)\b/.test(combined) ||
-		/\b(predict|trace)\b.+\b(?:terminal output|stdout|stderr|contents? of)\b.+\b(?:terminal output|stdout|stderr|contents? of)\b/.test(combined);
+		/\b(predict|trace)\b.+\b(?:output|state|contents? of)\b.+\b(?:output|state|contents? of)\b/.test(combined);
 }
 
 function hasFailureModeReasoning(combined: string): boolean {
@@ -313,71 +397,94 @@ function hasTransferReasoning(combined: string): boolean {
 	return /\b(new setting|variant|modified|construct|duplicate-heavy|debug|symptom|hidden condition|ambiguous|trap|subtle)\b/.test(combined);
 }
 
-function analyzeShellReasoning(combined: string): {
-	hasCommandComposition: boolean;
+interface ProceduralReasoning {
+	hasComposition: boolean;
 	hasMultiConstraint: boolean;
 	hasOutputOrStateReasoning: boolean;
-	hasDescriptorOrderReasoning: boolean;
+	hasOrderSensitivity: boolean;
 	hasHardReasoning: boolean;
 	hasSubstantialReasoning: boolean;
 	hasShallowRecall: boolean;
-} {
-	const shellConcepts = [
-		/\b(pipe|pipes|pipeline|\||redirection|redirect|stdin|stdout|stderr|file descriptor|2>|2>&1|tee|filter|xargs|command substitution)\b/,
-		/\b(permission|permissions|chmod|umask|owner|group|execute bit|sticky bit|setuid|setgid)\b/,
-		/\b(process|processes|job|jobs|signal|signals|kill|pkill|pgrep|pidof|foreground|background)\b/,
-		/\b(find|grep|sort|uniq|cut|awk|sed|wildcard|wildcards|glob|globbing|quote|quoting)\b/,
-		/\b(hard link|symbolic link|symlink|inode|mount|path|directory tree)\b/,
-	];
-	const conceptHits = shellConcepts.filter((pattern) => pattern.test(combined)).length;
-	const commandHits = countUniqueMatches(
-		combined,
-		/\b(cd|pwd|ls|cat|less|more|head|tail|wc|grep|find|xargs|chmod|chown|umask|uname|who|last|ps|kill|jobs|fg|bg|mkdir|touch|cp|mv|rm|ln|sort|uniq|cut|awk|sed|echo|tee)\b/g
-	);
-	const constructionCue = /\b(construct|write|choose|debug|fix|predict|trace|explain why|which command sequence|one[- ]line command|pipeline|redirect)\b/.test(combined);
+}
+
+/**
+ * Domain-neutral procedural analysis. "Technical surface" is measured from
+ * notation itself (inline code, fences, math spans, flags, pipes, calls,
+ * operators) rather than any domain vocabulary, so shell pipelines, SQL, git,
+ * spreadsheet formulas, regexes, and lab-protocol notation all register.
+ */
+function analyzeProceduralReasoning(
+	combined: string,
+	lowerQuestion: string
+): ProceduralReasoning {
+	const surface = technicalSurfaceScore(combined);
+	const buildCue = /\b(construct|write|compose|build|design|implement|debug|fix|repair|modify|adapt|one[- ]line|which\s+(?:command|query|expression|formula)\s+sequence)\b/.test(combined);
+	const predictTraceCue = /\b(predict|trace)\b/.test(combined);
+	// Constraints must come from the question stem — option/answer text is full
+	// of incidental "keep/when/if" phrasing that says nothing about the task.
 	const constraintHits = countMatches(
-		combined,
-		/\b(if|when|given|while|unless|without|except|including|but not|preserve|safely|spaces|hidden|permission denied|stderr|stdout|recursive|modified|owner|group)\b/g
+		lowerQuestion,
+		/\b(if|when|given|while|unless|without|except|including|but not|preserve|preserving|safely|keep(?:ing)?|at most|at least|exactly|must|avoid(?:ing)?|hidden|denied|recursive|modified)\b/g
 	);
-	const hasOutputOrStateReasoning = /\b(output|prints?|matches?|exit status|permission bits?|mode|inode|link count|process state|signal|foreground|background|stderr|stdout)\b/.test(combined);
-	const hasDescriptorOrderReasoning =
-		/\b(?:file descriptor|descriptor|fd|redirection order|left[- ]to[- ]right|2>&1|stdout|stderr)\b/.test(combined) &&
-		/\b(?:trace|predict|explain why|differs?|versus|vs\.?|after each redirection|state)\b/.test(combined) &&
-		/\b(?:stdout|stderr|2>|2>&1|file descriptor|descriptor|fd)\b/.test(combined);
-	const hasCommandComposition =
-		(conceptHits >= 2 && constructionCue) ||
-		(conceptHits >= 1 && commandHits >= 3 && constructionCue);
+	const hasOutputOrStateReasoning =
+		surface >= 1 &&
+		/\b(output|prints?|produces?|returns?|results? in|evaluates? to|resulting|state|contents?|status|exit|error|ends? up|becomes?|left with|matches?|bits?|mode|count)\b/.test(combined);
+	const hasOrderSensitivity =
+		surface >= 2 &&
+		/\b(order|ordering|precedence|precedes?|left[- ]to[- ]right|sequence|evaluat(?:es?|ed|ion)|reversed?|swapped)\b/.test(combined) &&
+		/\b(trace|predict|explain why|differs?|versus|vs\.?|compare|state|end up|unexpectedly|why)\b/.test(combined) &&
+		/\b(instead|unexpectedly|fails?|stays?|remains?|copied|differs?|changes?|swapped|reversed)\b/.test(combined);
+	// Building something is composition outright; a pure predict/trace question
+	// only counts as composition when the expression is genuinely multi-part
+	// and scenario-constrained (otherwise it is one-step output recall).
+	const hasComposition =
+		(buildCue && surface >= 3) ||
+		(predictTraceCue && surface >= 4 && constraintHits >= 1);
 	const hasMultiConstraint =
-		(conceptHits >= 2 && constraintHits >= 2) ||
-		(conceptHits >= 1 && commandHits >= 3 && constraintHits >= 2);
-	const hasHardReasoning = hasCommandComposition || hasMultiConstraint || hasDescriptorOrderReasoning;
-	const hasShellSurface = conceptHits >= 1 || commandHits >= 1 || /\blinux commands?\b|\bshell\b|\bterminal\b/.test(combined);
-	const hasShallowRecallCue = /\b(what|which|why|explain|compare|difference|purpose|used for|does|prints?|shows?|lists?|displays?|connects?)\b/.test(combined);
-	const hasDeepShellCue = /\b(construct|write|debug|fix|predict|trace|derive|safest|safe one[- ]line|failure|trap|preserve|permission denied|spaces|recursive|modified|null[- ]delimited|race|quoting)\b/.test(combined);
+		surface >= 3 && constraintHits >= 2;
+	const hasHardReasoning = hasComposition || hasMultiConstraint || hasOrderSensitivity;
+	const hasShallowRecallCue = /\b(what|which|why|explain|compare|difference|purpose|used for|does|prints?|shows?|lists?|displays?|connects?|stands? for|means?)\b/.test(combined);
+	const hasDeepCue = hasDeepReasoningCue(combined);
 	const hasShallowRecall =
-		hasShellSurface &&
+		surface >= 1 &&
 		hasShallowRecallCue &&
+		!hasComposition &&
 		!hasMultiConstraint &&
-		!hasCommandComposition &&
-		!hasDescriptorOrderReasoning &&
-		!hasDeepShellCue;
+		!hasOrderSensitivity &&
+		!hasDeepCue;
 	return {
-		hasCommandComposition,
+		hasComposition,
 		hasMultiConstraint,
-		hasOutputOrStateReasoning: hasOutputOrStateReasoning && conceptHits >= 1,
-		hasDescriptorOrderReasoning,
+		hasOutputOrStateReasoning,
+		hasOrderSensitivity,
 		hasHardReasoning,
 		hasSubstantialReasoning:
 			hasHardReasoning &&
 			(hasOutputOrStateReasoning ||
-				hasDescriptorOrderReasoning ||
+				hasOrderSensitivity ||
 				/\b(debug|trace|predict|why|safe|failure|edge case|quote|space)\b/.test(combined)),
 		hasShallowRecall,
 	};
 }
 
+/**
+ * How much executable/formal notation the question carries, independent of
+ * domain. Counts inline code spans, fenced blocks, math spans, and loose
+ * technical tokens (flags, pipes, redirects, paths, calls, assignments).
+ */
+function technicalSurfaceScore(combined: string): number {
+	const codeSpans = countMatches(combined, /`[^`\n]+`/g);
+	const fences = /```|~~~/.test(combined) ? 2 : 0;
+	const mathSpans = countMatches(combined, /\$[^$\n]+\$/g);
+	const technicalTokens = countUniqueMatches(
+		combined,
+		/(?:^|[\s("'])(?:--?[a-z0-9][\w-]*|[\w.$]+\([^)\n]*\)|\S+(?:[|/\\<>=]\S*)+|\d?[<>|]&?\d?)/g
+	);
+	return Math.min(4, codeSpans) + fences + Math.min(3, mathSpans) + Math.min(4, technicalTokens);
+}
+
 function countUniqueMatches(value: string, pattern: RegExp): number {
-	return new Set([...value.matchAll(pattern)].map((match) => match[0])).size;
+	return new Set([...value.matchAll(pattern)].map((match) => match[0].trim())).size;
 }
 
 function hasTitleFraming(question: QuestionDifficultyInput): boolean {

@@ -1,5 +1,5 @@
 import { DailyChallengeMode, Difficulty, Question, SessionConfig, TopicNote } from "../types";
-import { isDeepShellHardQuestion } from "./difficulty-quality";
+import { isDeepHardQuestion } from "./difficulty-quality";
 
 export function shouldRequestChallengeTopUp(
 	questions: Question[],
@@ -133,13 +133,13 @@ function highSkillTopicShortfallMessage(
 				"Spread hard questions across different concepts, traps, or sections from that note.",
 			].join(" ");
 		}
-		const minimumMechanics = minimumHighSkillLinuxMechanics(targeted.length, topic);
-		const mechanicCount = primaryLinuxMechanicSet(targeted).size;
-		if (minimumMechanics > 0 && mechanicCount < minimumMechanics) {
+		const minimumSetups = minimumHighSkillSetups(targeted.length, topic);
+		const setupCount = clusterBySetup(targeted).length;
+		if (minimumSetups > 0 && setupCount < minimumSetups) {
 			return [
 				`Generated questions for high-skill topic "${topic.title}" are too narrow (skill ${Math.round(topic.skill)}/100).`,
-				`Expected questions to span at least ${minimumMechanics} Linux shell mechanics; got ${mechanicCount}.`,
-				"Spread hard questions across different mechanics such as expansion/quoting, searching, permissions, streams/redirection, pipes/filters, processes/signals, and filesystem links.",
+				`Expected questions to span at least ${minimumSetups} distinct question setups; got ${setupCount}.`,
+				"Vary the scenario, the reasoning target, and the failure mode instead of re-skinning one setup.",
 			].join(" ");
 		}
 	}
@@ -164,11 +164,11 @@ function minimumHighSkillSubtopics(targetedCount: number): number {
 	return Math.min(4, Math.max(2, Math.floor(targetedCount / 4) + 1));
 }
 
-function minimumHighSkillLinuxMechanics(
+function minimumHighSkillSetups(
 	targetedCount: number,
 	topic: TopicNote
 ): number {
-	if (!requiresLinuxMechanicDiversity(topic)) return 0;
+	if (!requiresSetupDiversity(topic)) return 0;
 	if (targetedCount < 4) return 1;
 	return 2;
 }
@@ -311,9 +311,9 @@ function effectiveDifficultyForTopic(
 ): Difficulty {
 	if (
 		topic &&
-		requiresDeepShellHard(topic) &&
+		requiresVerifiedHard(topic) &&
 		question.difficulty === "hard" &&
-		!isDeepShellHardQuestion(question)
+		!isDeepHardQuestion(question)
 	) {
 		return "medium";
 	}
@@ -403,25 +403,25 @@ function preferChallengeReadyQuestions(
 		question.difficulty === "easy" &&
 		topics.some((topic) => topic.skill > 80 && questionTargetsTopic(question, topic))
 	);
-	const tooWeakForAdvancedShell = questions.filter((question) =>
+	const tooWeakForVerifiedHard = questions.filter((question) =>
 		question.difficulty === "hard" &&
 		topics.some((topic) =>
 			questionTargetsTopic(question, topic) &&
-			requiresDeepShellHard(topic) &&
+			requiresVerifiedHard(topic) &&
 			effectiveDifficultyForTopic(question, topic) !== "hard"
 		)
 	);
-	if (tooEasyForHighSkill.length === 0 && tooWeakForAdvancedShell.length === 0) {
+	if (tooEasyForHighSkill.length === 0 && tooWeakForVerifiedHard.length === 0) {
 		return questions;
 	}
 
 	const challengeReady = questions.filter(
 		(question) =>
 			!tooEasyForHighSkill.includes(question) &&
-			!tooWeakForAdvancedShell.includes(question)
+			!tooWeakForVerifiedHard.includes(question)
 	);
 	if (challengeReady.length >= desiredCount) return challengeReady;
-	return [...challengeReady, ...tooWeakForAdvancedShell, ...tooEasyForHighSkill];
+	return [...challengeReady, ...tooWeakForVerifiedHard, ...tooEasyForHighSkill];
 }
 
 function ensureHighSkillTopicCoverage(
@@ -473,7 +473,7 @@ function ensureHighSkillTopicCoverage(
 			next[replacementIndex] = candidate;
 		}
 		ensureHighSkillSubtopicDiversity(next, all, topic);
-		ensureHighSkillMechanicDiversity(next, all, topic);
+		ensureHighSkillSetupDiversity(next, all, topic);
 	}
 	return next;
 }
@@ -511,19 +511,19 @@ function ensureHighSkillSubtopicDiversity(
 	}
 }
 
-function ensureHighSkillMechanicDiversity(
+function ensureHighSkillSetupDiversity(
 	selected: Question[],
 	all: Question[],
 	topic: TopicNote
 ): void {
-	if (!requiresLinuxMechanicDiversity(topic)) return;
+	if (!requiresSetupDiversity(topic)) return;
 
 	for (let attempt = 0; attempt < selected.length; attempt++) {
 		const targeted = selected.filter((question) => questionTargetsTopic(question, topic));
-		const minimumMechanics = minimumHighSkillLinuxMechanics(targeted.length, topic);
-		if (minimumMechanics <= 1) return;
-		const currentMechanics = primaryLinuxMechanicSet(targeted);
-		if (currentMechanics.size >= minimumMechanics) return;
+		const minimumSetups = minimumHighSkillSetups(targeted.length, topic);
+		if (minimumSetups <= 1) return;
+		const clusters = clusterBySetup(targeted);
+		if (clusters.length >= minimumSetups) return;
 
 		const candidate = all
 			.filter((question) =>
@@ -532,8 +532,10 @@ function ensureHighSkillMechanicDiversity(
 				questionTargetsTopic(question, topic)
 			)
 			.filter((question) => {
-				const mechanic = primaryLinuxMechanic(question);
-				return mechanic && !currentMechanics.has(mechanic);
+				const signature = setupSignature(question);
+				return clusters.every(
+					(cluster) => setupOverlap(cluster.signature, signature) < SETUP_SIMILARITY_THRESHOLD
+				);
 			})
 			.sort((a, b) =>
 				difficultyRank(effectiveDifficultyForTopic(b, topic)) -
@@ -541,7 +543,7 @@ function ensureHighSkillMechanicDiversity(
 			)[0];
 		if (!candidate) return;
 
-		const replacementIndex = replacementIndexForRepeatedLinuxMechanic(selected, topic);
+		const replacementIndex = replacementIndexForRepeatedSetup(selected, topic);
 		if (replacementIndex < 0) return;
 		selected[replacementIndex] = candidate;
 	}
@@ -637,19 +639,22 @@ function replacementIndexForRepeatedSubtopic(
 	return -1;
 }
 
-function replacementIndexForRepeatedLinuxMechanic(
+function replacementIndexForRepeatedSetup(
 	selected: Question[],
 	topic: TopicNote
 ): number {
-	const counts = linuxMechanicCounts(selected, topic);
+	const targeted = selected.filter((question) => questionTargetsTopic(question, topic));
+	const repeated = new Set(
+		clusterBySetup(targeted)
+			.filter((cluster) => cluster.members.length > 1)
+			.flatMap((cluster) => cluster.members)
+	);
 	for (const difficulty of ["medium", "hard"] as Difficulty[]) {
-		const index = selected.findIndex((question) => {
-			if (question.difficulty !== difficulty || !questionTargetsTopic(question, topic)) {
-				return false;
-			}
-			const mechanic = primaryLinuxMechanic(question);
-			return !!mechanic && (counts.get(mechanic) ?? 0) > 1;
-		});
+		const index = selected.findIndex((question) =>
+			question.difficulty === difficulty &&
+			questionTargetsTopic(question, topic) &&
+			repeated.has(question)
+		);
 		if (index >= 0) return index;
 	}
 	return -1;
@@ -690,19 +695,16 @@ function questionTargetsTopic(question: Question, topic: TopicNote): boolean {
 	);
 }
 
-function requiresDeepShellHard(topic: TopicNote): boolean {
-	if (topic.skill < 90) return false;
-	return isLinuxPracticeTopic(topic);
+/**
+ * At skill 90+, a "hard" label must survive independent verification — the
+ * question has to demonstrate real stacked reasoning, whatever the domain.
+ */
+function requiresVerifiedHard(topic: TopicNote): boolean {
+	return topic.skill >= 90;
 }
 
-function requiresLinuxMechanicDiversity(topic: TopicNote): boolean {
-	return topic.skill > 80 && isLinuxPracticeTopic(topic);
-}
-
-function isLinuxPracticeTopic(topic: TopicNote): boolean {
-	return topicLabels(topic).some((label) =>
-		/\b(linux|unix|shell|bash|zsh|terminal|cli|command line|linux commands)\b/.test(label)
-	);
+function requiresSetupDiversity(topic: TopicNote): boolean {
+	return topic.skill > 80;
 }
 
 function countPrimarySubtopics(questions: Question[], topic: TopicNote): number {
@@ -718,66 +720,68 @@ function primarySubtopicSet(questions: Question[], topic: TopicNote): Set<string
 	return out;
 }
 
-function primaryLinuxMechanicSet(questions: Question[]): Set<string> {
-	const out = new Set<string>();
-	for (const question of questions) {
-		const mechanic = primaryLinuxMechanic(question);
-		if (mechanic) out.add(mechanic);
-	}
-	return out;
+/**
+ * Near-duplicate detection: two questions share a "setup" when their content
+ * tokens overlap heavily, regardless of what their subtopic labels claim.
+ * Catches a batch that re-skins one scenario eight times — in any domain.
+ */
+const SETUP_SIMILARITY_THRESHOLD = 0.6;
+
+interface SetupCluster {
+	signature: Set<string>;
+	members: Question[];
 }
 
-function linuxMechanicCounts(
-	questions: Question[],
-	topic: TopicNote
-): Map<string, number> {
-	const counts = new Map<string, number>();
+function clusterBySetup(questions: Question[]): SetupCluster[] {
+	const clusters: SetupCluster[] = [];
 	for (const question of questions) {
-		if (!questionTargetsTopic(question, topic)) continue;
-		const mechanic = primaryLinuxMechanic(question);
-		if (!mechanic) continue;
-		counts.set(mechanic, (counts.get(mechanic) ?? 0) + 1);
+		const signature = setupSignature(question);
+		const home = clusters.find(
+			(cluster) => setupOverlap(cluster.signature, signature) >= SETUP_SIMILARITY_THRESHOLD
+		);
+		if (home) {
+			home.members.push(question);
+		} else {
+			clusters.push({ signature, members: [question] });
+		}
 	}
-	return counts;
+	return clusters;
 }
 
-function primaryLinuxMechanic(question: Question): string | null {
-	for (const subtopic of question.sourceSubtopics ?? []) {
-		const mechanic = linuxMechanicForText(subtopic);
-		if (mechanic) return mechanic;
-	}
-	return linuxMechanicForText([
+const SETUP_STOPWORDS = new Set([
+	"the", "and", "for", "with", "that", "this", "what", "which", "when",
+	"where", "why", "how", "does", "not", "are", "was", "were", "from",
+	"into", "each", "case", "given", "explain", "after", "then", "your",
+	"you", "one", "two", "three", "question", "questions", "correct",
+	"answer", "option", "options", "following",
+]);
+
+function setupSignature(question: Question): Set<string> {
+	const text = [
 		question.questionText,
 		question.correctAnswer,
-		question.explanation,
 		...(question.options ?? []),
-	].join(" "));
+	].join(" ");
+	return new Set(
+		normalize(text)
+			.split(" ")
+			.filter(
+				(token) =>
+					token.length >= 3 &&
+					!/^\d+$/.test(token) &&
+					!SETUP_STOPWORDS.has(token)
+			)
+	);
 }
 
-function linuxMechanicForText(value: string): string | null {
-	const lower = value.toLowerCase();
-	if (/\b(find|grep|xargs|locate|regex|regular expression|searching files|finding inside files)\b/.test(lower)) {
-		return "searching-and-arguments";
+function setupOverlap(a: Set<string>, b: Set<string>): number {
+	if (a.size === 0 && b.size === 0) return 1;
+	let intersection = 0;
+	for (const token of a) {
+		if (b.has(token)) intersection++;
 	}
-	if (/\b(chmod|umask|permission|permissions|owner|group|execute bit|sticky bit|setuid|setgid|mode)\b/.test(lower)) {
-		return "permissions";
-	}
-	if (/\b(redirection|redirect|stdin|stdout|stderr|file descriptor|descriptor|fd|2>|2>&1|process input outputs|output redirection|error redirection)\b/.test(lower)) {
-		return "streams-and-redirection";
-	}
-	if (/\b(pipe|pipes|pipeline|filter|filters|sort|uniq|cut|awk|sed|wc|tee|command substitution)\b|[|]/.test(lower)) {
-		return "pipes-and-filters";
-	}
-	if (/\b(wildcard|wildcards|glob|globbing|quote|quoting|null[- ]delimited|spaces in filenames|shell expansion|expanded by the shell|arguments?' injection)\b/.test(lower)) {
-		return "expansion-and-quoting";
-	}
-	if (/\b(process|processes|job|jobs|signal|signals|kill|pkill|pgrep|pidof|foreground|background)\b/.test(lower)) {
-		return "processes-and-signals";
-	}
-	if (/\b(hard link|symbolic link|symlink|inode|mount|directory tree|filesystem|file system)\b/.test(lower)) {
-		return "filesystem-links";
-	}
-	return null;
+	const union = a.size + b.size - intersection;
+	return union === 0 ? 1 : intersection / union;
 }
 
 function primarySubtopic(question: Question, topic: TopicNote): string | null {
@@ -793,7 +797,7 @@ function primarySubtopic(question: Question, topic: TopicNote): string | null {
 }
 
 function isGenericSubtopicLabel(value: string): boolean {
-	return /^(note|notes|topic|topics|chapter|section|sections|overview|problem|problems|intro|introduction|linux|linux commands|shell|shell commands|command line|cli)$/.test(value);
+	return /^(note|notes|topic|topics|chapter|section|sections|overview|problem|problems|intro|introduction|basics?|fundamentals?|examples?|summary)$/.test(value);
 }
 
 function topicLabels(topic: TopicNote): string[] {

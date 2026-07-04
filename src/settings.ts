@@ -214,6 +214,21 @@ export class AdaptivePracticeSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
+			.setName("Review intensity")
+			.setDesc("How well you want to remember a note when it comes due again. Higher means shorter gaps and more frequent reviews; lower means fewer reviews with harder recall.")
+			.addDropdown((dropdown) => {
+				dropdown.addOption("0.8", "Relaxed (80% recall)");
+				dropdown.addOption("0.85", "Light (85% recall)");
+				dropdown.addOption("0.9", "Standard (90% recall)");
+				dropdown.addOption("0.95", "Intensive (95% recall)");
+				dropdown.setValue(String(this.plugin.settings.targetRetention || 0.9));
+				dropdown.onChange(async (value) => {
+					this.plugin.settings.targetRetention = Number(value) || 0.9;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new Setting(containerEl)
 			.setName("Practice plan")
 			.setDesc("Refresh the vault skeleton used for daily topic selection.")
 			.addButton((button) =>
