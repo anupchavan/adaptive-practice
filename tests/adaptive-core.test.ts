@@ -2,16 +2,18 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { buildPrompt, resolvePromptParts } from "../src/llm/prompt";
 import type { StructuredPrompt, TopicContext } from "../src/llm/prompt";
-import { questionSchema } from "../src/llm/openai-shared";
+import { geminiQuestionSchema, questionSchema } from "../src/llm/openai-shared";
 import { parseQuestions } from "../src/llm/parse";
 import {
 	detectFormatIssues,
 	normalizeObsidianMath,
 	normalizeQuestionFormatting,
+	repairMathBraces,
 } from "../src/llm/format-normalize";
 import {
 	extractProviderErrorDetail,
 	formatProviderError,
+	isStructuredOutputRejection,
 } from "../src/llm/errors";
 import {
 	buildOpenAiResponsesBody,
@@ -6233,6 +6235,69 @@ test("detectFormatIssues flags raw LaTeX delimiters and clears after normalizati
 	const fixed = detectFormatIssues(normalizeQuestionFormatting(bad));
 	assert.equal(fixed.latexDelimiters, 0);
 	assert.equal(fixed.unbalancedDollars, 0);
+});
+
+test("repairMathBraces closes missing closers and leaves ambiguity alone", () => {
+	assert.equal(repairMathBraces("$\\frac{1}{2$"), "$\\frac{1}{2}$");
+	assert.equal(repairMathBraces("$$\\sqrt{\\frac{a}{b$$"), "$$\\sqrt{\\frac{a}{b}}$$");
+	// Extra closers are ambiguous; the span is left untouched.
+	assert.equal(repairMathBraces("$x}$"), "$x}$");
+	// Balanced math and plain money text pass through unchanged.
+	assert.equal(repairMathBraces("$\\frac{1}{2}$ costs $5"), "$\\frac{1}{2}$ costs $5");
+});
+
+test("brace repair preserves MCQ option/answer equality", () => {
+	const question = makeQuestion({
+		questionText: "Evaluate $\\frac{1}{2$ of the interval.",
+		options: ["$\\frac{1}{2$", "$1$", "$2$", "$4$"],
+		correctAnswer: "$\\frac{1}{2$",
+	});
+	const normalized = normalizeQuestionFormatting(question);
+	assert.equal(normalized.correctAnswer, "$\\frac{1}{2}$");
+	assert.ok(normalized.options?.includes(normalized.correctAnswer));
+	assert.equal(detectFormatIssues(normalized).unbalancedBraces, 0);
+});
+
+test("structured-output rejections are retryable, auth and quota errors are not", () => {
+	assert.equal(isStructuredOutputRejection(400, "Invalid response_format: json_schema is not supported"), true);
+	assert.equal(isStructuredOutputRejection(400, "responseSchema: unsupported field"), true);
+	assert.equal(isStructuredOutputRejection(422, "strict mode rejected: additionalProperties"), true);
+	assert.equal(isStructuredOutputRejection(400, "temperature must be between 0 and 2"), false);
+	assert.equal(isStructuredOutputRejection(401, "invalid api key for schema access"), false);
+	assert.equal(isStructuredOutputRejection(429, "rate limited json_schema"), false);
+	assert.equal(isStructuredOutputRejection(500, "internal schema error"), false);
+});
+
+test("gemini schema dialect avoids unsupported keywords", () => {
+	const schema = geminiQuestionSchema();
+	const serialized = JSON.stringify(schema);
+	assert.ok(!serialized.includes("additionalProperties"));
+	assert.ok(!serialized.includes('"null"'));
+	const questions = (schema as { properties: { questions: { items: Record<string, unknown> } } })
+		.properties.questions.items;
+	const required = questions["required"] as string[];
+	assert.ok(!required.includes("options"));
+	const options = (questions["properties"] as Record<string, Record<string, unknown>>)["options"];
+	assert.equal(options?.["nullable"], true);
+});
+
+test("system prompt carries one format exemplar", () => {
+	const prompt = buildPrompt(
+		[
+			{
+				note: makeTopic({ title: "Any note" }),
+				content: "Some content.",
+				history: "",
+			},
+		],
+		4,
+		{ now: Date.UTC(2026, 5, 26) }
+	);
+	assert.match(prompt.systemPrompt ?? "", /One exemplar of the signature format/);
+	assert.match(prompt.systemPrompt ?? "", /never its topic or phrasing/);
+	// The exemplar demonstrates math, code, and reason-paired options.
+	assert.match(prompt.systemPrompt ?? "", /\$O\(\\\\log n\)\$/);
+	assert.ok(!/One exemplar of the signature format/.test(prompt.userPrompt ?? ""));
 });
 
 test("buildPrompt splits stable instructions into system and material into user", () => {

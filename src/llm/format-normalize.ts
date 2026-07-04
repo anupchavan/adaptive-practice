@@ -65,7 +65,43 @@ export function normalizeObsidianMath(text: string): string {
 	out = out.replace(/\\+\(([\s\S]*?)\\+\)/g, (_match, inner: string) => {
 		return `$${inner.trim()}$`;
 	});
-	return out;
+	return repairMathBraces(out);
+}
+
+/**
+ * Close unbalanced braces inside math spans. A missing `}` (a common model
+ * slip: `$\frac{1}{2$`) makes the whole span render as raw text in Obsidian.
+ * Only the unambiguous case is repaired — up to three missing closers are
+ * appended at the end of the span; anything else is left untouched.
+ */
+export function repairMathBraces(text: string): string {
+	if (!text || !text.includes("$")) return text;
+	return text.replace(
+		/\$\$([\s\S]*?)\$\$|\$([^$\n]+)\$/g,
+		(match, display: string | undefined, inline: string | undefined) => {
+			const inner = display ?? inline;
+			if (inner === undefined) return match;
+			const repaired = closeUnbalancedBraces(inner);
+			if (repaired === inner) return match;
+			return display !== undefined ? `$$${repaired}$$` : `$${repaired}$`;
+		}
+	);
+}
+
+function closeUnbalancedBraces(inner: string): string {
+	let depth = 0;
+	for (let i = 0; i < inner.length; i++) {
+		const ch = inner[i];
+		if (inner[i - 1] === "\\") continue;
+		if (ch === "{") depth++;
+		else if (ch === "}") {
+			depth--;
+			// An extra closer is ambiguous — do not guess.
+			if (depth < 0) return inner;
+		}
+	}
+	if (depth > 0 && depth <= 3) return inner + "}".repeat(depth);
+	return inner;
 }
 
 /**
@@ -103,6 +139,7 @@ export interface FormatIssues {
 	latexDelimiters: number;
 	unbalancedDollars: number;
 	unbalancedFences: number;
+	unbalancedBraces: number;
 	optionPrefixes: number;
 }
 
@@ -120,18 +157,20 @@ export function detectFormatIssues(question: Question): FormatIssues {
 	let latexDelimiters = 0;
 	let unbalancedDollars = 0;
 	let unbalancedFences = 0;
+	let unbalancedBraces = 0;
 	let optionPrefixes = 0;
 
 	for (const field of fields) {
 		if (/\\+[([]/.test(field)) latexDelimiters++;
 		if (countUnescapedDollars(field) % 2 !== 0) unbalancedDollars++;
 		if ((field.match(/```/g)?.length ?? 0) % 2 !== 0) unbalancedFences++;
+		if (repairMathBraces(field) !== field) unbalancedBraces++;
 	}
 	for (const option of question.options ?? []) {
 		if (/^[A-Da-d][).:]\s/.test(option.trim())) optionPrefixes++;
 	}
 
-	return { latexDelimiters, unbalancedDollars, unbalancedFences, optionPrefixes };
+	return { latexDelimiters, unbalancedDollars, unbalancedFences, unbalancedBraces, optionPrefixes };
 }
 
 function countUnescapedDollars(text: string): number {

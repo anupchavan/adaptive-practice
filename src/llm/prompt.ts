@@ -179,7 +179,26 @@ Respond with ONLY valid JSON. No markdown fences, no explanation. Prefer a JSON 
 For MCQ: "options" is required, "correctAnswer" must exactly match one option. Do NOT prefix options with letters like "A)", "B)", etc.
 For integer/decimal: "options" should be omitted, "correctAnswer" is the numeric string.
 
-For explanation: be concise but include the key reasoning step, not just the final answer.`;
+For explanation: be concise but include the key reasoning step, not just the final answer.
+
+One exemplar of the signature format — match its formatting discipline (inline code, fenced code, $-wrapped math, reason-paired options, concrete sourceSubtopics), never its topic or phrasing:
+
+{
+  "id": "q1",
+  "type": "mcq",
+  "questionText": "An array of $n$ distinct sorted integers is rotated once.\\n\\n\`\`\`python\\nwhile lo < hi:\\n    mid = (lo + hi) // 2\\n    if arr[mid] > arr[hi]: lo = mid + 1\\n    else: hi = mid\\n\`\`\`\\nWhy does the loop always converge on the minimum?",
+  "options": [
+    "\`arr[mid] > arr[hi]\` proves the minimum lies right of mid, so discarding the left half preserves the invariant",
+    "The midpoint always lands in the sorted half, so the loop scans it linearly",
+    "Integer division guarantees \`lo == hi\` after exactly $\\\\log_2 n$ steps for every input",
+    "Comparing with \`arr[hi]\` sorts the array first, making plain binary search valid"
+  ],
+  "correctAnswer": "\`arr[mid] > arr[hi]\` proves the minimum lies right of mid, so discarding the left half preserves the invariant",
+  "explanation": "The unsorted half must contain the rotation point, so the invariant keeps the minimum inside [lo, hi] and the range halves each step: $O(\\\\log n)$.",
+  "sourceTopics": ["Rotated arrays"],
+  "sourceSubtopics": ["loop invariant", "rotation point"],
+  "difficulty": "medium"
+}`;
 
 	const userPrompt = `Generate exactly ${questionCount} questions from the provided vault material.
 

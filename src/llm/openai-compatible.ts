@@ -2,7 +2,11 @@ import { requestUrl } from "obsidian";
 import { Question } from "../types";
 import { GENERATION_TEMPERATURE, resolvePromptParts, StructuredPrompt } from "./prompt";
 import { parseQuestions } from "./parse";
-import { extractProviderErrorDetail, formatProviderError } from "./errors";
+import {
+	extractProviderErrorDetail,
+	formatProviderError,
+	isStructuredOutputRejection,
+} from "./errors";
 import {
 	arrayBufferToBase64,
 	CompatibleJsonMode,
@@ -38,6 +42,30 @@ export class OpenAiCompatibleClient {
 		const { system, user } = resolvePromptParts(prompt);
 		const imageAttachments = prompt.attachments.filter((attachment) => attachment.kind === "image");
 		const content = this.buildMessageContent(user, imageAttachments);
+
+		const attempt = await this.requestChatCompletion(system, content, this.config.jsonMode);
+		if (attempt.ok) return parseQuestions(attempt.text);
+
+		// Some OpenAI-compatible gateways reject strict json_schema outright.
+		// The prompt already demands JSON, so degrade once to plain JSON mode
+		// instead of failing the whole session.
+		if (
+			this.config.jsonMode === "json_schema" &&
+			isStructuredOutputRejection(attempt.status, attempt.detail)
+		) {
+			const fallback = await this.requestChatCompletion(system, content, "json_object");
+			if (fallback.ok) return parseQuestions(fallback.text);
+			throw new Error(this.describeFailure(fallback));
+		}
+
+		throw new Error(this.describeFailure(attempt));
+	}
+
+	private async requestChatCompletion(
+		system: string,
+		content: string | Array<Record<string, unknown>>,
+		jsonMode: CompatibleJsonMode
+	): Promise<{ ok: boolean; status: number; text: string; detail?: string }> {
 		const body = {
 			model: this.config.model,
 			messages: [
@@ -52,12 +80,11 @@ export class OpenAiCompatibleClient {
 			],
 			temperature: GENERATION_TEMPERATURE,
 			max_tokens: MAX_OUTPUT_TOKENS,
-			...this.responseFormat(),
+			...this.responseFormat(jsonMode),
 		};
 
-		const endpoint = normalizeChatCompletionsUrl(this.config.baseUrl);
 		const response = await requestUrl({
-			url: endpoint,
+			url: normalizeChatCompletionsUrl(this.config.baseUrl),
 			method: "POST",
 			headers: this.headers(),
 			body: JSON.stringify(body),
@@ -65,17 +92,26 @@ export class OpenAiCompatibleClient {
 		});
 
 		if (response.status < 200 || response.status >= 300) {
-			throw new Error(formatProviderError({
-				providerLabel: this.config.providerLabel,
+			return {
+				ok: false,
 				status: response.status,
-				model: this.config.model,
-				baseUrl: endpoint,
+				text: "",
 				detail: extractProviderErrorDetail(response.text),
-			}));
+			};
 		}
+		return { ok: true, status: response.status, text: getChatCompletionText(response.json) };
+	}
 
-		const text = getChatCompletionText(response.json);
-		return parseQuestions(text);
+	private describeFailure(
+		attempt: { status: number; detail?: string }
+	): string {
+		return formatProviderError({
+			providerLabel: this.config.providerLabel,
+			status: attempt.status,
+			model: this.config.model,
+			baseUrl: normalizeChatCompletionsUrl(this.config.baseUrl),
+			detail: attempt.detail,
+		});
 	}
 
 	private buildMessageContent(
@@ -116,16 +152,17 @@ export class OpenAiCompatibleClient {
 		return headers;
 	}
 
-	private responseFormat(): Record<string, unknown> {
-		if (this.config.jsonMode === "json_object") {
+	private responseFormat(jsonMode: CompatibleJsonMode): Record<string, unknown> {
+		if (jsonMode === "json_object") {
 			return { response_format: { type: "json_object" } };
 		}
-		if (this.config.jsonMode === "json_schema") {
+		if (jsonMode === "json_schema") {
 			return {
 				response_format: {
 					type: "json_schema",
 					json_schema: {
 						name: "adaptive_practice_questions",
+						strict: true,
 						schema: questionSchema(),
 					},
 				},

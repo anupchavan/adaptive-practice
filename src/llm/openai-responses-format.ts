@@ -113,6 +113,7 @@ function responseTextFormat(mode: CompatibleJsonMode): Record<string, unknown> |
 		return {
 			type: "json_schema",
 			name: "adaptive_practice_questions",
+			strict: true,
 			schema: questionSchema(),
 		};
 	}

@@ -12,15 +12,13 @@ export function arrayBufferToBase64(buffer: ArrayBuffer): string {
 }
 
 /**
- * JSON schema for a question batch, shaped to be compatible with OpenAI/Gemini
- * *strict* structured output: every property is listed in `required`, objects
- * set `additionalProperties: false`, `options` is nullable (so numeric questions
- * can omit it), and unsupported keywords like `minItems` are avoided. Strict
- * mode is not yet enabled on the request (that needs live-provider validation),
- * but keeping the schema strict-valid removes the previous contradictory shape
- * (`additionalProperties: false` while `options` was absent from `required`),
- * which stricter json_schema validators can reject. Flipping strict on later is
- * then a one-line change.
+ * JSON schema for a question batch, shaped to be *strict* structured-output
+ * valid: every property is listed in `required`, objects set
+ * `additionalProperties: false`, `options` is nullable (so numeric questions
+ * can omit it), and unsupported keywords like `minItems` are avoided. Requests
+ * send `strict: true`; if a gateway rejects the schema, the client retries
+ * once in plain JSON mode (see isStructuredOutputRejection), so a rejection
+ * degrades gracefully instead of failing the session.
  */
 export function questionSchema(): Record<string, unknown> {
 	return {
@@ -63,6 +61,51 @@ export function questionSchema(): Record<string, unknown> {
 							type: "array",
 							items: { type: "string" },
 						},
+						difficulty: { type: "string", enum: ["easy", "medium", "hard"] },
+					},
+				},
+			},
+		},
+	};
+}
+
+/**
+ * The same schema in Gemini's OpenAPI-subset dialect: `nullable: true` instead
+ * of union types, no `additionalProperties`, and `options` left out of
+ * `required` (Gemini treats required+nullable as contradictory).
+ */
+export function geminiQuestionSchema(): Record<string, unknown> {
+	return {
+		type: "object",
+		required: ["questions"],
+		properties: {
+			questions: {
+				type: "array",
+				items: {
+					type: "object",
+					required: [
+						"id",
+						"type",
+						"questionText",
+						"correctAnswer",
+						"explanation",
+						"sourceTopics",
+						"sourceSubtopics",
+						"difficulty",
+					],
+					properties: {
+						id: { type: "string" },
+						type: { type: "string", enum: ["mcq", "integer", "decimal"] },
+						questionText: { type: "string" },
+						options: {
+							type: "array",
+							items: { type: "string" },
+							nullable: true,
+						},
+						correctAnswer: { type: "string" },
+						explanation: { type: "string" },
+						sourceTopics: { type: "array", items: { type: "string" } },
+						sourceSubtopics: { type: "array", items: { type: "string" } },
 						difficulty: { type: "string", enum: ["easy", "medium", "hard"] },
 					},
 				},

@@ -2,7 +2,12 @@ import { requestUrl } from "obsidian";
 import { Question } from "../types";
 import { GENERATION_TEMPERATURE, resolvePromptParts, StructuredPrompt } from "./prompt";
 import { parseQuestions } from "./parse";
-import { extractProviderErrorDetail, formatProviderError } from "./errors";
+import {
+	extractProviderErrorDetail,
+	formatProviderError,
+	isStructuredOutputRejection,
+} from "./errors";
+import { geminiQuestionSchema } from "./openai-shared";
 
 const GEMINI_API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -43,6 +48,25 @@ export class GeminiClient {
 			});
 		}
 
+		const attempt = await this.requestGenerateContent(system, parts, true);
+		if (attempt.ok) return this.parseResponse(attempt.data);
+
+		// If the responseSchema itself is rejected (model/tier differences),
+		// degrade once to plain JSON mode instead of failing the session.
+		if (isStructuredOutputRejection(attempt.status, attempt.detail)) {
+			const fallback = await this.requestGenerateContent(system, parts, false);
+			if (fallback.ok) return this.parseResponse(fallback.data);
+			throw new Error(this.describeFailure(fallback));
+		}
+
+		throw new Error(this.describeFailure(attempt));
+	}
+
+	private async requestGenerateContent(
+		system: string,
+		parts: Array<Record<string, unknown>>,
+		withSchema: boolean
+	): Promise<{ ok: boolean; status: number; data: unknown; detail?: string }> {
 		const body = {
 			contents: [{ parts }],
 			systemInstruction: { parts: [{ text: system }] },
@@ -50,9 +74,9 @@ export class GeminiClient {
 				temperature: GENERATION_TEMPERATURE,
 				maxOutputTokens: 8192,
 				responseMimeType: "application/json",
+				...(withSchema ? { responseSchema: geminiQuestionSchema() } : {}),
 			},
 		};
-		const bodyStr = JSON.stringify(body);
 		const model = normalizeGeminiModel(this.config.model);
 
 		const response = await requestUrl({
@@ -64,22 +88,23 @@ export class GeminiClient {
 				"Content-Type": "application/json",
 				"x-goog-api-key": this.apiKey,
 			},
-			body: bodyStr,
+			body: JSON.stringify(body),
 			throw: false,
 		});
 
 		if (response.status !== 200) {
-			throw new Error(formatProviderError({
-				providerLabel: "Gemini",
+			return {
+				ok: false,
 				status: response.status,
-				model,
+				data: null,
 				detail: extractProviderErrorDetail(response.text),
-			}));
+			};
 		}
+		return { ok: true, status: response.status, data: response.json };
+	}
 
-		const data: unknown = response.json;
+	private parseResponse(data: unknown): Question[] {
 		const text = getGeminiText(data);
-
 		try {
 			return parseQuestions(text);
 		} catch (error) {
@@ -90,6 +115,15 @@ export class GeminiClient {
 			}
 			throw error;
 		}
+	}
+
+	private describeFailure(attempt: { status: number; detail?: string }): string {
+		return formatProviderError({
+			providerLabel: "Gemini",
+			status: attempt.status,
+			model: normalizeGeminiModel(this.config.model),
+			detail: attempt.detail,
+		});
 	}
 }
 

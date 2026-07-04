@@ -15,6 +15,25 @@ export function extractProviderErrorDetail(rawText: string): string {
 	}
 }
 
+/**
+ * Whether a failed request looks like the provider rejecting the structured
+ * output configuration itself (strict json_schema / responseSchema), as
+ * opposed to auth, quota, or model problems. Rejections of this shape are safe
+ * to retry once without the schema — the prompt already demands JSON.
+ */
+export function isStructuredOutputRejection(
+	status: number,
+	detail?: string
+): boolean {
+	if (status < 400 || status >= 500) return false;
+	if (status === 401 || status === 403 || status === 404 || status === 429) {
+		return false;
+	}
+	return /\b(json_schema|response_format|responseschema|response_schema|structured output|strict|schema)\b/i.test(
+		detail ?? ""
+	);
+}
+
 export function formatProviderError(context: ProviderErrorContext): string {
 	const bits = [`${context.providerLabel} API error (${context.status})`];
 	if (context.model) bits.push(`model "${context.model}"`);
