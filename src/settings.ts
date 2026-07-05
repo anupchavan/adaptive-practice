@@ -40,7 +40,8 @@ interface SettingControl {
 interface SettingDefinition {
 	name?: string;
 	desc?: string;
-	heading?: boolean;
+	/** For type "group": the section heading text. */
+	heading?: string;
 	type?: string;
 	items?: SettingDefinition[];
 	control?: SettingControl;
@@ -133,8 +134,7 @@ export class AdaptivePracticeSettingTab extends PluginSettingTab {
 			},
 			{
 				type: "group",
-				name: "Note dates",
-				heading: true,
+				heading: "Note dates",
 				items: [
 					{
 						name: "Created date properties",
@@ -150,8 +150,7 @@ export class AdaptivePracticeSettingTab extends PluginSettingTab {
 			},
 			{
 				type: "group",
-				name: "Note filters",
-				heading: true,
+				heading: "Note filters",
 				items: [
 					{
 						desc: "Conditions on properties, tags, or folders that narrow which notes appear as topics, applied in addition to the practice folder.",
@@ -163,8 +162,7 @@ export class AdaptivePracticeSettingTab extends PluginSettingTab {
 			},
 			{
 				type: "group",
-				name: "Practice view",
-				heading: true,
+				heading: "Practice view",
 				items: [
 					{
 						name: "Question navigation side",
@@ -179,8 +177,7 @@ export class AdaptivePracticeSettingTab extends PluginSettingTab {
 			},
 			{
 				type: "group",
-				name: "Daily practice",
-				heading: true,
+				heading: "Daily practice",
 				items: [
 					{
 						name: "Daily reminder",
@@ -206,8 +203,7 @@ export class AdaptivePracticeSettingTab extends PluginSettingTab {
 			},
 			{
 				type: "group",
-				name: "Generation",
-				heading: true,
+				heading: "Generation",
 				items: [
 					{
 						name: "Adaptive flow",

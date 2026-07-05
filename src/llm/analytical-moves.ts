@@ -175,24 +175,6 @@ export const ANALYTICAL_MOVES: AnalyticalMove[] = [
 ];
 
 /**
- * Open-core split (decided 2026-07-05): moves whose keys are in this set ship
- * in the public community repo under MIT; every other move stays private and
- * later serves from the paid tier's server. The runtime never filters on this
- * — this build always uses the full catalog; the community export simply
- * carries a catalog trimmed to this set. Adjust the split by moving keys.
- */
-export const COMMUNITY_MOVE_KEYS: ReadonlySet<string> = new Set([
-	"limiting-case",
-	"edge-case",
-	"counterexample-hunt",
-	"necessary-sufficient",
-	"causal-direction",
-	"consistency-check",
-	"ordering-dependence",
-	"symptom-to-cause",
-]);
-
-/**
  * Render the moves as a compact prompt block. Lives in the SYSTEM prompt (which
  * this plugin marks as a cache breakpoint), so across the micro-batches of a
  * session the catalog is paid for once and then read at cache price — the moves

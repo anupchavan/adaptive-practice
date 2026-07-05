@@ -1,4 +1,4 @@
-import { App, Modal, Notice, Setting, TFile } from "obsidian";
+import { App, DropdownComponent, Modal, Notice, SearchComponent, Setting, TFile } from "obsidian";
 import {
 	AdaptivePracticeSettings,
 	DEFAULT_FILTER_RULES,
@@ -155,19 +155,18 @@ export class SetupModal extends Modal {
 			builder.render(rulesContainer);
 			this.updateFilterPreview(container);
 		} else {
-			new Setting(container).setName("Select topics").setHeading();
-			const topicHeader = container.createDiv({ cls: "ap-topic-header" });
-			const summaryEl = topicHeader.createDiv({ cls: "ap-topic-summary" });
+			// Hotkeys-panel look. Rows and inputs come from the official
+			// components (Setting, SearchComponent, DropdownComponent), which
+			// emit the native classes themselves; only the wrapper and the
+			// filter chips have no component, so they carry the classes by hand.
+			const groupEl = container.createDiv({ cls: "setting-group mod-list ap-topic-picker" });
+			const searchRow = groupEl.createDiv({ cls: "setting-group-search" });
+			const search = new SearchComponent(searchRow)
+				.setPlaceholder("Filter by title, alias, or path...")
+				.setValue(this.searchQuery);
 
-			const controls = container.createDiv({ cls: "ap-topic-controls" });
-			const searchInput = controls.createEl("input", {
-				type: "search",
-				cls: "ap-topic-search",
-				placeholder: "Search title, alias, or path",
-			});
-			searchInput.value = this.searchQuery;
-
-			const filterBar = controls.createDiv({ cls: "ap-topic-filter-bar" });
+			const searchControl = searchRow.createDiv({ cls: "setting-group-search-control" });
+			const filterBar = searchControl.createDiv({ cls: "setting-group-filters" });
 			const filters: Array<{ id: TopicQuickFilter; label: string }> = [
 				{ id: "all", label: "All" },
 				{ id: "due", label: "Due" },
@@ -176,47 +175,44 @@ export class SetupModal extends Modal {
 				{ id: "pdf", label: "PDFs" },
 			];
 			for (const filter of filters) {
-				const button = filterBar.createEl("button", {
+				const chip = filterBar.createDiv({
 					text: filter.label,
-					cls: "ap-topic-filter-button",
+					cls: "setting-group-filter",
 				});
+				chip.tabIndex = 0;
 				if (this.quickFilter === filter.id) {
-					button.addClass("is-active");
+					chip.addClass("is-active");
 				}
-				button.addEventListener("click", () => {
+				chip.addEventListener("click", () => {
 					this.quickFilter = filter.id;
 					this.renderTopicSection(container);
 				});
 			}
 
-			const selectAllLabel = topicHeader.createEl("label", { cls: "ap-select-all" });
+			const rightCluster = searchControl.createDiv({ cls: "ap-topic-select-cluster" });
+			const summaryEl = rightCluster.createDiv({ cls: "ap-topic-summary" });
+			const selectAllLabel = rightCluster.createEl("label", { cls: "ap-select-all" });
 			const selectAllCheckbox = selectAllLabel.createEl("input", { type: "checkbox" });
 			selectAllLabel.createEl("span", { text: "Select visible" });
-			const listHost = container.createDiv({ cls: "ap-topic-list-host" });
+
+			const listHost = groupEl.createDiv({ cls: "setting-items" });
 
 			const groupOptions = this.getTopicGroupOptions();
 			if (groupOptions.length > 0) {
-				const groupSelect = controls.createEl("select", {
-					cls: "ap-topic-group-filter dropdown",
-				});
-				groupSelect.createEl("option", {
-					text: "All courses/folders",
-					value: "all",
-				});
-				for (const group of groupOptions) {
-					groupSelect.createEl("option", {
-						text: group,
-						value: group,
-					});
-				}
 				if (this.groupFilter !== "all" && !groupOptions.includes(this.groupFilter)) {
 					this.groupFilter = "all";
 				}
-				groupSelect.value = this.groupFilter;
-				groupSelect.addEventListener("change", () => {
-					this.groupFilter = groupSelect.value || "all";
-					this.renderManualTopicList(listHost, summaryEl, selectAllCheckbox);
-				});
+				const groupDropdown = new DropdownComponent(filterBar)
+					.addOption("all", "All courses/folders");
+				for (const group of groupOptions) {
+					groupDropdown.addOption(group, group);
+				}
+				groupDropdown
+					.setValue(this.groupFilter)
+					.onChange((value) => {
+						this.groupFilter = value || "all";
+						this.renderManualTopicList(listHost, summaryEl, selectAllCheckbox);
+					});
 			}
 
 			selectAllCheckbox.addEventListener("change", () => {
@@ -228,8 +224,8 @@ export class SetupModal extends Modal {
 				this.renderManualTopicList(listHost, summaryEl, selectAllCheckbox);
 			});
 
-			searchInput.addEventListener("input", () => {
-				this.searchQuery = searchInput.value;
+			search.onChange((value) => {
+				this.searchQuery = value;
 				this.renderManualTopicList(listHost, summaryEl, selectAllCheckbox);
 			});
 
@@ -256,9 +252,8 @@ export class SetupModal extends Modal {
 			return;
 		}
 
-		const topicContainer = container.createDiv({ cls: "ap-topic-list" });
 		for (const topic of renderedTopics) {
-			this.renderManualTopicRow(topicContainer, topic, summaryEl, selectAllCheckbox);
+			this.renderManualTopicRow(container, topic, summaryEl, selectAllCheckbox);
 		}
 
 		if (visibleTopics.length > renderedTopics.length) {
@@ -275,44 +270,45 @@ export class SetupModal extends Modal {
 		summaryEl: HTMLElement,
 		selectAllCheckbox: HTMLInputElement
 	): void {
-		const row = container.createDiv({ cls: "ap-topic-row" });
-		const checkbox = row.createEl("input", { type: "checkbox" });
+		const aliases = displayAliases(topic);
+		const setting = new Setting(container)
+			.setName(topic.title)
+			.setDesc(aliases ? `${topic.path} · ${aliases}` : topic.path);
+		setting.settingEl.addClass("ap-topic-item");
+		setting.settingEl.tabIndex = -1;
+
+		// The one non-component piece: a leading checkbox slot (the native
+		// Setting layout has no left-side control).
+		const checkSlot = setting.settingEl.createDiv({ cls: "ap-topic-check" });
+		setting.settingEl.prepend(checkSlot);
+		const checkbox = checkSlot.createEl("input", { type: "checkbox" });
 		checkbox.checked = this.selectedPaths.has(topic.path);
 		checkbox.addEventListener("change", () => {
 			if (checkbox.checked) this.selectedPaths.add(topic.path);
 			else this.selectedPaths.delete(topic.path);
 			this.updateManualSelectionSummary(summaryEl, selectAllCheckbox);
 		});
-		row.addEventListener("click", (e) => {
+		setting.settingEl.addEventListener("click", (e) => {
 			if (e.target === checkbox) return;
 			checkbox.checked = !checkbox.checked;
 			checkbox.dispatchEvent(new Event("change"));
 		});
 
-		const main = row.createDiv({ cls: "ap-topic-main" });
-		const titleEl = main.createDiv({ cls: "ap-topic-title" });
-		titleEl.createSpan({ text: topic.title });
 		if (topic.isPdf) {
-			titleEl.createSpan({ text: "PDF", cls: "ap-pdf-badge" });
+			setting.nameEl.createSpan({ text: "PDF", cls: "ap-pdf-badge" });
 		}
 		const group = this.getTopicGroup(topic);
 		if (group) {
-			titleEl.createSpan({ text: group, cls: "ap-topic-group-badge" });
-		}
-		main.createDiv({ text: topic.path, cls: "ap-topic-path" });
-		const aliases = displayAliases(topic);
-		if (aliases) {
-			main.createDiv({ text: aliases, cls: "ap-topic-aliases" });
+			setting.nameEl.createSpan({ text: group, cls: "ap-topic-group-badge" });
 		}
 
-		const meta = row.createDiv({ cls: "ap-topic-meta" });
-		const skillBadge = meta.createDiv({ cls: "ap-skill-badge" });
+		const skillBadge = setting.controlEl.createDiv({ cls: "ap-skill-badge" });
 		skillBadge.setText(`${Math.round(topic.skill)}`);
 		skillBadge.title = `Skill: ${Math.round(topic.skill)}/100`;
 		if (topic.skill < 30) skillBadge.addClass("ap-skill-low");
 		else if (topic.skill < 70) skillBadge.addClass("ap-skill-mid");
 		else skillBadge.addClass("ap-skill-high");
-		meta.createDiv({
+		setting.controlEl.createDiv({
 			text: this.getTopicStatusText(topic),
 			cls: "ap-topic-status",
 		});

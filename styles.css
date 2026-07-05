@@ -1,15 +1,29 @@
 /* ── Setup modal ── */
 
-.ap-topic-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    margin-bottom: 4px;
+/* Topic picker rides the native settings-list chrome (setting-group /
+   setting-items / setting-group-filters come from core styles); only the
+   plugin-specific bits are styled here. */
+
+.ap-topic-picker .setting-items {
+    max-height: 40vh;
+    overflow-y: auto;
 }
 
-.ap-topic-header h3 {
-    margin: 0;
+.ap-topic-picker .setting-item.ap-topic-item {
+    cursor: pointer;
+}
+
+.ap-topic-check {
+    display: flex;
+    align-items: center;
+    margin-right: var(--size-4-3);
+}
+
+.ap-topic-select-cluster {
+    display: flex;
+    align-items: center;
+    gap: var(--size-4-3);
+    margin-left: auto;
 }
 
 .ap-topic-summary {
@@ -26,29 +40,6 @@
     line-height: 1.35;
 }
 
-.ap-topic-controls {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-bottom: 8px;
-}
-
-.ap-topic-search {
-    width: 100%;
-    box-sizing: border-box;
-}
-
-.ap-topic-filter-bar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-}
-
-.ap-topic-group-filter {
-    width: min(100%, 320px);
-    min-height: 30px;
-}
-
 .ap-select-all {
     display: flex;
     align-items: center;
@@ -56,82 +47,27 @@
     font-size: var(--font-ui-small);
     cursor: pointer;
     color: var(--text-muted);
+    white-space: nowrap;
 }
 
 .ap-select-all:hover {
     color: var(--text-normal);
 }
 
-.ap-topic-list {
-    max-height: 40vh;
-    overflow-y: auto;
-    margin-bottom: 1em;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 6px;
-    padding: 4px;
-}
-
-.ap-topic-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 8px;
-    border-radius: 4px;
-    cursor: pointer;
-}
-
-.ap-topic-row:hover {
-    background: var(--background-modifier-hover);
-}
-
-.ap-topic-title {
-    flex: 1;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.ap-topic-main {
-    display: flex;
-    flex: 1;
-    min-width: 0;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.ap-topic-path,
-.ap-topic-aliases,
 .ap-topic-status,
 .ap-topic-list-note {
     font-size: var(--font-smallest);
     color: var(--text-muted);
 }
 
-.ap-topic-path,
-.ap-topic-aliases {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.ap-topic-aliases {
-    color: var(--text-faint);
-}
-
-.ap-topic-meta {
-    display: flex;
+.ap-topic-item .setting-item-control {
     align-items: flex-end;
     flex-direction: column;
     gap: 3px;
-    flex: 0 0 auto;
 }
 
 .ap-topic-list-note {
-    margin: -8px 0 1em;
+    margin: 8px 0 0;
     padding: 0 4px;
 }
 
