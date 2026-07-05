@@ -1,4 +1,12 @@
-import { App, DropdownComponent, Modal, Notice, SearchComponent, Setting, TFile } from "obsidian";
+import {
+	App,
+	DropdownComponent,
+	Modal,
+	Notice,
+	SearchComponent,
+	Setting,
+	TFile,
+} from "obsidian";
 import {
 	AdaptivePracticeSettings,
 	DEFAULT_FILTER_RULES,
@@ -35,22 +43,24 @@ export class SetupModal extends Modal {
 		app: App,
 		settings: AdaptivePracticeSettings,
 		onStart: (config: SessionConfig) => void,
-		preselectedPath?: string
+		preselectedPath?: string,
 	) {
 		super(app);
 		this.settings = settings;
 		this.onStart = onStart;
 		this.preselectedPath = preselectedPath ?? null;
 		this.questionCount = settings.defaultQuestionCount;
-		this.sessionFilterRules = JSON.parse(JSON.stringify(DEFAULT_FILTER_RULES)) as FilterGroup;
+		this.sessionFilterRules = JSON.parse(
+			JSON.stringify(DEFAULT_FILTER_RULES),
+		) as FilterGroup;
 	}
 
 	onOpen(): void {
 		const { contentEl } = this;
 		contentEl.empty();
-		contentEl.addClass("ap-setup-modal");
 
 		this.setTitle("Start practice session");
+		this.modalEl.addClass("mod-ap");
 
 		this.allTopics = applyPracticeMemoryToTopics(
 			getTopicNotes(
@@ -58,9 +68,9 @@ export class SetupModal extends Modal {
 				this.settings.practiceFolder,
 				this.settings.pdfSkills,
 				this.settings.filterRules,
-				this.settings
+				this.settings,
 			),
-			this.settings.practiceMemory
+			this.settings.practiceMemory,
 		).sort(compareTopicsForPicker);
 		this.topicGroups = new Map();
 
@@ -75,16 +85,16 @@ export class SetupModal extends Modal {
 			this.selectedPaths.add(this.preselectedPath);
 		}
 
-		const modeContainer = contentEl.createDiv({ cls: "ap-mode-toggle" });
-
-		new Setting(modeContainer)
+		new Setting(contentEl)
 			.setName("Use filters to select topics")
-			.setDesc("Build filter conditions to select topics instead of picking manually.")
+			.setDesc(
+				"Build filter conditions to select topics instead of picking manually.",
+			)
 			.addToggle((toggle) =>
 				toggle.setValue(this.useFilter).onChange((val) => {
 					this.useFilter = val;
 					this.renderTopicSection(topicSection);
-				})
+				}),
 			);
 
 		const topicSection = contentEl.createDiv({ cls: "ap-topic-section" });
@@ -99,58 +109,79 @@ export class SetupModal extends Modal {
 					.setDynamicTooltip()
 					.onChange((v) => {
 						this.questionCount = v;
-					})
+					}),
 			);
 
-		new Setting(contentEl).addButton((button) =>
-			button.setButtonText("Start practice").setCta().onClick(() => {
-			let topics: TopicNote[];
-			if (this.useFilter) {
-				topics = applyPracticeMemoryToTopics(
-					getTopicNotesWithFilters(
-						this.app,
-						this.sessionFilterRules,
-						this.settings.pdfSkills,
-						this.settings
-					),
-					this.settings.practiceMemory
-				);
-				if (topics.length === 0) {
-					new Notice("No notes match the current filters.");
-					return;
-				}
-			} else {
-				if (this.selectedPaths.size === 0) {
-					new Notice("Select at least one topic.");
-					return;
-				}
-				topics = this.allTopics.filter((t) => this.selectedPaths.has(t.path));
-			}
-			const warning = getProviderPdfWarning(this.settings.llmProvider, topics);
-			if (warning) {
-				new Notice(warning);
-				return;
-			}
-			this.close();
-			this.onStart({ topics, questionCount: this.questionCount });
-			})
-		);
+		contentEl.createDiv("modal-button-container", (el) => {
+			el.createEl(
+				"button",
+				{ cls: "mod-cta", text: "Start practice" },
+				(el) => {
+					el.addEventListener("click", () => {
+						let topics: TopicNote[];
+						if (this.useFilter) {
+							topics = applyPracticeMemoryToTopics(
+								getTopicNotesWithFilters(
+									this.app,
+									this.sessionFilterRules,
+									this.settings.pdfSkills,
+									this.settings,
+								),
+								this.settings.practiceMemory,
+							);
+							if (topics.length === 0) {
+								new Notice(
+									"No notes match the current filters.",
+								);
+								return;
+							}
+						} else {
+							if (this.selectedPaths.size === 0) {
+								new Notice("Select at least one topic.");
+								return;
+							}
+							topics = this.allTopics.filter((t) =>
+								this.selectedPaths.has(t.path),
+							);
+						}
+						const warning = getProviderPdfWarning(
+							this.settings.llmProvider,
+							topics,
+						);
+						if (warning) {
+							new Notice(warning);
+							return;
+						}
+						this.close();
+						this.onStart({
+							topics,
+							questionCount: this.questionCount,
+						});
+					});
+				},
+			);
+		});
 	}
 
 	private renderTopicSection(container: HTMLElement): void {
 		container.empty();
 
 		if (this.useFilter) {
-			new Setting(container)
-				.setName("Filter conditions")
-				.setDesc("Notes matching these conditions will be used as topics.")
-				.setHeading();
-			const rulesContainer = container.createDiv({ cls: "ap-bases-query-container" });
+			new Setting(container);
+			const rulesContainer = container.createDiv({
+				cls: "ap-bases-query-container",
+			});
 			const builder = new FilterBuilder(
 				this.app,
 				this.sessionFilterRules,
-				() => { this.updateFilterPreview(container); },
-				() => { rulesContainer.empty(); builder.render(rulesContainer); this.updateFilterPreview(container); }
+				() => {
+					this.updateFilterPreview(container);
+				},
+				() => {
+					rulesContainer.empty();
+					builder.render(rulesContainer);
+					this.updateFilterPreview(container);
+				},
 			);
 			builder.render(rulesContainer);
 			this.updateFilterPreview(container);
@@ -159,14 +190,22 @@ export class SetupModal extends Modal {
 			// components (Setting, SearchComponent, DropdownComponent), which
 			// emit the native classes themselves; only the wrapper and the
 			// filter chips have no component, so they carry the classes by hand.
-			const groupEl = container.createDiv({ cls: "setting-group mod-list ap-topic-picker" });
-			const searchRow = groupEl.createDiv({ cls: "setting-group-search" });
+			const groupEl = container.createDiv({
+				cls: "setting-group mod-list ap-topic-picker",
+			});
+			const searchRow = groupEl.createDiv({
+				cls: "setting-group-search",
+			});
 			const search = new SearchComponent(searchRow)
 				.setPlaceholder("Filter by title, alias, or path...")
 				.setValue(this.searchQuery);
 
-			const searchControl = searchRow.createDiv({ cls: "setting-group-search-control" });
-			const filterBar = searchControl.createDiv({ cls: "setting-group-filters" });
+			const searchControl = searchRow.createDiv({
+				cls: "setting-group-search-control",
+			});
+			const filterBar = searchControl.createDiv({
+				cls: "setting-group-filters",
+			});
 			const filters: Array<{ id: TopicQuickFilter; label: string }> = [
 				{ id: "all", label: "All" },
 				{ id: "due", label: "Due" },
@@ -189,31 +228,21 @@ export class SetupModal extends Modal {
 				});
 			}
 
-			const rightCluster = searchControl.createDiv({ cls: "ap-topic-select-cluster" });
-			const summaryEl = rightCluster.createDiv({ cls: "ap-topic-summary" });
-			const selectAllLabel = rightCluster.createEl("label", { cls: "ap-select-all" });
-			const selectAllCheckbox = selectAllLabel.createEl("input", { type: "checkbox" });
+			const rightCluster = searchControl.createDiv({
+				cls: "ap-topic-select-cluster",
+			});
+			const summaryEl = rightCluster.createDiv({
+				cls: "ap-topic-summary",
+			});
+			const selectAllLabel = rightCluster.createEl("label", {
+				cls: "ap-select-all",
+			});
+			const selectAllCheckbox = selectAllLabel.createEl("input", {
+				type: "checkbox",
+			});
 			selectAllLabel.createEl("span", { text: "Select visible" });
 
 			const listHost = groupEl.createDiv({ cls: "setting-items" });
-
-			const groupOptions = this.getTopicGroupOptions();
-			if (groupOptions.length > 0) {
-				if (this.groupFilter !== "all" && !groupOptions.includes(this.groupFilter)) {
-					this.groupFilter = "all";
-				}
-				const groupDropdown = new DropdownComponent(filterBar)
-					.addOption("all", "All courses/folders");
-				for (const group of groupOptions) {
-					groupDropdown.addOption(group, group);
-				}
-				groupDropdown
-					.setValue(this.groupFilter)
-					.onChange((value) => {
-						this.groupFilter = value || "all";
-						this.renderManualTopicList(listHost, summaryEl, selectAllCheckbox);
-					});
-			}
 
 			selectAllCheckbox.addEventListener("change", () => {
 				const checked = selectAllCheckbox.checked;
@@ -221,12 +250,20 @@ export class SetupModal extends Modal {
 					if (checked) this.selectedPaths.add(topic.path);
 					else this.selectedPaths.delete(topic.path);
 				}
-				this.renderManualTopicList(listHost, summaryEl, selectAllCheckbox);
+				this.renderManualTopicList(
+					listHost,
+					summaryEl,
+					selectAllCheckbox,
+				);
 			});
 
 			search.onChange((value) => {
 				this.searchQuery = value;
-				this.renderManualTopicList(listHost, summaryEl, selectAllCheckbox);
+				this.renderManualTopicList(
+					listHost,
+					summaryEl,
+					selectAllCheckbox,
+				);
 			});
 
 			this.renderManualTopicList(listHost, summaryEl, selectAllCheckbox);
@@ -236,7 +273,7 @@ export class SetupModal extends Modal {
 	private renderManualTopicList(
 		container: HTMLElement,
 		summaryEl: HTMLElement,
-		selectAllCheckbox: HTMLInputElement
+		selectAllCheckbox: HTMLInputElement,
 	): void {
 		container.empty();
 		this.updateManualSelectionSummary(summaryEl, selectAllCheckbox);
@@ -253,7 +290,12 @@ export class SetupModal extends Modal {
 		}
 
 		for (const topic of renderedTopics) {
-			this.renderManualTopicRow(container, topic, summaryEl, selectAllCheckbox);
+			this.renderManualTopicRow(
+				container,
+				topic,
+				summaryEl,
+				selectAllCheckbox,
+			);
 		}
 
 		if (visibleTopics.length > renderedTopics.length) {
@@ -268,7 +310,7 @@ export class SetupModal extends Modal {
 		container: HTMLElement,
 		topic: TopicNote,
 		summaryEl: HTMLElement,
-		selectAllCheckbox: HTMLInputElement
+		selectAllCheckbox: HTMLInputElement,
 	): void {
 		const aliases = displayAliases(topic);
 		const setting = new Setting(container)
@@ -279,7 +321,9 @@ export class SetupModal extends Modal {
 
 		// The one non-component piece: a leading checkbox slot (the native
 		// Setting layout has no left-side control).
-		const checkSlot = setting.settingEl.createDiv({ cls: "ap-topic-check" });
+		const checkSlot = setting.settingEl.createDiv({
+			cls: "ap-topic-check",
+		});
 		setting.settingEl.prepend(checkSlot);
 		const checkbox = checkSlot.createEl("input", { type: "checkbox" });
 		checkbox.checked = this.selectedPaths.has(topic.path);
@@ -299,10 +343,15 @@ export class SetupModal extends Modal {
 		}
 		const group = this.getTopicGroup(topic);
 		if (group) {
-			setting.nameEl.createSpan({ text: group, cls: "ap-topic-group-badge" });
+			setting.nameEl.createSpan({
+				text: group,
+				cls: "ap-topic-group-badge",
+			});
 		}
 
-		const skillBadge = setting.controlEl.createDiv({ cls: "ap-skill-badge" });
+		const skillBadge = setting.controlEl.createDiv({
+			cls: "ap-skill-badge",
+		});
 		skillBadge.setText(`${Math.round(topic.skill)}`);
 		skillBadge.title = `Skill: ${Math.round(topic.skill)}/100`;
 		if (topic.skill < 30) skillBadge.addClass("ap-skill-low");
@@ -316,25 +365,29 @@ export class SetupModal extends Modal {
 
 	private updateManualSelectionSummary(
 		summaryEl: HTMLElement,
-		selectAllCheckbox: HTMLInputElement
+		selectAllCheckbox: HTMLInputElement,
 	): void {
 		const visibleTopics = this.getVisibleTopics();
 		const visibleSelected = visibleTopics.filter((topic) =>
-			this.selectedPaths.has(topic.path)
+			this.selectedPaths.has(topic.path),
 		).length;
 		const selectedTopics = this.allTopics.filter((topic) =>
-			this.selectedPaths.has(topic.path)
+			this.selectedPaths.has(topic.path),
 		);
 		selectAllCheckbox.disabled = visibleTopics.length === 0;
 		selectAllCheckbox.checked =
-			visibleTopics.length > 0 && visibleSelected === visibleTopics.length;
+			visibleTopics.length > 0 &&
+			visibleSelected === visibleTopics.length;
 		selectAllCheckbox.indeterminate =
 			visibleSelected > 0 && visibleSelected < visibleTopics.length;
 		summaryEl.empty();
 		summaryEl.createSpan({
 			text: `${visibleTopics.length} match${visibleTopics.length === 1 ? "" : "es"} · ${this.selectedPaths.size} selected`,
 		});
-		const warning = getProviderPdfWarning(this.settings.llmProvider, selectedTopics);
+		const warning = getProviderPdfWarning(
+			this.settings.llmProvider,
+			selectedTopics,
+		);
 		if (warning) {
 			summaryEl.createDiv({
 				text: warning,
@@ -348,14 +401,15 @@ export class SetupModal extends Modal {
 		return this.allTopics.filter((topic) => {
 			if (!this.matchesQuickFilter(topic)) return false;
 			const group = this.getTopicGroup(topic);
-			if (this.groupFilter !== "all" && group !== this.groupFilter) return false;
+			if (this.groupFilter !== "all" && group !== this.groupFilter)
+				return false;
 			if (!query) return true;
 			return (
 				topic.title.toLowerCase().includes(query) ||
 				topic.path.toLowerCase().includes(query) ||
 				group.toLowerCase().includes(query) ||
 				(topic.aliases ?? []).some((alias) =>
-					alias.toLowerCase().includes(query)
+					alias.toLowerCase().includes(query),
 				)
 			);
 		});
@@ -374,10 +428,15 @@ export class SetupModal extends Modal {
 		const cached = this.topicGroups.get(topic.path);
 		if (cached !== undefined) return cached;
 
-		const indexCourse = this.settings.practiceMemory.index[topic.path]?.frontmatter.course;
+		const indexCourse =
+			this.settings.practiceMemory.index[topic.path]?.frontmatter.course;
 		const file = this.app.vault.getAbstractFileByPath(topic.path);
-		const cache = file instanceof TFile ? this.app.metadataCache.getFileCache(file) : null;
-		const frontmatter = cache?.frontmatter as Record<string, unknown> | undefined;
+		const cache =
+			file instanceof TFile
+				? this.app.metadataCache.getFileCache(file)
+				: null;
+		const frontmatter = cache?.frontmatter as
+			Record<string, unknown> | undefined;
 		const rawCourse = indexCourse || frontmatter?.["course"];
 		const course = stringifyGroupValue(rawCourse);
 		const group = course || folderLabel(topic.path);
@@ -412,7 +471,8 @@ export class SetupModal extends Modal {
 	}
 
 	private updateFilterPreview(container: HTMLElement): void {
-		let preview = container.querySelector<HTMLElement>(".ap-filter-preview");
+		let preview =
+			container.querySelector<HTMLElement>(".ap-filter-preview");
 		if (!preview) {
 			preview = container.createDiv({ cls: "ap-filter-preview" });
 		}
@@ -420,14 +480,20 @@ export class SetupModal extends Modal {
 			this.app,
 			this.sessionFilterRules,
 			this.settings.pdfSkills,
-			this.settings
+			this.settings,
 		);
 		preview.empty();
 		preview.createEl("span", {
 			text: `${matched.length} note${matched.length !== 1 ? "s" : ""} matched`,
-			cls: matched.length > 0 ? "ap-filter-match-count" : "ap-filter-match-count ap-filter-no-match",
+			cls:
+				matched.length > 0
+					? "ap-filter-match-count"
+					: "ap-filter-match-count ap-filter-no-match",
 		});
-		const warning = getProviderPdfWarning(this.settings.llmProvider, matched);
+		const warning = getProviderPdfWarning(
+			this.settings.llmProvider,
+			matched,
+		);
 		if (warning) {
 			preview.createDiv({
 				text: warning,
