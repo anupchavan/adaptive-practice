@@ -13,11 +13,13 @@ import {
 	TopicNote,
 } from "./types";
 import { AdaptivePracticeSettingTab } from "./settings";
+import { normalizeFilterRules } from "./filters/matcher";
 import { SetupModal } from "./ui/setup-modal";
 import { ResultsModal } from "./ui/results-modal";
 import { PracticeView, PRACTICE_VIEW_TYPE } from "./ui/practice-view";
 import { DashboardView, DASHBOARD_VIEW_TYPE } from "./ui/dashboard-view";
 import { ConfirmationModal } from "./ui/confirmation-modal";
+import { showActionNotice } from "./ui/notices";
 import { ADAPTIVE_PRACTICE_HOVER_SOURCE } from "./ui/markdown";
 import { createFlowSessionGenerator, generateQuestions, finalizeSession } from "./practice/session";
 import { FlowSessionGenerator } from "./practice/flow-engine";
@@ -792,34 +794,41 @@ export default class AdaptivePracticePlugin extends Plugin {
 
 	private showDailyPracticeNotice(topicCount: number, plan: DailySessionPlan): void {
 		this.hideDailyReminderNotice();
-		const notice = new Notice("", 0);
-		this.dailyReminderNotice = notice;
-		this.watchNoticeDismissal(notice);
-		notice.messageEl.empty();
 		const streak = this.settings.practiceMemory?.daily?.streak ?? 0;
 		const streakPrefix = streak > 0
 			? `🔥 ${streak}-day streak. `
 			: "";
-		notice.messageEl.createSpan({
-			text: `${streakPrefix}${topicCount} Adaptive Practice topic${topicCount === 1 ? "" : "s"} ready for ${plan.questionCount} ${formatChallengeMode(plan.challengeMode)} questions. `,
-		});
-		const button = notice.messageEl.createEl("button", { text: "Start" });
-		button.addEventListener("click", () => {
-			this.hideDailyReminderNotice(notice);
-			void this.startDailyPractice();
-		});
-		const later = notice.messageEl.createEl("button", { text: "Later" });
-		later.addEventListener("click", () => {
-			this.hideDailyReminderNotice(notice);
-		});
-		const tomorrow = notice.messageEl.createEl("button", { text: "Tomorrow" });
-		tomorrow.addEventListener("click", () => {
-			this.settings.practiceMemory = suppressDailyReminderForToday(
-				this.settings.practiceMemory
-			);
-			void this.saveSettings();
-			this.hideDailyReminderNotice(notice);
-		});
+		const notice = showActionNotice(
+			`${streakPrefix}${topicCount} topic${topicCount === 1 ? "" : "s"} ready for ${plan.questionCount} ${formatChallengeMode(plan.challengeMode)} questions.`,
+			[
+				{
+					label: "Start",
+					kind: "primary",
+					onClick: () => {
+						this.hideDailyReminderNotice(notice);
+						void this.startDailyPractice();
+					},
+				},
+				{
+					label: "Later",
+					kind: "tertiary",
+					onClick: () => this.hideDailyReminderNotice(notice),
+				},
+				{
+					label: "Tomorrow",
+					kind: "tertiary",
+					onClick: () => {
+						this.settings.practiceMemory = suppressDailyReminderForToday(
+							this.settings.practiceMemory
+						);
+						void this.saveSettings();
+						this.hideDailyReminderNotice(notice);
+					},
+				},
+			]
+		);
+		this.dailyReminderNotice = notice;
+		this.watchNoticeDismissal(notice);
 	}
 
 	private hideDailyReminderNotice(notice = this.dailyReminderNotice): void {
@@ -851,24 +860,27 @@ export default class AdaptivePracticePlugin extends Plugin {
 			void this.completeSession(draft.config, draft.results);
 			return;
 		}
-		const notice = new Notice("", 0);
-		notice.messageEl.addClass("ap-resume-practice-notice");
-		notice.messageEl.empty();
-		notice.messageEl.createSpan({
-			text: `Adaptive Practice: Unfinished practice session (${practiceDraftProgress(draft)}). `,
-		});
-		const actions = notice.messageEl.createEl("div");
-		actions.addClass("ap-resume-practice-notice-actions");
-		const resume = actions.createEl("button", { text: "Resume" });
-		resume.addEventListener("click", () => {
-			notice.hide();
-			void this.resumePracticeDraft();
-		});
-		const discard = actions.createEl("button", { text: "Discard" });
-		discard.addEventListener("click", () => {
-			notice.hide();
-			void this.discardPracticeDraft();
-		});
+		const notice = showActionNotice(
+			`Unfinished practice session (${practiceDraftProgress(draft)}).`,
+			[
+				{
+					label: "Resume",
+					kind: "primary",
+					onClick: () => {
+						notice.hide();
+						void this.resumePracticeDraft();
+					},
+				},
+				{
+					label: "Discard",
+					kind: "tertiary",
+					onClick: () => {
+						notice.hide();
+						void this.discardPracticeDraft();
+					},
+				},
+			]
+		);
 	}
 
 	private async startSession(
@@ -998,14 +1010,10 @@ export default class AdaptivePracticePlugin extends Plugin {
 		config: SessionConfig,
 		onCancel: () => void
 	): Notice {
-		const notice = new Notice("", 0);
-		notice.messageEl.empty();
-		notice.messageEl.createSpan({
-			text: `Generating ${config.questionCount} adaptive question${config.questionCount === 1 ? "" : "s"} from ${config.topics.length} note${config.topics.length === 1 ? "" : "s"}... This can take a little while; the practice tab will open when ready. `,
-		});
-		const cancel = notice.messageEl.createEl("button", { text: "Cancel" });
-		cancel.addEventListener("click", onCancel);
-		return notice;
+		return showActionNotice(
+			`Generating ${config.questionCount} adaptive question${config.questionCount === 1 ? "" : "s"} from ${config.topics.length} note${config.topics.length === 1 ? "" : "s"}… The practice tab opens when ready.`,
+			[{ label: "Cancel", kind: "tertiary", onClick: onCancel }]
+		);
 	}
 
 	private cancelSessionGeneration(generationId: number, notice: Notice): void {
@@ -1269,9 +1277,9 @@ function normalizeSettings(raw: unknown): AdaptivePracticeSettings {
 	settings.providerModels = normalizeProviderModels(settings.providerModels);
 	settings.providerJsonModes = normalizeProviderJsonModes(settings.providerJsonModes);
 	settings.providerSupportsImages = normalizeProviderBooleans(settings.providerSupportsImages);
-	if (!settings.filterRules || settings.filterRules.type !== "group") {
-		settings.filterRules = JSON.parse(JSON.stringify(DEFAULT_SETTINGS.filterRules)) as AdaptivePracticeSettings["filterRules"];
-	}
+	// Stored filter rules keep the pre-0.5 shape; this validates the tree and
+	// drops only structurally malformed entries (see normalizeFilterRules).
+	settings.filterRules = normalizeFilterRules(settings.filterRules);
 	if (!settings.pdfSkills || typeof settings.pdfSkills !== "object") {
 		settings.pdfSkills = {};
 	}

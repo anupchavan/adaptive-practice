@@ -466,11 +466,25 @@ export class PracticeView extends ItemView {
 		});
 
 		const isLast = this.state!.currentIndex >= this.state!.questions.length - 1;
+		// The buffer running dry while the flow engine is mid-batch must read
+		// as "more coming", not "session over" — maybeRequestMoreQuestions()
+		// re-renders this bar the moment the batch lands (or the plan shrinks).
+		const awaitingMore = isLast && this.hasPendingFlowQuestions();
 		const nextBtn = actionBar.createEl("button", {
-			text: isLast ? "Finish practice" : "Next question",
+			text: awaitingMore
+				? "Generating next question…"
+				: isLast
+					? "Finish practice"
+					: "Next question",
 			cls: "ap-primary-action ap-next-button",
 		});
+		if (awaitingMore) {
+			nextBtn.disabled = true;
+			nextBtn.addClass("ap-next-button-loading");
+			nextBtn.setAttr("aria-busy", "true");
+		}
 		nextBtn.addEventListener("click", () => {
+			if (awaitingMore) return;
 			if (isLast) {
 				this.openCompletionDialog();
 				return;

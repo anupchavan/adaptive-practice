@@ -149,6 +149,18 @@ export const ANALYTICAL_MOVES: AnalyticalMove[] = [
 		shape: "Present a plausible worked attempt containing one specific wrong step, and ask the learner to locate or characterize the flaw — not merely notice the conclusion is wrong.",
 	},
 	{
+		key: "instrument-vs-truth",
+		name: "Instrument vs reality",
+		trigger: "a quantity is known only through a recording, reading, or observation process that distorts it systematically (delay, relative reference, sampling, bias)",
+		shape: "Ask what the instrument will record given the reality, or recover the reality from the recording — with distractors that quietly equate the two.",
+	},
+	{
+		key: "bounds-propagation",
+		name: "Tight bounds",
+		trigger: "inputs are known only within ranges, or a constraint caps a rate, size, or duration",
+		shape: "Ask for the tightest range or extreme value of the outcome consistent with the data — the strongest claim the information licenses; distractors are falsely precise points or looser-than-needed bounds.",
+	},
+	{
 		key: "conservation-accounting",
 		name: "Conservation / accounting",
 		trigger: "some quantity is conserved, bounded, or must balance across a process",
@@ -198,7 +210,7 @@ ${lines.join("\n")}
 
 Rules for using the moves:
 - Choose per question from what the material actually supports; never force a move a note cannot sustain, and never name the move in the question.
-- Weight by material kind: procedural and formal notes most reward faithful translation, resource minimality, capacity limits, boundary cases, and flawed arguments; conceptual and mechanistic notes most reward false symmetry, minimal pairs, causal direction, double edge, and necessary-vs-possible; factual and interpretive notes mostly earn necessary-vs-possible and comparison-shaped moves.
+- Weight by material kind: procedural and formal notes most reward faithful translation, resource minimality, capacity limits, tight bounds, boundary cases, and flawed arguments; conceptual and mechanistic notes most reward false symmetry, minimal pairs, causal direction, double edge, instrument-vs-reality, and necessary-vs-possible; factual and interpretive notes mostly earn necessary-vs-possible and comparison-shaped moves.
 - Put the learner at risk of the error — never narrate it. A stem may present a claim, derivation, or approach, but must not disclose whether it is correct: "why is this claim wrong?" and "explain why X fails" give the verdict away and reduce the move to recall. Ask what follows, what happens, or which conclusion holds, with wrongness live among the options. The "someone argues X" frame is worn out — at most one question per session may use it, and even then the stem must not reveal whether the person is right.
 - A hard question must leave at least two options standing after a first honest pass: build them as conclusions of two complete, plausible reasoning chains that diverge at exactly one step (same claim with the direction, boundary, or quantifier flipped is the classic form). If two options can be discarded by tone, extremity, or obvious silliness without touching the mechanism, the question is medium at best — fix the options or relabel.
 - Vary the moves across a session instead of repeating one; different subtopics usually reward different moves.

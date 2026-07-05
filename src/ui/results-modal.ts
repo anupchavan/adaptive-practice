@@ -1,4 +1,4 @@
-import { App, Component, Modal, Notice } from "obsidian";
+import { App, ButtonComponent, Component, Modal, Notice, Setting } from "obsidian";
 import { PracticeCredit } from "../practice/daily-credit";
 import { averageFluency } from "../practice/grader";
 import { QuestionFeedbackKind, QuizResult, SkillDelta } from "../types";
@@ -46,7 +46,7 @@ export class ResultsModal extends Modal {
 				: 0;
 		const fluency = averageFluency(this.results);
 
-		contentEl.createEl("h2", { text: "Practice results" });
+		this.setTitle("Practice results");
 
 		// Score summary
 		const scoreEl = contentEl.createDiv({ cls: "ap-score-summary" });
@@ -69,7 +69,7 @@ export class ResultsModal extends Modal {
 
 		// Skill changes
 		if (this.deltas.length > 0) {
-			contentEl.createEl("h3", { text: "Skill changes" });
+			new Setting(contentEl).setName("Skill changes").setHeading();
 			const skillList = contentEl.createDiv({ cls: "ap-skill-changes" });
 			for (const d of this.deltas) {
 				const row = skillList.createDiv({ cls: "ap-skill-row" });
@@ -91,7 +91,7 @@ export class ResultsModal extends Modal {
 		}
 
 		// Question review
-		contentEl.createEl("h3", { text: "Question review" });
+		new Setting(contentEl).setName("Question review").setHeading();
 		const reviewList = contentEl.createDiv({ cls: "ap-review-list" });
 
 		for (let i = 0; i < this.results.length; i++) {
@@ -117,13 +117,9 @@ export class ResultsModal extends Modal {
 			this.renderFeedbackButtons(item, r);
 		}
 
-		// Close button
-		const btnContainer = contentEl.createDiv({ cls: "ap-btn-container" });
-		const closeBtn = btnContainer.createEl("button", {
-			text: "Close",
-			cls: "mod-cta",
-		});
-		closeBtn.addEventListener("click", () => this.close());
+		new Setting(contentEl).addButton((button) =>
+			button.setButtonText("Close").setCta().onClick(() => this.close())
+		);
 	}
 
 	onClose(): void {
@@ -150,12 +146,11 @@ export class ResultsModal extends Modal {
 			{ kind: "bad_concept", label: "Bad concept" },
 		];
 		for (const option of options) {
-			const btn = row.createEl("button", {
-				text: option.label,
-				cls: "ap-review-feedback-button",
-			});
-			btn.addEventListener("click", () => {
-				void this.saveQuestionFeedback(row, btn, result, option.kind);
+			const component = new ButtonComponent(row)
+				.setButtonText(option.label)
+				.setClass("ap-review-feedback-button");
+			component.onClick(() => {
+				void this.saveQuestionFeedback(row, component.buttonEl, result, option.kind);
 			});
 		}
 	}

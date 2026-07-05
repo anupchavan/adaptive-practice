@@ -128,3 +128,16 @@ ever runs server-side.
   beyond the community build only ever ships from the server.
 - Side benefit: the public community repo restores GitHub artifact
   attestation for store releases automatically.
+
+## IP strategy — FINAL (2026-07-05, supersedes the open-core split above)
+
+Decision: **fully open source (MIT) at store-submission time; monetize via the
+sanctioned "optional payments" category.** The moves catalog ships readable in
+main.js regardless of licensing, so the split bought legal friction, not
+secrecy — and it added standing work (fresh-history export, dual licensing,
+split builds, artifact byte-checks). What actually stays proprietary is the
+only thing that CAN: the hosted premium pipeline (server-side deep authoring,
+full-strength author→attack, any future distilled judge) behind a license key,
+plus sponsorships from day one. COMMUNITY_MOVE_KEYS becomes vestigial and is
+removed at submission time; the repo stays private until submission, then
+flips public with LICENSE swapped to MIT.

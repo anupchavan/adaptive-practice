@@ -788,21 +788,10 @@
     max-width: 420px;
 }
 
-.ap-confirmation-modal h3 {
-    margin: 0 0 8px;
-    font-size: var(--font-ui-large);
-}
-
 .ap-confirmation-message {
     color: var(--text-muted);
     line-height: 1.45;
     margin-bottom: 16px;
-}
-
-.ap-confirmation-buttons {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
 }
 
 /* ── Results modal ── */
@@ -2723,19 +2712,19 @@
     position: relative;
 }
 
-.ap-search-input-container:before {
+/* The combobox modal now prepends a real setIcon() div (.ap-search-icon)
+   instead of a masked :before pseudo-element. */
+.ap-search-icon {
+    position: absolute;
     top: calc((var(--input-height) - var(--search-icon-size)) / 2);
     inset-inline-start: var(--size-4-2);
-    position: absolute;
-    content: "";
     height: var(--search-icon-size);
     width: var(--search-icon-size);
-    display: block;
-    background-color: var(--search-icon-color);
-    -webkit-mask-image: url("data:image/svg+xml,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27currentColor%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27><circle cx=%2711%27 cy=%2711%27 r=%278%27></circle><line x1=%2721%27 y1=%2721%27 x2=%2716.65%27 y2=%2716.65%27></line></svg>");
-    mask-image: url("data:image/svg+xml,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27currentColor%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27><circle cx=%2711%27 cy=%2711%27 r=%278%27></circle><line x1=%2721%27 y1=%2721%27 x2=%2716.65%27 y2=%2716.65%27></line></svg>");
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--search-icon-color);
+    pointer-events: none;
 }
 
 .ap-combobox .ap-search-input-container input[type="search"] {
@@ -2950,20 +2939,91 @@
     opacity: 1;
 }
 
-.ap-resume-practice-notice {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+/* ── Action notices (ink-style: label, message, CTA bar) ── */
+
+/* The notice shell must not swallow workspace clicks; buttons opt back in. */
+.notice:has(.ap-notice) {
+    pointer-events: none;
+    padding: var(--size-4-3) var(--size-4-4);
 }
 
-.ap-resume-practice-notice-actions {
+.ap-notice .ap-notice-cta-bar button {
+    pointer-events: all;
+}
+
+.ap-notice .ap-notice-label {
+    margin: 0 0 var(--size-2-2);
+    font-size: var(--font-ui-smaller);
+    font-weight: var(--font-semibold);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+}
+
+.ap-notice .ap-notice-message {
+    margin: 0;
+    line-height: var(--line-height-tight);
+}
+
+.ap-notice .ap-notice-cta-bar {
     display: flex;
-    gap: 10px;
+    justify-content: flex-end;
+    align-items: center;
+    gap: var(--size-2-3);
+    margin-top: var(--size-4-2);
 }
-.ap-resume-practice-notice button {
-    background-color: var(--text-muted);
-    color: var(--background-primary);
+
+.ap-notice .ap-notice-primary-btn {
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+    box-shadow: none;
 }
-.theme-dark .ap-resume-practice-notice button {
-    background-color: var(--text-normal);
+
+.ap-notice .ap-notice-primary-btn:hover {
+    background-color: var(--interactive-accent-hover);
+}
+
+.ap-notice .ap-notice-tertiary-btn {
+    background: transparent;
+    box-shadow: none;
+    border: none;
+    color: var(--text-muted);
+}
+
+.ap-notice .ap-notice-tertiary-btn:hover {
+    color: var(--text-normal);
+    background-color: var(--background-modifier-hover);
+}
+
+/* Next-button while the flow engine is still generating the next batch */
+.ap-next-button-loading {
+    opacity: 0.75;
+    cursor: progress;
+}
+
+.ap-next-button-loading::after {
+    content: "";
+    display: inline-block;
+    width: 0.85em;
+    height: 0.85em;
+    margin-left: var(--size-2-3);
+    vertical-align: -0.1em;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: ap-spin 0.8s linear infinite;
+}
+
+@keyframes ap-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ── Filter builder (ported newer filter UI): wikilink pills + hidden inputs ── */
+
+.ap-hidden {
+    display: none;
+}
+
+.ap-pill-wikilink {
+    cursor: default;
 }

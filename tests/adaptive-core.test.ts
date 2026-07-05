@@ -172,6 +172,7 @@ import {
 	renderAnalyticalMovesGuidance,
 } from "../src/llm/analytical-moves";
 import { folderLabel, stringifyGroupValue } from "../src/ui/topic-groups";
+import { checkRules, normalizeFilterRules } from "../src/filters/matcher";
 import { hasBlockMarkdown } from "../src/ui/markdown-detection";
 import { normalizeMarkdownForRender } from "../src/ui/markdown-normalize";
 import {
@@ -181,6 +182,7 @@ import {
 	NoteStructure,
 	NoteMediaReference,
 	DEFAULT_SETTINGS,
+	FilterGroup,
 	PROVIDER_PRESETS,
 	Question,
 	QuestionFeedbackEntry,
@@ -7675,6 +7677,328 @@ test("target retention setting stretches or tightens review intervals", () => {
 	assert.equal(
 		relaxed.notes[topic.path]?.stabilityDays,
 		intensive.notes[topic.path]?.stabilityDays
+	);
+});
+
+// ─── Note filter engine ─────────────────────────────────────────────────────
+// The matcher's obsidian imports are type-only, so the engine runs against a
+// small fake vault here.
+
+type MatcherApp = Parameters<typeof checkRules>[0];
+type MatcherFile = Parameters<typeof checkRules>[2];
+type MatcherFrontmatter = Parameters<typeof checkRules>[3];
+
+interface FilterVaultNote {
+	path: string;
+	frontmatter?: Record<string, unknown>;
+	bodyTags?: string[];
+	bodyLinks?: string[];
+	size?: number;
+	ctime?: number;
+	mtime?: number;
+}
+
+function makeFilterVaultFile(note: FilterVaultNote): MatcherFile {
+	const segments = note.path.split("/");
+	const name = segments[segments.length - 1] ?? note.path;
+	const dot = name.lastIndexOf(".");
+	const basename = dot > 0 ? name.slice(0, dot) : name;
+	const extension = dot > 0 ? name.slice(dot + 1) : "";
+	const folder = segments.slice(0, -1).join("/");
+	return {
+		path: note.path,
+		name,
+		basename,
+		extension,
+		parent: { path: folder || "/" },
+		stat: { size: note.size ?? 100, ctime: note.ctime ?? 0, mtime: note.mtime ?? 0 },
+	} as unknown as MatcherFile;
+}
+
+function makeFilterVault(notes: FilterVaultNote[]): {
+	app: MatcherApp;
+	matches: (rules: FilterGroup) => string[];
+} {
+	const files = new Map<string, MatcherFile>(
+		notes.map((note) => [note.path, makeFilterVaultFile(note)])
+	);
+	const byPath = new Map(notes.map((note) => [note.path, note]));
+
+	const resolveLink = (link: string): MatcherFile | null => {
+		const target = (link.split("#")[0] ?? link).trim();
+		if (!target) return null;
+		if (files.has(target)) return files.get(target) ?? null;
+		if (files.has(`${target}.md`)) return files.get(`${target}.md`) ?? null;
+		for (const [path, file] of files) {
+			const base = path.replace(/\.md$/, "");
+			if (base === target || base.endsWith(`/${target}`)) return file;
+		}
+		return null;
+	};
+
+	const app = {
+		metadataCache: {
+			getFileCache: (file: { path: string }) => {
+				const note = byPath.get(file.path);
+				if (!note) return null;
+				return {
+					frontmatter: note.frontmatter,
+					tags: (note.bodyTags ?? []).map((tag) => ({ tag: `#${tag}` })),
+					links: (note.bodyLinks ?? []).map((link) => ({ link })),
+				};
+			},
+			getFirstLinkpathDest: (link: string) => resolveLink(link),
+		},
+	} as unknown as MatcherApp;
+
+	const matches = (rules: FilterGroup): string[] =>
+		notes
+			.filter((note) => {
+				const file = files.get(note.path);
+				if (!file) return false;
+				return checkRules(
+					app,
+					rules,
+					file,
+					note.frontmatter as MatcherFrontmatter
+				);
+			})
+			.map((note) => note.path);
+
+	return { app, matches };
+}
+
+const FILTER_PARITY_VAULT: FilterVaultNote[] = [
+	{
+		path: "Topics/Linux.md",
+		frontmatter: { course: "CS 101", reviewed: true, tags: ["cs/linux"] },
+		ctime: Date.UTC(2025, 0, 10),
+	},
+	{
+		path: "Topics/Networking.md",
+		frontmatter: { course: "CS 101" },
+		bodyTags: ["cs/networking"],
+		bodyLinks: ["Linux"],
+		ctime: Date.UTC(2026, 2, 5),
+	},
+	{
+		path: "Journal/2026-01-01.md",
+		frontmatter: { related: "[[Linux|the OS]]" },
+		bodyTags: ["journal"],
+		ctime: Date.UTC(2026, 0, 1),
+	},
+	{
+		path: "Archive/Old.md",
+		frontmatter: { status: "archived" },
+		bodyTags: ["cs/linux"],
+		ctime: Date.UTC(2024, 5, 1),
+	},
+];
+
+test("old-shape stored filter rules still select the same files", () => {
+	const vault = makeFilterVault(FILTER_PARITY_VAULT);
+
+	// Exactly the tree the previous builder wrote into data.json.
+	const storedJson = `{
+		"type": "group",
+		"operator": "AND",
+		"conditions": [
+			{ "type": "filter", "field": "file", "operator": "in folder", "value": "Topics" },
+			{
+				"type": "group",
+				"operator": "OR",
+				"conditions": [
+					{ "type": "filter", "field": "file", "operator": "has tag", "value": "cs" },
+					{ "type": "filter", "field": "course", "operator": "contains", "value": "CS" }
+				]
+			}
+		]
+	}`;
+	const rules = normalizeFilterRules(JSON.parse(storedJson));
+	// Migration is lossless: the stored shape is preserved verbatim.
+	assert.deepEqual(rules, JSON.parse(storedJson));
+	assert.deepEqual(vault.matches(rules), [
+		"Topics/Linux.md",
+		"Topics/Networking.md",
+	]);
+
+	// NOR groups and property operators keep their old semantics.
+	const norRules = normalizeFilterRules({
+		type: "group",
+		operator: "NOR",
+		conditions: [
+			{ type: "filter", field: "file", operator: "has tag", value: "journal" },
+			{ type: "filter", field: "status", operator: "is", value: "archived" },
+		],
+	});
+	assert.deepEqual(vault.matches(norRules), [
+		"Topics/Linux.md",
+		"Topics/Networking.md",
+	]);
+
+	// "links to" still sees body links; parent/child tag matching still works.
+	const linkRules = normalizeFilterRules({
+		type: "group",
+		operator: "AND",
+		conditions: [
+			{ type: "filter", field: "file", operator: "links to", value: "Topics/Linux" },
+		],
+	});
+	assert.ok(vault.matches(linkRules).includes("Topics/Networking.md"));
+	// Aliased frontmatter wikilinks now resolve too ([[Linux|the OS]]).
+	assert.ok(vault.matches(linkRules).includes("Journal/2026-01-01.md"));
+
+	// Date comparisons on file.ctime are unchanged.
+	const dateRules = normalizeFilterRules({
+		type: "group",
+		operator: "AND",
+		conditions: [
+			{ type: "filter", field: "file.ctime", operator: "before", value: "2026-01-01" },
+		],
+	});
+	assert.deepEqual(vault.matches(dateRules), ["Topics/Linux.md", "Archive/Old.md"]);
+
+	// Empty-condition groups still match everything (default rules behavior).
+	assert.equal(
+		vault.matches(normalizeFilterRules({ type: "group", operator: "AND", conditions: [] })).length,
+		FILTER_PARITY_VAULT.length
+	);
+
+	// "is empty" / "is not empty" on properties behave as before.
+	const emptyRules = normalizeFilterRules({
+		type: "group",
+		operator: "AND",
+		conditions: [
+			{ type: "filter", field: "status", operator: "is not empty", value: "" },
+		],
+	});
+	assert.deepEqual(vault.matches(emptyRules), ["Archive/Old.md"]);
+});
+
+test("stored filter rules normalize losslessly and drop only malformed entries", () => {
+	// Structurally valid old data passes through untouched, including numeric
+	// comparators the builder emits outside the FilterOperator union.
+	const stored = {
+		type: "group",
+		operator: "OR",
+		conditions: [
+			{ type: "filter", field: "file.size", operator: "≥", value: "100" },
+			{
+				type: "group",
+				operator: "NOR",
+				conditions: [
+					{ type: "filter", field: "file", operator: "has property", value: "draft" },
+				],
+			},
+		],
+	};
+	assert.deepEqual(normalizeFilterRules(JSON.parse(JSON.stringify(stored))), stored);
+
+	// Missing, null, or wrong-shaped roots fall back to match-everything.
+	const fallback = { type: "group", operator: "AND", conditions: [] };
+	assert.deepEqual(normalizeFilterRules(undefined), fallback);
+	assert.deepEqual(normalizeFilterRules(null), fallback);
+	assert.deepEqual(normalizeFilterRules({ type: "filter", field: "x", operator: "is" }), fallback);
+	assert.deepEqual(normalizeFilterRules("nope"), fallback);
+
+	// Bad group operators coerce to AND; junk conditions are dropped.
+	const messy = normalizeFilterRules({
+		type: "group",
+		operator: "XOR",
+		conditions: [
+			null,
+			42,
+			{ type: "bogus" },
+			{ type: "filter", field: 7, operator: "is" },
+			{ type: "filter", field: "course", operator: "is", value: "CS 101" },
+			{ type: "group", operator: "OR" },
+		],
+	});
+	assert.deepEqual(messy, {
+		type: "group",
+		operator: "AND",
+		conditions: [
+			{ type: "filter", field: "course", operator: "is", value: "CS 101" },
+			{ type: "group", operator: "OR", conditions: [] },
+		],
+	});
+
+	// Non-string values are omitted rather than corrupting the rule.
+	const noValue = normalizeFilterRules({
+		type: "group",
+		operator: "AND",
+		conditions: [{ type: "filter", field: "course", operator: "is empty", value: 3 }],
+	});
+	assert.deepEqual(noValue.conditions, [
+		{ type: "filter", field: "course", operator: "is empty" },
+	]);
+});
+
+test("note filter engine supports the newer operators and file fields", () => {
+	const vault = makeFilterVault([
+		{
+			path: "Topics/Graph Theory.md",
+			frontmatter: { tags: ["math", "cs"], level: "intro" },
+			bodyLinks: ["Linux", "Sets"],
+		},
+		{ path: "Topics/Sets.md", frontmatter: { tags: ["math"] } },
+		{ path: "Topics/Linux.md", frontmatter: { tags: ["linux"], aliases: ["GNU/Linux"] } },
+		{ path: "Slides/Deck.pdf" },
+	]);
+	const group = (conditions: unknown[]): FilterGroup =>
+		normalizeFilterRules({ type: "group", operator: "AND", conditions });
+
+	// "is exactly" requires the full list, order-independent.
+	assert.deepEqual(
+		vault.matches(group([
+			{ type: "filter", field: "tags", operator: "is exactly", value: "cs, math" },
+		])),
+		["Topics/Graph Theory.md"]
+	);
+	assert.deepEqual(
+		vault.matches(group([
+			{ type: "filter", field: "file", operator: "in folder", value: "Topics" },
+			{ type: "filter", field: "tags", operator: "is not exactly", value: "math" },
+		])),
+		["Topics/Graph Theory.md", "Topics/Linux.md"]
+	);
+
+	// Negated prefix/suffix operators on file names.
+	assert.deepEqual(
+		vault.matches(group([
+			{ type: "filter", field: "file", operator: "in folder", value: "Topics" },
+			{ type: "filter", field: "file.name", operator: "does not start with", value: "Graph" },
+			{ type: "filter", field: "file.name", operator: "does not end with", value: "Sets.md" },
+		])),
+		["Topics/Linux.md"]
+	);
+
+	// New file fields: basename, extension, and resolved outgoing links.
+	assert.deepEqual(
+		vault.matches(group([
+			{ type: "filter", field: "file.basename", operator: "is", value: "Deck" },
+		])),
+		["Slides/Deck.pdf"]
+	);
+	assert.deepEqual(
+		vault.matches(group([
+			{ type: "filter", field: "file.extension", operator: "is", value: "pdf" },
+		])),
+		["Slides/Deck.pdf"]
+	);
+	assert.deepEqual(
+		vault.matches(group([
+			{ type: "filter", field: "file links", operator: "contains", value: "Topics/Sets" },
+		])),
+		["Topics/Graph Theory.md"]
+	);
+
+	// Alias lists stay queryable.
+	assert.deepEqual(
+		vault.matches(group([
+			{ type: "filter", field: "aliases", operator: "contains", value: "GNU" },
+		])),
+		["Topics/Linux.md"]
 	);
 });
 

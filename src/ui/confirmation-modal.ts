@@ -1,4 +1,4 @@
-import { App, Modal } from "obsidian";
+import { App, Modal, Setting } from "obsidian";
 
 export interface ConfirmationModalOptions {
 	title: string;
@@ -19,33 +19,34 @@ export class ConfirmationModal extends Modal {
 	}
 
 	onOpen(): void {
-		this.modalEl.addClass("ap-confirmation-modal");
+		this.setTitle(this.options.title);
 		const { contentEl } = this;
 		contentEl.empty();
 
-		contentEl.createEl("h3", { text: this.options.title });
 		contentEl.createDiv({
 			text: this.options.message,
 			cls: "ap-confirmation-message",
 		});
 
-		const buttons = contentEl.createDiv({ cls: "ap-confirmation-buttons" });
-		const cancel = buttons.createEl("button", {
-			text: this.options.cancelText ?? "Cancel",
-		});
-		cancel.addEventListener("click", () => {
-			this.options.onCancel?.();
-			this.close();
-		});
-
-		const confirm = buttons.createEl("button", {
-			text: this.options.confirmText,
-			cls: this.options.destructive ? "mod-warning" : "mod-cta",
-		});
-		confirm.addEventListener("click", () => {
-			this.close();
-			this.options.onConfirm();
-		});
+		new Setting(contentEl)
+			.addButton((button) =>
+				button
+					.setButtonText(this.options.cancelText ?? "Cancel")
+					.onClick(() => {
+						this.options.onCancel?.();
+						this.close();
+					})
+			)
+			.addButton((button) => {
+				button
+					.setButtonText(this.options.confirmText)
+					.onClick(() => {
+						this.close();
+						this.options.onConfirm();
+					});
+				if (this.options.destructive) button.setWarning();
+				else button.setCta();
+			});
 	}
 
 	onClose(): void {

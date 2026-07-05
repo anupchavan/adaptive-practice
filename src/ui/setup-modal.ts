@@ -50,7 +50,7 @@ export class SetupModal extends Modal {
 		contentEl.empty();
 		contentEl.addClass("ap-setup-modal");
 
-		contentEl.createEl("h2", { text: "Start practice session" });
+		this.setTitle("Start practice session");
 
 		this.allTopics = applyPracticeMemoryToTopics(
 			getTopicNotes(
@@ -102,12 +102,8 @@ export class SetupModal extends Modal {
 					})
 			);
 
-		const btnContainer = contentEl.createDiv({ cls: "ap-btn-container" });
-		const startBtn = btnContainer.createEl("button", {
-			text: "Start practice",
-			cls: "mod-cta",
-		});
-		startBtn.addEventListener("click", () => {
+		new Setting(contentEl).addButton((button) =>
+			button.setButtonText("Start practice").setCta().onClick(() => {
 			let topics: TopicNote[];
 			if (this.useFilter) {
 				topics = applyPracticeMemoryToTopics(
@@ -137,18 +133,18 @@ export class SetupModal extends Modal {
 			}
 			this.close();
 			this.onStart({ topics, questionCount: this.questionCount });
-		});
+			})
+		);
 	}
 
 	private renderTopicSection(container: HTMLElement): void {
 		container.empty();
 
 		if (this.useFilter) {
-			container.createEl("h3", { text: "Filter conditions" });
-			container.createEl("p", {
-				text: "Notes matching these conditions will be used as topics.",
-				cls: "setting-item-description",
-			});
+			new Setting(container)
+				.setName("Filter conditions")
+				.setDesc("Notes matching these conditions will be used as topics.")
+				.setHeading();
 			const rulesContainer = container.createDiv({ cls: "ap-bases-query-container" });
 			const builder = new FilterBuilder(
 				this.app,
@@ -159,8 +155,8 @@ export class SetupModal extends Modal {
 			builder.render(rulesContainer);
 			this.updateFilterPreview(container);
 		} else {
+			new Setting(container).setName("Select topics").setHeading();
 			const topicHeader = container.createDiv({ cls: "ap-topic-header" });
-			topicHeader.createEl("h3", { text: "Select topics" });
 			const summaryEl = topicHeader.createDiv({ cls: "ap-topic-summary" });
 
 			const controls = container.createDiv({ cls: "ap-topic-controls" });
