@@ -72,7 +72,7 @@ export function normalizePracticeMemory(input: PracticeMemory | undefined): Prac
 	if (raw.index && typeof raw.index === "object") {
 		for (const [path, entry] of Object.entries(raw.index)) {
 			if (!entry || typeof entry !== "object") continue;
-			index[path] = normalizeIndexEntry(path, entry as Partial<NoteIndexEntry>);
+			index[path] = normalizeIndexEntry(path, entry);
 		}
 	}
 

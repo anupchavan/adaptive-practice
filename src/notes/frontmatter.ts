@@ -1,9 +1,22 @@
+import type { CachedMetadata } from "obsidian";
+
 const MAX_FRONTMATTER_FIELDS = 64;
 const MAX_FRONTMATTER_ARRAY_ITEMS = 24;
 const MAX_FRONTMATTER_OBJECT_KEYS = 24;
 const MAX_FRONTMATTER_VALUE_CHARS = 800;
 const MAX_FRONTMATTER_TOTAL_CHARS = 12_000;
 const SKIPPED_FRONTMATTER_KEYS = new Set(["position"]);
+
+/**
+ * Typed boundary over Obsidian's frontmatter cache: `FrontMatterCache` has an
+ * `any` index signature, so this surfaces values as `unknown` for callers to
+ * narrow explicitly.
+ */
+export function frontmatterRecord(
+	cache: CachedMetadata | null | undefined
+): Record<string, unknown> | undefined {
+	return cache?.frontmatter;
+}
 
 export function sanitizeFrontmatter(
 	frontmatter: Record<string, unknown> | undefined
@@ -69,7 +82,7 @@ function stringifyFrontmatterValue(value: unknown, depth = 0): string {
 			.slice(0, MAX_FRONTMATTER_OBJECT_KEYS)
 			.map(([key, item]) => `${key}: ${stringifyFrontmatterValue(item, depth + 1)}`)
 			.filter((entry) => !entry.endsWith(": "));
-		const omitted = Object.keys(value as Record<string, unknown>).length - entries.length;
+		const omitted = Object.keys(value).length - entries.length;
 		const suffix = omitted > 0 ? `, +${omitted} more` : "";
 		return `{${entries.join(", ")}${suffix}}`;
 	}

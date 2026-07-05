@@ -22,7 +22,7 @@ import {
 import { pdfAttachmentSizeError } from "./attachment-budget";
 import { buildRemotePromptAttachment, RemoteMediaFetchResult } from "./remote-media";
 import { frontmatterDateMs, NoteDatePropertySettings } from "./frontmatter-dates";
-import { sanitizeFrontmatter } from "./frontmatter";
+import { frontmatterRecord, sanitizeFrontmatter } from "./frontmatter";
 import {
 	PromptAttachmentOptions,
 	shouldAttachPromptMedia,
@@ -64,7 +64,7 @@ export function fileToTopicNote(
 ): TopicNote {
 	const pdf = isPdfFile(f);
 	const cache = pdf ? null : app.metadataCache.getFileCache(f);
-	const frontmatter = cache?.frontmatter as Record<string, unknown> | undefined;
+	const frontmatter = frontmatterRecord(cache);
 	const timestamps = noteTimestamps(f, frontmatter, dateProperties);
 	const title = pdf ? f.basename : noteDisplayTitle(frontmatter, f.basename);
 	const aliases = pdf ? [] : noteDisplayAliases(frontmatter, title);
@@ -109,9 +109,7 @@ export function buildNoteIndexEntry(
 	const isPdf = isPdfFile(file);
 	const media = isPdf ? [] : collectCachedMediaReferences(app, file, cache);
 	const skill = isPdf ? getPdfSkill(file, pdfSkills) : getSkillFromCache(app, file);
-	const frontmatter = isPdf
-		? undefined
-		: cache?.frontmatter as Record<string, unknown> | undefined;
+	const frontmatter = isPdf ? undefined : frontmatterRecord(cache);
 	const timestamps = noteTimestamps(file, frontmatter, dateProperties);
 	const title = isPdf ? file.basename : noteDisplayTitle(frontmatter, file.basename);
 	const aliases = isPdf ? [] : noteDisplayAliases(frontmatter, title);
@@ -124,7 +122,7 @@ export function buildNoteIndexEntry(
 		isPdf,
 		frontmatter: isPdf
 			? {}
-			: sanitizeFrontmatter(cache?.frontmatter as Record<string, unknown> | undefined),
+			: sanitizeFrontmatter(frontmatterRecord(cache)),
 		tags: isPdf ? [] : collectTags(cache),
 		links: isPdf ? [] : collectLinks(cache),
 		headings: isPdf ? [] : collectHeadings(cache, ""),
@@ -161,7 +159,7 @@ export function getTopicNotesWithFilters(
 
 function getSkillFromCache(app: App, file: TFile): number {
 	const cache = app.metadataCache.getFileCache(file);
-	const frontmatter = cache?.frontmatter as Record<string, unknown> | undefined;
+	const frontmatter = frontmatterRecord(cache);
 	return parseSkillValue(frontmatter?.["skill"], DEFAULT_SKILL);
 }
 
@@ -199,7 +197,7 @@ export async function getNoteStructure(
 
 	const raw = await app.vault.read(file);
 	const cache = app.metadataCache.getFileCache(file);
-	const frontmatter = cache?.frontmatter as Record<string, unknown> | undefined;
+	const frontmatter = frontmatterRecord(cache);
 	const title = noteDisplayTitle(frontmatter, file.basename);
 	const body = stripFrontmatter(raw);
 	const withoutHistory = stripPracticeHistory(body);
@@ -350,7 +348,7 @@ function collectTags(cache: CachedMetadata | null): string[] {
 	for (const tag of cache?.tags ?? []) {
 		if (tag.tag) tags.add(tag.tag);
 	}
-	const frontmatter = cache?.frontmatter as Record<string, unknown> | undefined;
+	const frontmatter = frontmatterRecord(cache);
 	const fmTags = frontmatter?.["tags"];
 	if (Array.isArray(fmTags)) {
 		for (const tag of fmTags) tags.add(`#${String(tag).replace(/^#/, "")}`);

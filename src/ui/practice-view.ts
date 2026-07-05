@@ -136,6 +136,8 @@ export class PracticeView extends ItemView {
 	private hasChecked = false;
 	private questionStartTime = 0;
 	private keyHandler: ((e: KeyboardEvent) => void) | null = null;
+	/** Document the key handler was registered on, so removal always matches. */
+	private keyHandlerDoc: Document | null = null;
 	private fetchingMoreQuestions = false;
 	private timerId: number | null = null;
 	private savedIndices = new Set<number>();
@@ -683,13 +685,13 @@ export class PracticeView extends ItemView {
 		icon.setAttr("aria-hidden", "true");
 		if (tone === "correct") {
 			const parsed = new DOMParser().parseFromString(CORRECT_STATUS_ICON_SVG, "image/svg+xml");
-			icon.appendChild(document.importNode(parsed.documentElement, true));
+			icon.appendChild(icon.doc.importNode(parsed.documentElement, true));
 		} else if (tone === "wrong") {
 			const parsed = new DOMParser().parseFromString(WRONG_STATUS_ICON_SVG, "image/svg+xml");
-			icon.appendChild(document.importNode(parsed.documentElement, true));
+			icon.appendChild(icon.doc.importNode(parsed.documentElement, true));
 		} else {
 			const parsed = new DOMParser().parseFromString(SKIPPED_STATUS_ICON_SVG, "image/svg+xml");
-			icon.appendChild(document.importNode(parsed.documentElement, true));
+			icon.appendChild(icon.doc.importNode(parsed.documentElement, true));
 		}
 	}
 
@@ -915,13 +917,21 @@ export class PracticeView extends ItemView {
 
 	private removeKeyHandler(): void {
 		if (!this.keyHandler) return;
-		document.removeEventListener("keydown", this.keyHandler);
+		this.keyHandlerDoc?.removeEventListener("keydown", this.keyHandler);
+		this.keyHandlerDoc = null;
 		this.keyHandler = null;
+	}
+
+	/** Register the keydown handler on this view's own document (popout-safe). */
+	private addKeyHandler(handler: (e: KeyboardEvent) => void): void {
+		this.keyHandler = handler;
+		this.keyHandlerDoc = this.containerEl.doc;
+		this.keyHandlerDoc.addEventListener("keydown", handler);
 	}
 
 	private installKeyHandler(q: Question, container: HTMLElement): void {
 		this.removeKeyHandler();
-		this.keyHandler = (e: KeyboardEvent) => {
+		this.addKeyHandler((e: KeyboardEvent) => {
 			if (!this.isKeyboardTarget(e)) return;
 			if (this.activeSkipOverlay || this.activeCompletionOverlay) return;
 			const target = e.target as HTMLElement;
@@ -956,20 +966,18 @@ export class PracticeView extends ItemView {
 			if (this.hasChecked || this.state?.results[this.state.currentIndex]) {
 				this.handleArrowNavigation(e);
 			}
-		};
-		document.addEventListener("keydown", this.keyHandler);
+		});
 	}
 
 	private installAnsweredKeyHandler(): void {
 		this.removeKeyHandler();
-		this.keyHandler = (e: KeyboardEvent) => {
+		this.addKeyHandler((e: KeyboardEvent) => {
 			if (!this.isKeyboardTarget(e)) return;
 			if (this.activeCompletionOverlay) return;
 			const target = e.target as HTMLElement;
 			if (target.tagName === "INPUT") return;
 			this.handleArrowNavigation(e);
-		};
-		document.addEventListener("keydown", this.keyHandler);
+		});
 	}
 
 	/**

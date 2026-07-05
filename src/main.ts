@@ -1341,13 +1341,13 @@ function normalizeProviderStrings(
 	input: unknown
 ): AdaptivePracticeSettings["providerBaseUrls"] {
 	if (!input || typeof input !== "object") return {};
-	const output: Record<string, string> = {};
+	const output: AdaptivePracticeSettings["providerBaseUrls"] = {};
 	for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
 		if (key in LLM_PROVIDER_LABELS && typeof value === "string") {
-			output[key] = value;
+			output[key as keyof AdaptivePracticeSettings["providerBaseUrls"]] = value;
 		}
 	}
-	return output as AdaptivePracticeSettings["providerBaseUrls"];
+	return output;
 }
 
 function normalizeProviderJsonModes(

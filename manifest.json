@@ -1,7 +1,7 @@
 {
 	"id": "adaptive-practice",
 	"name": "Adaptive Practice",
-	"version": "0.6.2",
+	"version": "0.6.3",
 	"minAppVersion": "1.11.4",
 	"description": "Adaptive spaced practice from your notes, PDFs, and media using your own model provider.",
 	"author": "Anup Chavan",

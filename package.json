@@ -1,6 +1,6 @@
 {
 	"name": "adaptive-practice",
-	"version": "0.6.2",
+	"version": "0.6.3",
 	"description": "LLM-powered adaptive quiz generation from your Obsidian notes",
 	"main": "main.js",
 	"type": "module",
@@ -9,7 +9,7 @@
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
 		"check": "npm run build && npm run lint && npm test && npm run validate:release",
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
-		"lint": "eslint .",
+		"lint": "eslint . --max-warnings=0",
 		"test": "node tests/run-tests.mjs",
 		"validate:release": "node tests/validate-release.mjs"
 	},

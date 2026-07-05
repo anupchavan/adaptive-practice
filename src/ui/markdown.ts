@@ -51,7 +51,8 @@ function unwrapUnresolvedLinks(app: App, container: HTMLElement, sourcePath: str
 		// A pure in-note reference ("#heading") has no note target to resolve.
 		if (!path) continue;
 		if (app.metadataCache.getFirstLinkpathDest(path, sourcePath)) continue;
-		link.replaceWith(document.createTextNode(link.textContent ?? linktext));
+		// link.doc: the link's own document, so this stays correct in popout windows.
+		link.replaceWith(link.doc.createTextNode(link.textContent ?? linktext));
 	}
 }
 

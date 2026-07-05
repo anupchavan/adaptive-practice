@@ -13,6 +13,7 @@ import {
 	SessionConfig,
 	TopicNote,
 } from "../types";
+import { frontmatterRecord } from "../notes/frontmatter";
 import { getTopicNotes, getTopicNotesWithFilters } from "../notes/reader";
 import { FilterBuilder } from "../filters/builder";
 import { applyPracticeMemoryToTopics } from "../practice/scheduler";
@@ -434,8 +435,7 @@ export class SetupModal extends Modal {
 			file instanceof TFile
 				? this.app.metadataCache.getFileCache(file)
 				: null;
-		const frontmatter = cache?.frontmatter as
-			Record<string, unknown> | undefined;
+		const frontmatter = frontmatterRecord(cache);
 		const rawCourse = indexCourse || frontmatter?.["course"];
 		const course = stringifyGroupValue(rawCourse);
 		const group = course || folderLabel(topic.path);
