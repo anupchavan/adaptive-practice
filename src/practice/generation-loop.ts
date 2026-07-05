@@ -1,6 +1,7 @@
 import { StructuredPrompt, TopicContext } from "../llm/prompt";
 import { Question, SessionConfig, TopicNote } from "../types";
 import { reconcileGeneratedQuestions } from "./source-map";
+import { buildDeepAuthoringPrompt, sharpenIndex } from "../llm/analytical-moves";
 import { checkAnswer } from "./grader";
 import {
 	buildAnswerVerificationPrompt,
@@ -27,14 +28,94 @@ export async function generateQuestionsFromClient(
 	config: SessionConfig,
 	topicContexts: TopicContext[]
 ): Promise<Question[]> {
-	const questions = await generateUnverifiedQuestions(
+	let questions = await generateUnverifiedQuestions(
 		client,
 		prompt,
 		config,
 		topicContexts
 	);
+	if (config.deepAuthoring === true && questions.length > 0) {
+		questions = await sharpenQuestions(client, prompt, config, topicContexts, questions);
+	}
 	if (config.verifyAnswers !== true || questions.length === 0) return questions;
 	return verifyQuestionAnswers(client, prompt, questions);
+}
+
+/**
+ * Adversarial sharpen pass (opt-in). Sends the medium/hard questions back for
+ * a hostile rewrite, then reconciles/calibrates the result like any other
+ * batch. Best-effort and conservative: each returned rewrite replaces its own
+ * original, questions the pass dropped or mangled keep their original version,
+ * and any request failure keeps the whole batch untouched — the pass can only
+ * improve or no-op, never shrink a session.
+ */
+async function sharpenQuestions(
+	client: LlmClient,
+	basePrompt: StructuredPrompt,
+	config: SessionConfig,
+	topicContexts: TopicContext[],
+	questions: Question[]
+): Promise<Question[]> {
+	const plan = buildDeepAuthoringPrompt(basePrompt, questions);
+	if (!plan) return questions;
+	try {
+		const sharpened = await requestReconciledQuestions(
+			client,
+			plan.prompt,
+			config.topics,
+			topicContexts
+		);
+		return applyDeepAuthoring(questions, plan.targets, sharpened);
+	} catch {
+		return questions;
+	}
+}
+
+/**
+ * Merge sharpened rewrites back over the original batch. Rewrites match their
+ * originals by the minted sharpen ids ("s1"...); a model that renumbered
+ * anyway is recovered positionally when the count came back exact, and
+ * anything still unmatched keeps its original — ambiguity never replaces the
+ * wrong question. Replacements keep the original id and difficulty so session
+ * state, blind verification, and the already-validated flow balance stay
+ * keyed correctly. `targets` must be the plan's target objects (drawn from
+ * `original`); matching is by object identity, which duplicate model-assigned
+ * ids in merged batches cannot confuse.
+ */
+export function applyDeepAuthoring(
+	original: Question[],
+	targets: Question[],
+	sharpened: Question[]
+): Question[] {
+	if (targets.length === 0 || sharpened.length === 0) return original;
+	const replacements = new Array<Question | undefined>(targets.length);
+	let matched = 0;
+	for (const question of sharpened) {
+		const index = sharpenIndex(question.id);
+		if (index !== null && index < targets.length && !replacements[index]) {
+			replacements[index] = question;
+			matched++;
+		}
+	}
+	if (matched === 0) {
+		if (sharpened.length !== targets.length) return original;
+		sharpened.forEach((question, index) => {
+			replacements[index] = question;
+		});
+	}
+	const byTarget = new Map<Question, Question>();
+	targets.forEach((target, index) => {
+		const replacement = replacements[index];
+		if (replacement) {
+			byTarget.set(target, {
+				...replacement,
+				id: target.id,
+				difficulty: target.difficulty,
+			});
+		}
+	});
+	if (byTarget.size === 0) return original;
+	return original.map((question) => byTarget.get(question) ?? question);
 }
 
 /**

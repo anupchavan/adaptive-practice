@@ -161,9 +161,15 @@ import {
 } from "../src/practice/draft";
 import {
 	applyAnswerVerification,
+	applyDeepAuthoring,
 	generateQuestionsFromClient,
 } from "../src/practice/generation-loop";
 import type { LlmClient } from "../src/practice/generation-loop";
+import {
+	ANALYTICAL_MOVES,
+	buildDeepAuthoringPrompt,
+	renderAnalyticalMovesGuidance,
+} from "../src/llm/analytical-moves";
 import { folderLabel, stringifyGroupValue } from "../src/ui/topic-groups";
 import { hasBlockMarkdown } from "../src/ui/markdown-detection";
 import { normalizeMarkdownForRender } from "../src/ui/markdown-normalize";
@@ -6769,6 +6775,191 @@ test("generateQuestionsFromClient runs the blind re-solve only when configured",
 	);
 	assert.equal(unverifiedClient.calls.length, 1);
 	assert.equal(unverified.length, 2);
+});
+
+test("analytical moves catalog is domain-general and fully rendered into the system prompt", () => {
+	const keys = ANALYTICAL_MOVES.map((move) => move.key);
+	assert.equal(new Set(keys).size, keys.length, "move keys must be unique");
+	const guidance = renderAnalyticalMovesGuidance();
+	for (const move of ANALYTICAL_MOVES) {
+		assert.ok(move.trigger.length > 0 && move.shape.length > 0);
+		assert.ok(guidance.includes(move.name), `guidance must render ${move.key}`);
+		// The de-specialization contract: moves key off structural features of
+		// the material, never a subject. A named domain in a trigger or shape
+		// means the move regressed into a topic gate.
+		assert.ok(
+			!/physics|chemistry|biolog|linux|shell|javascript|electr|algebra/i.test(
+				`${move.trigger} ${move.shape}`
+			),
+			`move ${move.key} must stay domain-general`
+		);
+	}
+	assert.match(guidance, /never name the move/);
+	assert.match(guidance, /Easy questions do not use these/);
+
+	const topic = makeTopic({ title: "Consensus protocols", skill: 70 });
+	const prompt = buildPrompt(
+		[makeTopicContext(topic, "Quorum intersection arguments and failure modes.")],
+		4,
+		{ now: Date.UTC(2026, 6, 5) }
+	);
+	assert.match(prompt.systemPrompt!, /## Analytical moves/);
+	assert.match(prompt.systemPrompt!, /Approximation breakdown/);
+	assert.match(prompt.systemPrompt!, /Minimal pair/);
+	assert.match(prompt.systemPrompt!, /Flawed argument/);
+});
+
+test("deep authoring prompt embeds the target questions under minted ids", () => {
+	const base: StructuredPrompt = {
+		textPrompt: "SYSTEM\n\nGenerate exactly 3 questions",
+		systemPrompt: "SYSTEM",
+		userPrompt: "Generate exactly 3 questions",
+		maxOutputTokens: 2800,
+		attachments: [],
+	};
+	const questions = [
+		makeQuestion({ id: "q1", difficulty: "easy", questionText: "Recall the definition." }),
+		makeQuestion({ id: "q2", difficulty: "medium", questionText: "Why does the invariant survive the swap?" }),
+		makeQuestion({ id: "q3", difficulty: "hard", questionText: "Which step of the proof fails on the degenerate input?" }),
+	];
+	const plan = buildDeepAuthoringPrompt(base, questions);
+	assert.ok(plan);
+	// Only medium/hard are sharpened, in order, under minted ids.
+	assert.deepEqual(plan.targets.map((question) => question.id), ["q2", "q3"]);
+	assert.match(plan.prompt.userPrompt!, /## Deep authoring pass/);
+	assert.ok(plan.prompt.userPrompt!.includes('"id":"s1"'));
+	assert.ok(plan.prompt.userPrompt!.includes('"id":"s2"'));
+	// The regression that motivated this test: the questions themselves must
+	// actually be present in the pass, not merely referred to.
+	assert.ok(plan.prompt.userPrompt!.includes("Why does the invariant survive the swap?"));
+	assert.ok(plan.prompt.userPrompt!.includes("Which step of the proof fails on the degenerate input?"));
+	assert.ok(!plan.prompt.userPrompt!.includes("Recall the definition."));
+	assert.ok(plan.prompt.textPrompt.includes("## Deep authoring pass"));
+	assert.equal(plan.prompt.systemPrompt, "SYSTEM");
+
+	assert.equal(
+		buildDeepAuthoringPrompt(base, [makeQuestion({ difficulty: "easy" })]),
+		null
+	);
+});
+
+test("applyDeepAuthoring merges by minted id, pins id and difficulty, and never guesses", () => {
+	const easy = makeQuestion({ id: "q1", difficulty: "easy" });
+	const medium = makeQuestion({ id: "q2", difficulty: "medium", questionText: "Original medium stem?" });
+	const hard = makeQuestion({ id: "q3", difficulty: "hard", questionText: "Original hard stem?" });
+	const original = [easy, medium, hard];
+	const targets = [medium, hard];
+
+	// Minted-id path: a partial return replaces only its own original, and the
+	// rewrite keeps the original id/difficulty even when the model drifted them.
+	const merged = applyDeepAuthoring(original, targets, [
+		makeQuestion({ id: "s2", difficulty: "medium", questionText: "Sharper hard stem?" }),
+	]);
+	assert.deepEqual(merged.map((question) => question.questionText), [
+		easy.questionText,
+		"Original medium stem?",
+		"Sharper hard stem?",
+	]);
+	assert.equal(merged[2]!.id, "q3");
+	assert.equal(merged[2]!.difficulty, "hard");
+
+	// Renumbering model: no minted ids, exact count → positional recovery.
+	const renumbered = applyDeepAuthoring(original, targets, [
+		makeQuestion({ id: "q1", questionText: "Rewritten medium?" }),
+		makeQuestion({ id: "q2", questionText: "Rewritten hard?" }),
+	]);
+	assert.equal(renumbered[1]!.questionText, "Rewritten medium?");
+	assert.equal(renumbered[1]!.id, "q2");
+	assert.equal(renumbered[2]!.questionText, "Rewritten hard?");
+
+	// No minted ids AND count mismatch → ambiguous, keep everything.
+	const ambiguous = applyDeepAuthoring(original, targets, [
+		makeQuestion({ id: "q9", questionText: "Which original is this?" }),
+	]);
+	assert.deepEqual(ambiguous, original);
+
+	// Duplicate model-assigned ids in a merged batch cannot cross-contaminate:
+	// matching is by target object identity, not by the duplicated id.
+	const dupeEasy = makeQuestion({ id: "q1", difficulty: "easy", questionText: "Easy twin." });
+	const dupeMedium = makeQuestion({ id: "q1", difficulty: "medium", questionText: "Medium twin." });
+	const dupeMerged = applyDeepAuthoring(
+		[dupeEasy, dupeMedium],
+		[dupeMedium],
+		[makeQuestion({ id: "s1", questionText: "Sharper twin." })]
+	);
+	assert.equal(dupeMerged[0]!.questionText, "Easy twin.");
+	assert.equal(dupeMerged[1]!.questionText, "Sharper twin.");
+});
+
+test("generateQuestionsFromClient sharpens before the blind re-solve when deep authoring is on", async () => {
+	const topic = makeTopic({ title: "Any topic", skill: 55 });
+	const contexts = [makeTopicContext(topic, "Content with enough substance to question.")];
+	// Options carry real reasoning so the difficulty estimator keeps these at
+	// medium+ — bare letter options would demote them out of the sharpen set.
+	const reasonOptions = [
+		"The rotation point must lie right of mid, so the minimum stays inside the kept half",
+		"The left half is always the longer one, so discarding it converges in fewer iterations",
+		"Comparing against `arr[hi]` sorts both halves, which makes plain binary search valid",
+		"The loop only terminates when the array was never rotated in the first place",
+	];
+	const original = makeQuestion({
+		id: "g1",
+		questionText: "A sorted array is rotated once and searched with a loop comparing `arr[mid]` to `arr[hi]`. When `arr[mid] > arr[hi]`, why is discarding the left half safe?",
+		options: [...reasonOptions],
+		correctAnswer: reasonOptions[0]!,
+		explanation: "If `arr[mid] > arr[hi]` the order breaks between mid and hi, so the rotation point and the minimum lie in that half.",
+		sourceTopics: [topic.title],
+		sourceSubtopics: ["rotation invariant"],
+	});
+	const sharpened = makeQuestion({
+		id: "s1",
+		questionText: "A colleague flips the loop's comparison to `arr[mid] > arr[lo]` on the same rotated array. Which invariant breaks first, and why does the minimum escape the kept half?",
+		options: [...reasonOptions],
+		correctAnswer: reasonOptions[0]!,
+		explanation: "Comparing against `arr[lo]` no longer certifies which half contains the rotation point, so the minimum can be discarded.",
+		sourceTopics: [topic.title],
+		sourceSubtopics: ["rotation invariant"],
+	});
+	const config: SessionConfig = {
+		topics: [topic],
+		questionCount: 1,
+		challengeMode: "steady",
+		challengeReason: "deep authoring test",
+		verifyAnswers: true,
+		deepAuthoring: true,
+	};
+	const prompt: StructuredPrompt = {
+		textPrompt: "SYSTEM\n\nGenerate exactly 1 questions",
+		systemPrompt: "SYSTEM",
+		userPrompt: "Generate exactly 1 questions",
+		maxOutputTokens: 2800,
+		attachments: [],
+	};
+	const client = makeBatchClient([
+		[makeQuestion({ ...original })],
+		[makeQuestion({ ...sharpened })],
+		[makeQuestion({ ...sharpened, id: "g1" })],
+	]);
+	const result = await generateQuestionsFromClient(client, prompt, config, contexts);
+	assert.equal(client.calls.length, 3);
+	assert.match(client.calls[1]!.userPrompt!, /## Deep authoring pass/);
+	assert.ok(client.calls[1]!.userPrompt!.includes(original.questionText));
+	// The blind re-solve must run on the SHARPENED batch, not the originals.
+	assert.match(client.calls[2]!.userPrompt!, /## Answer verification/);
+	assert.ok(client.calls[2]!.userPrompt!.includes(sharpened.questionText));
+	assert.equal(result.length, 1);
+	assert.equal(result[0]!.id, "g1");
+	assert.equal(result[0]!.questionText, sharpened.questionText);
+
+	// A sharpen pass that returns nothing usable is a no-op, never a loss.
+	const noopClient = makeBatchClient([
+		[makeQuestion({ ...original })],
+		[],
+		[makeQuestion({ ...original })],
+	]);
+	const kept = await generateQuestionsFromClient(noopClient, prompt, config, contexts);
+	assert.equal(kept.length, 1);
+	assert.equal(kept[0]!.questionText, original.questionText);
 });
 
 test("system prompt carries the self-containment, no-link, and option-parity rules", () => {

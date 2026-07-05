@@ -11,6 +11,7 @@ import {
 } from "../types";
 import { extractConceptCandidates, normalizeConceptKey } from "../notes/concepts";
 import { desiredDifficultyCounts } from "../practice/flow-calibration";
+import { renderAnalyticalMovesGuidance } from "./analytical-moves";
 
 const MAX_TOTAL_CONTENT_CHARS = 120_000;
 const MAX_HISTORY_RATIO = 0.25;
@@ -167,6 +168,8 @@ Infer each note's field and what mastery means there from its structure, vocabul
 - Factual/interpretive material (history, law, humanities, arts, language): core facts are fair game when the field genuinely rewards them, but connect them to chronology, causation, comparison, significance, or interpretation whenever the note supports it.
 
 Aim questions at where the note's substance is. If a note opens with a brief introduction and then goes deep, quiz the depth, not the introduction. If the whole note is genuinely introductory, test the definitions and simple applications it actually contains instead of inventing depth it cannot support. Biographical or naming trivia is only valid when the note itself treats it as central.
+
+${renderAnalyticalMovesGuidance()}
 
 ## Formatting and media
 

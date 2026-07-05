@@ -160,6 +160,8 @@ export interface AdaptivePracticeSettings {
 	flowGeneration: boolean;
 	/** Blind re-solve each generated batch and drop questions whose marked answer fails. */
 	verifyAnswers: boolean;
+	/** Run the adversarial deep-authoring sharpen pass (token-heavy, off by default). */
+	deepAuthoring: boolean;
 	pdfSkills: Record<string, number>;
 	practiceMemory: PracticeMemory;
 	practiceDraft: PracticeDraft | null;
@@ -262,6 +264,7 @@ export const DEFAULT_SETTINGS: AdaptivePracticeSettings = {
 	practiceIntent: "mastery",
 	flowGeneration: true,
 	verifyAnswers: true,
+	deepAuthoring: false,
 	pdfSkills: {},
 	practiceMemory: JSON.parse(JSON.stringify(DEFAULT_PRACTICE_MEMORY)) as PracticeMemory,
 	practiceDraft: null,
@@ -364,6 +367,8 @@ export interface SessionConfig {
 	/** Session entry points set this from settings (default true there); it is
 	 * opt-in at this level so test fixtures with bare configs skip the pass. */
 	verifyAnswers?: boolean;
+	/** Session entry points set this from settings; opt-in adversarial sharpen. */
+	deepAuthoring?: boolean;
 }
 
 export type DailyChallengeMode = "warmup" | "steady" | "stretch";

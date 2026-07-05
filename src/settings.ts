@@ -236,6 +236,17 @@ export class AdaptivePracticeSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
+			.setName("Deep authoring")
+			.setDesc("Run an adversarial sharpening pass over medium and hard questions: the model attacks its own questions (shortcuts, weak traps, giveaways) and rewrites them harder. Noticeably better questions, but it roughly doubles the tokens per session. Off by default.")
+			.addToggle((toggle) => {
+				toggle.setValue(this.plugin.settings.deepAuthoring);
+				toggle.onChange(async (value) => {
+					this.plugin.settings.deepAuthoring = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new Setting(containerEl)
 			.setName("Practice intent")
 			.setDesc("What you are practicing for. Mastery favors understanding and transfer; exam cram favors high-yield facts and classic traps; review favors quick checks across many subtopics.")
 			.addDropdown((dropdown) => {

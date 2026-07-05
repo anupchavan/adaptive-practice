@@ -1303,6 +1303,7 @@ function normalizeSettings(raw: unknown): AdaptivePracticeSettings {
 	}
 	settings.flowGeneration = settings.flowGeneration !== false;
 	settings.verifyAnswers = settings.verifyAnswers !== false;
+	settings.deepAuthoring = settings.deepAuthoring === true;
 	settings.practiceMemory = normalizePracticeMemory(settings.practiceMemory);
 	settings.practiceDraft = normalizePracticeDraft(settings.practiceDraft);
 	return settings;
