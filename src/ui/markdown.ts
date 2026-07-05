@@ -24,6 +24,7 @@ export function renderMarkdown(
 	try {
 		void MarkdownRenderer.render(app, normalized, el, options.sourcePath ?? "", component)
 			.then(() => {
+				unwrapUnresolvedLinks(app, el, options.sourcePath ?? "");
 				installInternalLinkHandlers(app, el, options);
 			})
 			.catch(() => {
@@ -31,6 +32,26 @@ export function renderMarkdown(
 			});
 	} catch {
 		renderPlainTextFallback(normalized, el);
+	}
+}
+
+/**
+ * Replace internal links whose target does not exist with their plain text.
+ * Models occasionally invent wikilinks to concepts that are not notes; inside
+ * generated question text a "click to create" link is never what the learner
+ * wants, so dead links are demoted to text instead of rendering as bait.
+ */
+function unwrapUnresolvedLinks(app: App, container: HTMLElement, sourcePath: string): void {
+	const links = Array.prototype.slice.call(
+		container.querySelectorAll<HTMLAnchorElement>("a.internal-link")
+	) as HTMLAnchorElement[];
+	for (const link of links) {
+		const linktext = getInternalLinkText(link);
+		const path = (linktext.split(/[#|]/)[0] ?? "").trim();
+		// A pure in-note reference ("#heading") has no note target to resolve.
+		if (!path) continue;
+		if (app.metadataCache.getFirstLinkpathDest(path, sourcePath)) continue;
+		link.replaceWith(document.createTextNode(link.textContent ?? linktext));
 	}
 }
 

@@ -134,7 +134,7 @@ export function buildPrompt(
 5. Avoid repeating exact subtopics from past practice unless the learner struggled or the scheduler says the topic is due.
 6. Treat a note title as a source label, not automatically as the concept. Use headings, sections, frontmatter, diagrams, examples, and recurring terms to identify the actual concept being tested.
 7. Ignore clipped webpage junk, navigation labels, cookie banners, and unrelated boilerplate even if it appears in the note.
-8. Every question must be fully self-contained. The learner keeps concepts in memory, not notes: define every variable, symbol, and quantity the stem uses (a stem that says \`limit = 5\` must say what limit means here), and restate the problem statement, scenario, or setup the reasoning needs in 1-3 sentences. Never assume the learner remembers a problem, parameter, or code detail from the note title alone. A prepared learner who last read the note weeks ago must be able to answer from the stem plus understanding.
+8. Every question must be self-contained AND terse. Self-contained means nothing is undefined: give each symbol or quantity the stem uses a meaning (a stem that says \`limit = 5\` must say what limit means here) and state the minimum setup the reasoning needs — a learner who last read the note weeks ago answers from the stem plus understanding. Terse means that context takes 1-3 short sentences or one compact code/math block, not a paragraph of scene-setting: cut every word that does not change the answer. One question = one ask — never chain two asks like "which statement identifies X and also explains Y".
 9. When a stem uses concrete numbers, pick values that make the tested method necessary. An instance answerable from familiarity (a tiny array, a perfect small power, a single-digit case) teaches nothing — prefer values large or irregular enough that shortcuts fail and the mechanism must actually be applied, unless the trivial case is itself the trap being tested.
 
 Subtopic memory rule: each topic may include structured subtopic memory. Use "revisit" subtopics when they show misses, skips, slow/weak performance, or the topic is due. Avoid "mastered" subtopics unless they are needed as a stepping stone for transfer. Prefer headings or unpracticed sections for fresh questions.
@@ -174,10 +174,11 @@ Aim questions at where the note's substance is. If a note opens with a brief int
 2. Use LaTeX wrapped in dollar signs: $x^2$ inline and $$\\sum_{i=1}^{n} i$$ for display. Never output bare LaTeX.
 3. Use fenced code blocks for code, traces, or pseudo-code when it clarifies the problem.
 4. Wrap every inline identifier, variable, command, expression, and comparison in backticks. Bare comparisons are actively dangerous: unwrapped ==, as in a==b==c, renders as highlighted text in Obsidian instead of code.
-5. Reference the source note with an Obsidian wikilink — [[Exact Topic Title]] — at its first natural mention in questionText, using the Topic title exactly as given, so the learner can jump to the note afterward.
+5. Never write wikilinks or markdown links in questions, options, or explanations: invented links point at notes that do not exist, and naming the source note or its headline concept in the stem hands the learner the answer's category for free. Identifying which concept applies is part of the exercise — name it only when the question is unanswerable without it. The app shows a link to the source note after the learner answers.
 6. For MCQ, provide exactly 4 plausible options. Draft five or six candidates internally and keep the four most plausible; every distractor must embody a specific, nameable mistake: sign errors, off-by-one errors, wrong formula choice, missing condition, overgeneralization, confusing best/worst/average case, or violating an invariant. Never include an option the stem already rules out.
-7. If images, SVG notes, or PDFs are attached or described, inspect and use them. Treat diagrams and whiteboard images as first-class source material.
-8. Each question must list exact "sourceTopics" using the topic titles provided in the session material, and "sourceSubtopics" using the concept target, section name, invariant, mechanism, or trap being tested. Do not put the note title in "sourceSubtopics" unless the note has no more specific concept.
+7. Keep the options homogeneous: same grammatical form, same depth of reasoning, and similar length — every option within roughly 25% of the others' word count. Write the correct option first, then write each distractor to MATCH its length and specificity. Never let only the correct option carry the full reasoning or qualifications while distractors stay short: length, hedging, or wording style must give zero signal about which option is right.
+8. If images, SVG notes, or PDFs are attached or described, inspect and use them. Treat diagrams and whiteboard images as first-class source material.
+9. Each question must list exact "sourceTopics" using the topic titles provided in the session material, and "sourceSubtopics" using the concept target, section name, invariant, mechanism, or trap being tested. Do not put the note title in "sourceSubtopics" unless the note has no more specific concept.
 
 ## Response format
 
@@ -211,15 +212,15 @@ One exemplar of the signature format — match its formatting discipline (inline
 {
   "id": "q1",
   "type": "mcq",
-  "questionText": "From [[Rotated arrays]]: an array of $n$ distinct sorted integers is rotated once, and this loop searches for its minimum.\\n\\n\`\`\`python\\nwhile lo < hi:\\n    mid = (lo + hi) // 2\\n    if arr[mid] > arr[hi]: lo = mid + 1\\n    else: hi = mid\\n\`\`\`\\nWhy does the loop always converge on the minimum?",
+  "questionText": "An array of $n$ distinct sorted integers is rotated once, and this loop searches for its minimum.\\n\\n\`\`\`python\\nwhile lo < hi:\\n    mid = (lo + hi) // 2\\n    if arr[mid] > arr[hi]: lo = mid + 1\\n    else: hi = mid\\n\`\`\`\\nWhy does the loop always converge on the minimum?",
   "options": [
-    "\`arr[mid] > arr[hi]\` proves the minimum lies right of mid, so discarding the left half preserves the invariant",
-    "The midpoint always lands in the sorted half, so the loop scans it linearly",
-    "Integer division guarantees \`lo == hi\` after exactly $\\\\log_2 n$ steps for every input",
-    "Comparing with \`arr[hi]\` sorts the array first, making plain binary search valid"
+    "\`arr[mid] > arr[hi]\` proves the minimum lies right of mid, so discarding the left half is safe",
+    "The midpoint always lands inside the sorted half, so the loop can scan that half linearly for the minimum",
+    "Integer division guarantees \`lo == hi\` after exactly $\\\\log_2 n$ steps for every possible rotation of the input",
+    "Comparing against \`arr[hi]\` implicitly sorts the array first, which then makes plain binary search valid on either half"
   ],
   "explanation": "The unsorted half must contain the rotation point, so the invariant keeps the minimum inside [lo, hi] and the range halves each step: $O(\\\\log n)$.",
-  "correctAnswer": "\`arr[mid] > arr[hi]\` proves the minimum lies right of mid, so discarding the left half preserves the invariant",
+  "correctAnswer": "\`arr[mid] > arr[hi]\` proves the minimum lies right of mid, so discarding the left half is safe",
   "sourceTopics": ["Rotated arrays"],
   "sourceSubtopics": ["loop invariant", "rotation point"],
   "difficulty": "medium"
@@ -234,7 +235,7 @@ Scheduler reason: ${challengeReason}
 ${challengeModeInstructions(challengeMode)}
 ${intentInstructions(options.intent ?? "mastery")}
 ${renderDifficultyTargetGuidance(topics, questionCount, challengeMode)}
-${feedbackGuidance}
+${renderCrossTopicBridges(mdTopics)}${feedbackGuidance}
 
 ## Topics
 
@@ -357,6 +358,97 @@ function renderDifficultyTargetGuidance(
 function averageTopicSkill(topics: TopicNote[]): number {
 	if (topics.length === 0) return 50;
 	return topics.reduce((sum, topic) => sum + topic.skill, 0) / topics.length;
+}
+
+export interface TopicBridge {
+	a: string;
+	b: string;
+	signals: string[];
+}
+
+/**
+ * Structural connections between the session's notes, computed from data the
+ * index already holds (links, tags, concept candidates) — a token-cheap
+ * standin for "understanding the vault": the model gets told WHERE a genuine
+ * cross-topic synthesis question is plausible instead of being asked to
+ * find bridges from raw content (or to invent one where none exists).
+ */
+export function computeCrossTopicBridges(topics: TopicContext[]): TopicBridge[] {
+	const enriched = topics
+		.filter((topic) => topic.structure)
+		.map((topic) => ({
+			title: topic.note.title,
+			names: new Set(
+				[topic.note.title, ...(topic.note.aliases ?? [])]
+					.map(normalizeHeading)
+					.filter(Boolean)
+			),
+			links: new Set(
+				(topic.structure!.links ?? [])
+					.map(normalizeLinkTargetName)
+					.filter(Boolean)
+			),
+			tags: new Set(
+				(topic.structure!.tags ?? []).map((tag) =>
+					tag.replace(/^#/, "").toLowerCase()
+				)
+			),
+			concepts: new Map(
+				uniqueConcepts(extractConceptCandidates(topic.structure!, 40)).map(
+					(concept) => [normalizeConceptKey(concept), concept] as const
+				)
+			),
+		}));
+
+	const bridges: TopicBridge[] = [];
+	for (let i = 0; i < enriched.length; i++) {
+		for (let j = i + 1; j < enriched.length; j++) {
+			const a = enriched[i]!;
+			const b = enriched[j]!;
+			const signals: string[] = [];
+			const linked =
+				[...b.names].some((name) => a.links.has(name)) ||
+				[...a.names].some((name) => b.links.has(name));
+			if (linked) signals.push("the notes link to each other");
+			const sharedTags = [...a.tags].filter((tag) => b.tags.has(tag)).slice(0, 3);
+			if (sharedTags.length > 0) signals.push(`shared tags: ${sharedTags.join(", ")}`);
+			const sharedConcepts = [...a.concepts.keys()]
+				.filter((key) => b.concepts.has(key))
+				.map((key) => a.concepts.get(key)!)
+				.slice(0, 3);
+			if (sharedConcepts.length > 0) {
+				signals.push(`shared concepts: ${sharedConcepts.join(", ")}`);
+			}
+			if (signals.length > 0) {
+				bridges.push({ a: a.title, b: b.title, signals });
+			}
+		}
+	}
+	return bridges.slice(0, 4);
+}
+
+/** Reduce a raw link target ("folder/Note name.md#Heading|alias") to its note name key. */
+function normalizeLinkTargetName(target: string): string {
+	const withoutRef = target.split(/[#|]/)[0] ?? "";
+	const basename = withoutRef.split("/").pop() ?? "";
+	return normalizeHeading(basename.replace(/\.md$/i, ""));
+}
+
+function renderCrossTopicBridges(topics: TopicContext[]): string {
+	if (topics.length < 2) return "";
+	const bridges = computeCrossTopicBridges(topics);
+	if (bridges.length === 0) return "";
+	const lines = bridges.map(
+		(bridge) => `- ${bridge.a} + ${bridge.b}: ${bridge.signals.join("; ")}`
+	);
+	return `
+## Cross-topic bridges
+
+Structural connections between this session's notes:
+${lines.join("\n")}
+
+If (and only if) one of these connections is genuine in the material, include 1-2 synthesis questions that need BOTH topics' ideas to answer — a scenario where one topic's method meets the other topic's constraint, or where the right choice depends on a distinction the other note teaches. Label them at their honest difficulty (usually hard), keep them answerable from the notes, and never force an analogy the notes do not support. If no listed bridge is real, write none and say nothing about it.
+`;
 }
 
 function renderQuestionFeedbackGuidance(

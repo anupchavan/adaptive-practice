@@ -173,6 +173,9 @@ export interface FormatIssues {
 	unbalancedFences: number;
 	unbalancedBraces: number;
 	optionPrefixes: number;
+	/** 1 when the correct MCQ option is strictly the longest — the classic
+	 * test-wiseness giveaway ("when unsure, pick the longest"). */
+	correctLongestOption: number;
 }
 
 /**
@@ -202,7 +205,24 @@ export function detectFormatIssues(question: Question): FormatIssues {
 		if (/^[A-Da-d][).:]\s/.test(option.trim())) optionPrefixes++;
 	}
 
-	return { latexDelimiters, unbalancedDollars, unbalancedFences, unbalancedBraces, optionPrefixes };
+	return {
+		latexDelimiters,
+		unbalancedDollars,
+		unbalancedFences,
+		unbalancedBraces,
+		optionPrefixes,
+		correctLongestOption: correctOptionIsLongest(question) ? 1 : 0,
+	};
+}
+
+function correctOptionIsLongest(question: Question): boolean {
+	if (question.type !== "mcq" || !question.options) return false;
+	const wordCount = (text: string): number =>
+		text.split(/\s+/).filter(Boolean).length;
+	const correct = wordCount(question.correctAnswer);
+	return question.options.every(
+		(option) => option === question.correctAnswer || wordCount(option) < correct
+	);
 }
 
 function countUnescapedDollars(text: string): number {

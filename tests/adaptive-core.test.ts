@@ -6771,19 +6771,125 @@ test("generateQuestionsFromClient runs the blind re-solve only when configured",
 	assert.equal(unverified.length, 2);
 });
 
-test("system prompt carries the self-containment, wikilink, and instance-quality rules", () => {
+test("system prompt carries the self-containment, no-link, and option-parity rules", () => {
 	const topic = makeTopic({ title: "Smallest divisor", skill: 70 });
 	const prompt = buildPrompt(
 		[makeTopicContext(topic, "Binary search over divisors with a sum condition.")],
 		4,
 		{ now: Date.UTC(2026, 6, 4) }
 	);
-	assert.match(prompt.systemPrompt!, /fully self-contained/);
-	assert.match(prompt.systemPrompt!, /define every variable, symbol, and quantity/);
-	assert.match(prompt.systemPrompt!, /\[\[Exact Topic Title\]\]/);
+	assert.match(prompt.systemPrompt!, /self-contained AND terse/);
+	assert.match(prompt.systemPrompt!, /One question = one ask/);
+	assert.match(prompt.systemPrompt!, /Never write wikilinks or markdown links/);
+	assert.ok(!prompt.systemPrompt!.includes("[[Exact Topic Title]]"));
+	assert.match(prompt.systemPrompt!, /zero signal about which option is right/);
 	assert.match(prompt.systemPrompt!, /values large or irregular enough that shortcuts fail/);
 	assert.match(prompt.systemPrompt!, /renders as highlighted text in Obsidian/);
 	assert.match(prompt.systemPrompt!, /contradicts anything the stem states/);
+	// The format exemplar must not model the longest-option-is-correct bias
+	// (or invented wikilinks) that the rules above forbid.
+	const exemplar = prompt.systemPrompt!.slice(prompt.systemPrompt!.indexOf("One exemplar"));
+	const options = [...exemplar.matchAll(/^\s{4}"(.+)",?$/gm)].map((match) => match[1]!);
+	const answerMatch = exemplar.match(/"correctAnswer": "(.+)",/);
+	assert.equal(options.length, 4);
+	const words = (text: string): number => text.split(/\s+/).filter(Boolean).length;
+	const correctWords = words(answerMatch![1]!);
+	assert.ok(
+		options.some((option) => option !== answerMatch![1] && words(option) >= correctWords),
+		"exemplar correct option must not be strictly longest"
+	);
+	assert.ok(!exemplar.includes("[["));
+});
+
+test("cross-topic bridges surface only structurally connected session notes", () => {
+	const packets = makeTopicContext(
+		makeTopic({ title: "How data moves in packets", skill: 60 }),
+		"Packets are routed independently and reassembled."
+	);
+	packets.structure = makeStructure({
+		title: "How data moves in packets",
+		tags: ["networking"],
+		links: ["Circuit switching history"],
+		sections: [
+			{
+				heading: "Statistical multiplexing tradeoff",
+				level: 1,
+				content: "Bursty traffic shares capacity; silence frees bandwidth for other flows.",
+				wordCount: 11,
+			},
+		],
+	});
+	const circuits = makeTopicContext(
+		makeTopic({ title: "Circuit switching history", skill: 55 }),
+		"A dedicated path is reserved end to end."
+	);
+	circuits.structure = makeStructure({
+		title: "Circuit switching history",
+		tags: ["networking"],
+		links: [],
+		sections: [
+			{
+				heading: "Reserved paths",
+				level: 1,
+				content: "Capacity stays allocated during silence, guaranteeing order.",
+				wordCount: 8,
+			},
+		],
+	});
+	const unrelated = makeTopicContext(
+		makeTopic({ title: "Baroque counterpoint", skill: 50 }),
+		"Voice leading rules for fugues."
+	);
+	unrelated.structure = makeStructure({
+		title: "Baroque counterpoint",
+		tags: ["music"],
+		links: [],
+		sections: [
+			{
+				heading: "Voice independence",
+				level: 1,
+				content: "Each voice keeps melodic identity within harmonic constraints.",
+				wordCount: 9,
+			},
+		],
+	});
+
+	const connected = buildPrompt([packets, circuits], 6, { now: Date.UTC(2026, 6, 5) });
+	assert.match(connected.userPrompt!, /## Cross-topic bridges/);
+	assert.match(connected.userPrompt!, /the notes link to each other/);
+	assert.match(connected.userPrompt!, /shared tags: networking/);
+	assert.match(connected.userPrompt!, /1-2 synthesis questions/);
+
+	const disconnected = buildPrompt([packets, unrelated], 6, { now: Date.UTC(2026, 6, 5) });
+	assert.ok(!disconnected.userPrompt!.includes("## Cross-topic bridges"));
+
+	const single = buildPrompt([packets], 6, { now: Date.UTC(2026, 6, 5) });
+	assert.ok(!single.userPrompt!.includes("## Cross-topic bridges"));
+});
+
+test("format issues flag a correct option that is strictly longest", () => {
+	const biased = makeQuestion({
+		options: [
+			"Wrong",
+			"Also wrong",
+			"Short wrong option",
+			"The correct option, which carefully explains the entire mechanism with every qualification spelled out",
+		],
+		correctAnswer:
+			"The correct option, which carefully explains the entire mechanism with every qualification spelled out",
+	});
+	assert.equal(detectFormatIssues(biased).correctLongestOption, 1);
+
+	const balanced = makeQuestion({
+		options: [
+			"A distractor with comparable length and matching depth of reasoning here",
+			"Another distractor with comparable length and matching depth of reasoning",
+			"The correct option with comparable length and matching reasoning depth",
+			"A third distractor with comparable length and matching depth of reasoning",
+		],
+		correctAnswer: "The correct option with comparable length and matching reasoning depth",
+	});
+	assert.equal(detectFormatIssues(balanced).correctLongestOption, 0);
 });
 
 test("daily selection reserves slots for new notes even under review backlog", () => {

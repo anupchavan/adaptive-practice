@@ -392,15 +392,14 @@ export class PracticeView extends ItemView {
 		if (q.difficulty === "hard") {
 			header.addClass("is-hard-question");
 		}
-
-		this.renderSourceNoteLink(container, q);
 	}
 
 	/**
-	 * Deterministic "From [[note]]" chip under the question header, so the
-	 * source is one click away even when the model forgot to link it inline.
-	 * Rendered through the markdown pipeline so it gets internal-link click
-	 * handling and hover preview for free.
+	 * Deterministic "From [[note]]" chip, shown only AFTER answering: naming
+	 * the source note up front hands the learner the concept's category, and
+	 * figuring out which concept applies is part of the exercise. Rendered
+	 * through the markdown pipeline so it gets internal-link click handling
+	 * and hover preview for free.
 	 */
 	private renderSourceNoteLink(container: HTMLElement, q: Question): void {
 		const topics = q.sourceTopics
@@ -631,6 +630,7 @@ export class PracticeView extends ItemView {
 		paper.createEl("h3", { text: "Solution", cls: "ap-solution-heading" });
 		const solution = paper.createDiv({ cls: "ap-solution-copy ap-redesign-markdown" });
 		this.renderMarkdown(q.explanation, solution);
+		this.renderSourceNoteLink(paper, q);
 
 		this.renderQuestionReaction(paper);
 	}
