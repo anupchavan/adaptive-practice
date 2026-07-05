@@ -27,6 +27,7 @@ export function showActionNotice(
 
 	const notice = new Notice(body, options.timeout ?? 0);
 	notice.messageEl.addClass("ap-notice");
+	notice.messageEl.parentElement?.addClass("ap-notice-shell");
 
 	if (actions.length > 0) {
 		const bar = notice.messageEl.createDiv({ cls: "ap-notice-cta-bar" });

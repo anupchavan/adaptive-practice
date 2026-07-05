@@ -68,7 +68,7 @@ This method is best if you want to develop, tweak, or inspect the source.
 
    ```bash
    cd /path/to/your/vault/.obsidian/plugins
-   git clone https://github.com/anuwup/adaptive-practice.git
+   git clone https://github.com/anupchavan/adaptive-practice.git
    cd adaptive-practice
    ```
 
@@ -128,10 +128,9 @@ If you’d like Obsidian to automatically keep this plugin updated from a GitHub
    - When prompted for the GitHub repository, enter:
 
      ```text
-     anuwup/adaptive-practice
+     anupchavan/adaptive-practice
      ```
 
-     Replace `anuwup` with your actual GitHub username or organization.
 
 3. **Enable the plugin**
 

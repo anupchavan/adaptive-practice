@@ -1,6 +1,5 @@
 import {
 	App,
-	DropdownComponent,
 	Modal,
 	Notice,
 	SearchComponent,

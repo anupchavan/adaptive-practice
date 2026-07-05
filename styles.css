@@ -456,10 +456,10 @@
 .ap-quiz-modal
 	.ap-quiz-modal-controls
 	.modal-close-button.ap-quiz-close-button {
-	position: static !important;
-	inset: auto !important;
-	transform: none !important;
-	margin: 0 !important;
+	position: static;
+	inset: auto;
+	transform: none;
+	margin: 0;
 	flex: 0 0 auto;
 	width: 30px;
 	height: 30px;
@@ -1082,7 +1082,7 @@
 	margin: 0 auto;
 	display: grid;
 	grid-template-columns: 224px 704px;
-	column-gap: 64px;
+	gap: 0 64px;
 	align-items: start;
 	justify-content: center;
 	padding: 40px 48px 0;
@@ -1435,7 +1435,7 @@
 }
 
 .ap-choice-badge.has-icon {
-	background: transparent !important;
+	background: transparent;
 	color: inherit;
 }
 
@@ -2576,7 +2576,7 @@
 	height: var(--input-height);
 }
 
-.ap-filter-expression {
+.ap-filter-expression.ap-filter-expression {
 	--input-shadow: none;
 	--icon-size: var(--icon-s);
 	--icon-stroke: var(--icon-s-stroke-width);
@@ -2585,7 +2585,7 @@
 	--metadata-input-font-size: var(--font-ui-small);
 	--metadata-property-box-shadow: 0 0 0 1px
 		var(--background-modifier-border-hover);
-	background-color: var(--interactive-normal) !important;
+	background-color: var(--interactive-normal);
 	width: 100%;
 	align-items: center;
 	display: flex;
@@ -2639,7 +2639,7 @@
 	align-self: stretch;
 	overflow: hidden;
 	flex-direction: column;
-	max-width: 500px !important;
+	max-width: 500px;
 	max-height: 300px;
 	z-index: var(--layer-notice);
 }
@@ -2650,7 +2650,7 @@
 
 .prompt-input-container.ap-search-input-container .search-input-clear-button {
 	inset-inline-end: 2px;
-	--search-clear-button-size: 13px !important;
+	--search-clear-button-size: 13px;
 	align-content: center;
 	position: absolute;
 	background: transparent;
@@ -2771,11 +2771,13 @@
 	--icon-stroke: var(--icon-s-stroke-width);
 }
 
-/* Override modal styles for suggestion modals */
+/* Override modal styles for suggestion modals. The combobox modal tags its
+   elements in JS (ap-modal-container, ap-modal-bg-hidden,
+   ap-combobox-positioned), so plain specificity suffices — no :has, no important flags. */
 .ap-suggestion-container.modal {
-	position: fixed !important;
-	margin: 0 !important;
-	transform: none !important;
+	position: fixed;
+	margin: 0;
+	transform: none;
 	max-width: 500px;
 	max-height: 300px;
 	background-color: var(--background-primary);
@@ -2784,16 +2786,9 @@
 	border-radius: var(--radius-m);
 }
 
-.modal-container:has(.ap-suggestion-container) .modal-bg {
-	display: none !important;
-}
-
-.modal-container:has(.ap-suggestion-container) {
-	background: transparent !important;
-}
-
-.modal-container:has(.ap-suggestion-container).mod-dim {
-	background: transparent !important;
+.modal-container.ap-modal-container,
+.modal-container.ap-modal-container.mod-dim {
+	background: transparent;
 }
 
 .ap-suggestion-container.modal .modal-content {
@@ -2862,20 +2857,21 @@
 	z-index: var(--layer-modal);
 }
 
-.ap-combobox-positioned {
-	position: fixed !important;
-	margin: 0 !important;
-	transform: none !important;
+.modal.ap-combobox-positioned,
+.prompt.ap-combobox-positioned {
+	position: fixed;
+	margin: 0;
+	transform: none;
 	left: var(--ap-combobox-left, auto);
 	top: var(--ap-combobox-top, auto);
 }
 
-.ap-modal-bg-hidden {
-	display: none !important;
+.modal-bg.ap-modal-bg-hidden {
+	display: none;
 }
 
-.ap-clear-button-hidden {
-	display: none !important;
+.ap-clear-button-hidden.ap-clear-button-hidden {
+	display: none;
 }
 
 /* ── Filter mode toggle in setup modal ── */
@@ -2943,8 +2939,9 @@
 
 /* ── Action notices (ink-style: label, message, CTA bar) ── */
 
-/* The notice shell must not swallow workspace clicks; buttons opt back in. */
-.notice:has(.ap-notice) {
+/* The notice shell must not swallow workspace clicks; buttons opt back in.
+   The shell class is added from JS (showActionNotice) instead of :has(). */
+.notice.ap-notice-shell {
 	pointer-events: none;
 	padding: var(--size-4-3) var(--size-4-4);
 }

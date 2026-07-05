@@ -1,10 +1,10 @@
 {
 	"id": "adaptive-practice",
 	"name": "Adaptive Practice",
-	"version": "0.6.1",
+	"version": "0.6.2",
 	"minAppVersion": "1.11.4",
-	"description": "Adaptive spaced practice from structured Obsidian notes, PDFs, and media using your model provider.",
+	"description": "Adaptive spaced practice from your notes, PDFs, and media using your own model provider.",
 	"author": "Anup Chavan",
-	"authorUrl": "https://github.com/anuwup",
+	"authorUrl": "https://anupchavan.com",
 	"isDesktopOnly": false
 }
