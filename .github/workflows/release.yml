@@ -20,7 +20,12 @@ jobs:
               run: |
                   npm install
                   npm run build
+            # Attestation persistence is only available on public repos (or
+            # Enterprise); on a private repo the step hard-fails the release,
+            # so gate it on visibility. Private-repo provenance is verified by
+            # rebuilding from the tag and checksum-comparing the assets.
             - name: Generate artifact attestation
+              if: ${{ !github.event.repository.private }}
               uses: actions/attest-build-provenance@v2
               with:
                   subject-path: |
