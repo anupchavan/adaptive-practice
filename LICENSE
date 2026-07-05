@@ -1,5 +1,29 @@
-Copyright (C) 2020-2025 by Dynalist Inc.
+Adaptive Practice
+Copyright (c) 2026 Anup Chavan (github.com/anupchavan). All rights reserved.
 
-Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted.
+This is the private product repository for the Adaptive Practice Obsidian
+plugin. No license is granted to use, copy, modify, or distribute this
+software — including its question-design prompt catalogs and authoring
+prompts — except as expressly agreed in writing by the copyright holder.
 
-THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+A community edition (the plugin harness and the community analytical-moves
+catalog) is planned for publication under the MIT License in a separate
+public repository; that grant applies only to the code actually published
+there, not to this repository.
+
+Third-party notices
+-------------------
+Portions derived from the Obsidian sample plugin:
+
+  Copyright (C) 2020-2025 by Dynalist Inc.
+
+  Permission to use, copy, modify, and/or distribute this software for any
+  purpose with or without fee is hereby granted.
+
+  THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+  WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+  MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+  ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+  WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+  ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+  OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.

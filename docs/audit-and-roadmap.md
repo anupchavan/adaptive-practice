@@ -93,3 +93,38 @@ The calibration layer had been overfitted to the test vault: a hardcoded Linux d
 
 - Default model IDs (`claude-sonnet-4-6`, `gemini-3.5-flash`, etc.) are future-dated but **valid in this environment** (the configured Anthropic default works). Audit agents flagged them only because of training-cutoff skepticism. Verify secondary providers' defaults against live model lists before release.
 - External moves (done outside Obsidian while it isn't running) still rely on the existing fuzzy title/timestamp carry-forward; a contentHash-based relink is the planned fallback.
+
+## Open-core / IP strategy (decided 2026-07-05)
+
+The analytical-moves engine is the product's differentiator. Constraints that
+shaped this: the community directory no longer accepts NEW closed-source
+plugins (existing ones are grandfathered) and bans obfuscation, per
+obsidian.md/blog/future-of-plugins and the developer policies; and anything
+shipped client-side is readable regardless — the catalog is prompt text,
+present verbatim in `main.js` and in every API request. So client-side
+secrecy is impossible; the split is between what is published and what only
+ever runs server-side.
+
+- **This repo stays private** (full catalog, deep authoring, product
+  history). Top-level LICENSE is all-rights-reserved with the sample-plugin
+  permission notice retained for template-derived portions. Releases here
+  are user-only; provenance is verified by tag-rebuild checksum (attestation
+  does not persist on private repos).
+- **Community edition** (create at store-submission time): a FRESH-HISTORY
+  public repo — never publish this repo or rewrite it; commits from 1d8e0c1
+  onward contain the full catalog. Contents: the entire harness under MIT,
+  with the moves catalog in `analytical-moves.ts` filtered to
+  `COMMUNITY_MOVE_KEYS` (8 of 18; adjust by moving keys — a test guards that
+  the set stays valid and proper). Deep authoring
+  (`buildDeepAuthoringPrompt` + the attack checklist) is premium and must
+  NOT ship in the community build. README must disclose the payment
+  category ("optional payments") and BYOK network use. Before submitting,
+  byte-check the store `main.js` for premium move names and deep-authoring
+  strings.
+- **Premium tier endgame is server-side** — the module boundary in
+  `analytical-moves.ts` exists for this: full catalog, author→attack pass,
+  and any future distilled judge serve from a licensed endpoint. Client-side
+  license gating is not protection (prompt text is extractable); premium
+  beyond the community build only ever ships from the server.
+- Side benefit: the public community repo restores GitHub artifact
+  attestation for store releases automatically.

@@ -167,6 +167,7 @@ import {
 import type { LlmClient } from "../src/practice/generation-loop";
 import {
 	ANALYTICAL_MOVES,
+	COMMUNITY_MOVE_KEYS,
 	buildDeepAuthoringPrompt,
 	renderAnalyticalMovesGuidance,
 } from "../src/llm/analytical-moves";
@@ -6796,6 +6797,17 @@ test("analytical moves catalog is domain-general and fully rendered into the sys
 	}
 	assert.match(guidance, /never name the move/);
 	assert.match(guidance, /Easy questions do not use these/);
+
+	// Open-core split: the community subset must reference real catalog keys
+	// (a rename that orphans a key would silently gut the community edition)
+	// and stay a real-but-proper subset of the full catalog.
+	for (const key of COMMUNITY_MOVE_KEYS) {
+		assert.ok(keys.includes(key), `community move ${key} must exist in the catalog`);
+	}
+	assert.ok(
+		COMMUNITY_MOVE_KEYS.size >= 6 && COMMUNITY_MOVE_KEYS.size < keys.length,
+		"community catalog must be substantial but proper"
+	);
 
 	const topic = makeTopic({ title: "Consensus protocols", skill: 70 });
 	const prompt = buildPrompt(
