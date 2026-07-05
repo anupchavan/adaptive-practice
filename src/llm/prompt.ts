@@ -208,7 +208,7 @@ For MCQ: "options" is required, "correctAnswer" must exactly match one option. D
 For multi (select all that apply): 4-5 single-line options, and "correctAnswers" lists every correct option (at least 2, never all). Use multi when the material supports several independently verifiable assertions — properties that hold, statements that are true, steps that are required — with tempting near-misses among the foils. Never use "all of the above".
 For integer/decimal: "options" should be omitted, "correctAnswer" is the numeric string. Prefer integer/decimal whenever the answer is genuinely a computed number the learner should produce (counts, results, magnitudes) rather than recognize.
 
-For explanation: 2-4 sentences carrying the key reasoning step — never a rambling justification.
+For explanation: 2-4 sentences. When the question has a tempting wrong path, open by naming it and why it fails, then give the reasoning that settles the answer; otherwise just carry the key reasoning step. Never a rambling justification.
 
 One exemplar of the signature format — match its formatting discipline (inline code, fenced code, $-wrapped math, reason-paired options, concrete sourceSubtopics), never its topic or phrasing:
 
@@ -238,6 +238,7 @@ Scheduler reason: ${challengeReason}
 ${challengeModeInstructions(challengeMode)}
 ${intentInstructions(options.intent ?? "mastery")}
 ${renderDifficultyTargetGuidance(topics, questionCount, challengeMode)}
+Every medium and hard question must instantiate one analytical move from the system guidance on this note's content; "what is X" / "which best describes X" phrasing is reserved for easy questions on genuinely factual material.
 ${renderCrossTopicBridges(mdTopics)}${feedbackGuidance}
 
 ## Topics

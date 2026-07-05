@@ -15,42 +15,37 @@ import { Question } from "../types";
  */
 
 /**
- * Link the same note at most once per question. Models echo the source notes'
- * wiki/markdown links and often link the same concept several times in one stem
- * (e.g. "[[version control]] ... [[version control]] workflows"), which reads as
- * noise. The first occurrence of each distinct target stays a link; later ones
- * collapse to their display text. Image embeds (`![[...]]`, `![...](...)`) are
- * left untouched.
+ * Unwrap internal links to plain text. Model-written links are forbidden in
+ * question content — the app reveals the source note after answering — and a
+ * link that RESOLVES is worse than a dead one: it names the source note in
+ * the stem and hands the learner the answer's category (the render-time guard
+ * only demotes dead links). Image embeds and external http(s) links survive.
+ * Code fences, inline code, and math spans are never touched, so code like
+ * bash `[[ -f x ]]` or `a[0](b)` cannot be mangled.
  */
-export function dedupeRepeatedLinks(text: string, seen: Set<string>): string {
-	if (!text) return text;
-	const linkPattern = /\[\[([^\]]+)\]\]|\[([^\]]+)\]\(([^)]+)\)/g;
-	return text.replace(
-		linkPattern,
-		(match, wiki: string, mdText: string, mdHref: string, offset: number, full: string) => {
-			if (full[offset - 1] === "!") return match; // image embed
-			if (typeof wiki === "string") {
-				const [rawTarget = "", rawAlias] = wiki.split("|");
-				const display = (rawAlias ?? rawTarget).trim();
-				const key = `wiki:${normalizeLinkKey(rawTarget)}`;
-				if (seen.has(key)) return display;
-				seen.add(key);
-				return match;
-			}
-			const key = `md:${normalizeLinkKey(mdHref)}`;
-			if (seen.has(key)) return (mdText ?? "").trim();
-			seen.add(key);
-			return match;
-		}
+export function unwrapInternalLinks(text: string): string {
+	if (!text || (!text.includes("[[") && !text.includes("]("))) return text;
+	const segments = text.split(
+		/(```[\s\S]*?(?:```|$)|`[^`\n]*`|\$\$[\s\S]*?\$\$|\$[^$\n]+\$)/g
 	);
-}
-
-function normalizeLinkKey(value: string): string {
-	return value
-		.trim()
-		.toLowerCase()
-		.replace(/\.md$/, "")
-		.replace(/\s+/g, " ");
+	const linkPattern = /\[\[([^[\]]+)\]\]|\[([^\]]+)\]\(([^)]+)\)/g;
+	return segments
+		.map((segment, index) => {
+			if (index % 2 === 1) return segment;
+			return segment.replace(
+				linkPattern,
+				(match, wiki: string, mdText: string, mdHref: string, offset: number, full: string) => {
+					if (full[offset - 1] === "!") return match; // image embed
+					if (typeof wiki === "string") {
+						const [rawTarget = "", rawAlias] = wiki.split("|");
+						return (rawAlias ?? rawTarget).trim();
+					}
+					if (/^https?:\/\//i.test(mdHref.trim())) return match;
+					return (mdText ?? "").trim();
+				}
+			);
+		})
+		.join("");
 }
 
 /**
@@ -137,23 +132,14 @@ function closeUnbalancedBraces(inner: string): string {
  * parser keeps seeing a clean value.
  */
 export function normalizeQuestionFormatting(question: Question): Question {
-	// Math first so math spans are in `$` form when the highlight escape
-	// decides which segments are protected.
+	// Math first so math spans are in `$` form when the link unwrap and the
+	// highlight escape decide which segments are protected.
 	const normalizeInline = (text: string): string =>
-		escapeBareHighlights(normalizeObsidianMath(text));
-	// One shared set across the stem and explanation so a note linked in the
-	// question is not linked again in its explanation.
-	const seenLinks = new Set<string>();
+		escapeBareHighlights(unwrapInternalLinks(normalizeObsidianMath(text)));
 	const normalized: Question = {
 		...question,
-		questionText: dedupeRepeatedLinks(
-			normalizeInline(question.questionText),
-			seenLinks
-		),
-		explanation: dedupeRepeatedLinks(
-			normalizeInline(question.explanation),
-			seenLinks
-		),
+		questionText: normalizeInline(question.questionText),
+		explanation: normalizeInline(question.explanation),
 	};
 	if ((question.type === "mcq" || question.type === "multi") && question.options) {
 		// Options/correctAnswer get the same inline transforms (no link dedup), so

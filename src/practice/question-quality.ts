@@ -38,7 +38,7 @@ export function buildQuestionTopUpPrompt(
 		.map((question, index) => `${index + 1}. ${truncateForPrompt(question.questionText, 240)}`)
 		.join("\n");
 	const avoidBlock = acceptedStems
-		? `\nAlready accepted question stems; do not duplicate these:\n${acceptedStems}\n`
+		? `\nAlready accepted question stems; do not duplicate or re-skin these (the same point in a new costume is a duplicate):\n${acceptedStems}\n`
 		: "\nThe previous response had no usable questions after validation.\n";
 
 	const correction = `
@@ -118,7 +118,7 @@ export function buildFlowContinuationPrompt(
 This session is already in progress and is generated in small adaptive batches.
 Flow controller: ${flowNote}
 Generate exactly ${batchSize} new question${batchSize === 1 ? "" : "s"} that continue the session.
-- Do not repeat or lightly reword any stem below; use different setups, subtopics, and reasoning targets.
+- Do not repeat, reword, or re-skin any stem below: swapping names, numbers, or places while probing the same point is a repeat. A new question on an already-asked concept must probe a different aspect through a different reasoning move.
 - Keep every question answerable from the provided material.
 
 Already asked in this session:

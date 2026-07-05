@@ -174,8 +174,11 @@ ${lines.join("\n")}
 
 Rules for using the moves:
 - Choose per question from what the material actually supports; never force a move a note cannot sustain, and never name the move in the question.
+- Put the learner at risk of the error — never narrate it. A stem may present a claim, derivation, or approach, but must not disclose whether it is correct: "why is this claim wrong?" and "explain why X fails" give the verdict away and reduce the move to recall. Ask what follows, what happens, or which conclusion holds, with wrongness live among the options. The "someone argues X" frame is worn out — at most one question per session may use it, and even then the stem must not reveal whether the person is right.
+- A hard question must leave at least two options standing after a first honest pass: build them as conclusions of two complete, plausible reasoning chains that diverge at exactly one step (same claim with the direction, boundary, or quantifier flipped is the classic form). If two options can be discarded by tone, extremity, or obvious silliness without touching the mechanism, the question is medium at best — fix the options or relabel.
 - Vary the moves across a session instead of repeating one; different subtopics usually reward different moves.
-- The move sets the reasoning; keep the stem terse and the options homogeneous, exactly as required above.
+- One concept gets one scenario per session: re-dressing the same reasoning in new names, numbers, or places is a repeat, not a new question. A second question on the same concept must probe a different aspect through a different move.
+- The move sets the reasoning; keep the stem terse and the options homogeneous, exactly as required above. Cutting a narrated persona ("a learner argues...") usually shortens the stem by a third — prefer the bare situation.
 - Easy questions do not use these — keep those to one clean step.`;
 }
 
@@ -245,7 +248,7 @@ Ignore earlier count instructions. Below are ${count} question${plural} you alre
 ${rendered}
 
 For every question, attack it and then fix what the attack finds:
-1. Shortcut: can a test-wise learner reach the answer WITHOUT the intended reasoning — elimination, longest/most-qualified option, pattern-matching the phrasing? If so, rewrite so the reasoning is unavoidable.
+1. Shortcut: can a test-wise learner reach the answer WITHOUT the intended reasoning — elimination, longest/most-qualified option, pattern-matching the phrasing, or a stem that already discloses the verdict ("why is this wrong")? If so, rewrite so the reasoning is unavoidable and the verdict stays at stake.
 2. Trap integrity: is the intended misconception actually tempting and actually wrong? If the trap is toothless, replace it with one a competent learner would genuinely fall for.
 3. Answer soundness: re-derive the answer from the stem alone; if any stated fact contradicts it, or "certainly/must" does not truly hold, fix the answer or the wording.
 4. Distractor parity: every option same form, depth, and length (±25%); no giveaways from wording. Rewrite offenders.

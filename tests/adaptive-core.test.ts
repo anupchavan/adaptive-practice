@@ -2106,7 +2106,7 @@ test("question calibration rejects problem-title framing without the problem set
 	assert.equal(calibrated.length, 0);
 });
 
-test("question calibration links accepted source title mentions to Obsidian wikilinks", () => {
+test("question calibration leaves source-title mentions unlinked and untouched", () => {
 	const topic = makeTopic({
 		path: "Algorithms/First and Last Occurrence.md",
 		title: "First and Last Occurrence",
@@ -2151,11 +2151,10 @@ test("question calibration links accepted source title mentions to Obsidian wiki
 	);
 
 	assert.ok(question);
-	assert.match(
-		question.questionText,
-		/\[\[Algorithms\/First and Last Occurrence\|First and Last Occurrence\]\]/
-	);
-	assert.doesNotMatch(question.questionText, /\*\*First and Last Occurrence\*\*/);
+	// 0.4.4 reversed inline source links; calibration must neither inject a
+	// wikilink nor rewrite the model's own emphasis.
+	assert.doesNotMatch(question.questionText, /\[\[/);
+	assert.match(question.questionText, /\*\*First and Last Occurrence\*\*/);
 });
 
 test("question calibration rejects visual questions when no visual is included", () => {
@@ -5558,7 +5557,10 @@ test("buildPrompt keeps huge manual selections inside the global excerpt budget"
 	});
 	const prompt = buildPrompt(contexts, 20);
 
-	assert.ok(prompt.textPrompt.length < 180_000);
+	// Ceiling = the 120K content budget plus fixed instruction text (moves
+	// catalog included); it guards against per-topic content leaks, not
+	// against deliberate instruction growth.
+	assert.ok(prompt.textPrompt.length < 185_000);
 	assert.match(prompt.textPrompt, /additional sections omitted/);
 	assert.doesNotMatch(prompt.textPrompt, /Topic 1 section 15 detail(?: Topic 1 section 15 detail){40}/);
 });
@@ -6797,6 +6799,11 @@ test("analytical moves catalog is domain-general and fully rendered into the sys
 	}
 	assert.match(guidance, /never name the move/);
 	assert.match(guidance, /Easy questions do not use these/);
+	// Live-feedback rules (0.5.1): traps must be experienced, not narrated;
+	// hard MCQs need two genuinely surviving options; no scenario re-skins.
+	assert.match(guidance, /must not disclose whether it is correct/);
+	assert.match(guidance, /at least two options standing/);
+	assert.match(guidance, /re-dressing the same reasoning/i);
 
 	// Open-core split: the community subset must reference real catalog keys
 	// (a rename that orphans a key would silently gut the community edition)
@@ -7301,37 +7308,44 @@ test("questionSchema is shaped for strict structured output", () => {
 	assert.ok(!("minItems" in questions));
 });
 
-test("normalizeQuestionFormatting links a repeated note only once per question", () => {
+test("normalizeQuestionFormatting unwraps model-written internal links entirely", () => {
+	// A RESOLVED link in a stem names the source note and hands the learner
+	// the answer's category — Gemini shipped exactly this in live testing.
 	const question = makeQuestion({
 		type: "integer",
 		options: undefined,
-		questionText: "In [[version control]], the [[version control]] history graph is a DAG.",
+		questionText: "In [[version control]], the [[Version control|history graph]] is a DAG.",
 		explanation: "A [[version control]] DAG records merges.",
 		correctAnswer: "1",
 	});
 	const out = normalizeQuestionFormatting(question);
-	assert.equal((out.questionText.match(/\[\[version control\]\]/g) ?? []).length, 1);
-	assert.ok(out.questionText.includes("the version control history graph"));
-	// Already linked in the stem, so the explanation mention is plain text.
-	assert.ok(!out.explanation.includes("[[version control]]"));
+	assert.ok(!out.questionText.includes("[["));
+	assert.ok(out.questionText.includes("In version control, the history graph is a DAG."));
+	assert.ok(!out.explanation.includes("[["));
 	assert.ok(out.explanation.includes("A version control DAG"));
 });
 
-test("link dedupe handles markdown links and leaves image embeds intact", () => {
+test("link unwrap strips internal markdown links but spares embeds, externals, and code", () => {
 	const question = makeQuestion({
 		type: "integer",
 		options: undefined,
-		questionText: "See [variance](Variance.md), then [variance](Variance.md) again, plus ![[plot.png]].",
+		questionText:
+			"See [variance](Variance.md) and ![[plot.png]]; run `[[ -f x ]]` and check [docs](https://example.com).\n```bash\n[[ -d y ]] && echo [ok](no)\n```",
 		explanation: "",
 		correctAnswer: "1",
 	});
 	const out = normalizeQuestionFormatting(question);
-	assert.equal((out.questionText.match(/\]\(Variance\.md\)/g) ?? []).length, 1);
-	assert.ok(out.questionText.includes("then variance again"));
+	assert.ok(!out.questionText.includes("](Variance.md)"));
+	assert.ok(out.questionText.includes("See variance and"));
 	assert.ok(out.questionText.includes("![[plot.png]]"));
+	// Inline code and fences are protected: bash tests and index-call shapes
+	// must not be "unwrapped" as if they were links.
+	assert.ok(out.questionText.includes("`[[ -f x ]]`"));
+	assert.ok(out.questionText.includes("[[ -d y ]] && echo [ok](no)"));
+	assert.ok(out.questionText.includes("[docs](https://example.com)"));
 });
 
-test("question calibration links a repeated source title only once", () => {
+test("question calibration never injects source-note links into stems", () => {
 	const topic = makeTopic({ path: "CS/Version control.md", title: "Version control" });
 	const structure = makeStructure({
 		title: topic.title,
@@ -7367,9 +7381,9 @@ test("question calibration links a repeated source title only once", () => {
 	);
 
 	assert.ok(question);
-	const links = question.questionText.match(/\[\[CS\/Version control\|Version control\]\]/g) ?? [];
-	assert.equal(links.length, 1);
-	// The second mention stays plain text.
+	// 0.4.4 reversed inline source links (naming the source note hands the
+	// learner the answer's category); calibration must not inject any.
+	assert.ok(!question.questionText.includes("[["));
 	assert.ok(question.questionText.includes("the Version control history graph"));
 });
 
