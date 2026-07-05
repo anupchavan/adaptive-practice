@@ -62,7 +62,7 @@ export const ANALYTICAL_MOVES: AnalyticalMove[] = [
 		key: "counterexample-hunt",
 		name: "Counterexample hunt",
 		trigger: "the material states a general claim, rule, or invariant",
-		shape: "Ask whether the claim always holds; if not, require the minimal case that breaks it (not a hand-wave that it 'sometimes' fails).",
+		shape: "Ask whether the claim always holds; if not, require the minimal case that breaks it or the exact range of inputs where it fails — never a hand-wave that it 'sometimes' fails.",
 	},
 	{
 		key: "consistency-check",
@@ -123,6 +123,12 @@ export const ANALYTICAL_MOVES: AnalyticalMove[] = [
 		name: "Constrained trade-off",
 		trigger: "improving one property costs another, and the material implies a choice",
 		shape: "State a concrete constraint and ask which option is right GIVEN it — never which is 'better' in the abstract.",
+	},
+	{
+		key: "double-edge",
+		name: "Double edge",
+		trigger: "a single design change, intervention, or parameter shift plausibly helps through one mechanism and hurts through another",
+		shape: "Ask for both edges of one change — the mechanism by which it improves things AND the mechanism by which the same change degrades them — or for the condition that decides which edge dominates.",
 	},
 	{
 		key: "hidden-assumption",
@@ -192,7 +198,7 @@ ${lines.join("\n")}
 
 Rules for using the moves:
 - Choose per question from what the material actually supports; never force a move a note cannot sustain, and never name the move in the question.
-- Weight by material kind: procedural and formal notes most reward faithful translation, resource minimality, capacity limits, boundary cases, and flawed arguments; conceptual and mechanistic notes most reward false symmetry, minimal pairs, causal direction, and necessary-vs-possible; factual and interpretive notes mostly earn necessary-vs-possible and comparison-shaped moves.
+- Weight by material kind: procedural and formal notes most reward faithful translation, resource minimality, capacity limits, boundary cases, and flawed arguments; conceptual and mechanistic notes most reward false symmetry, minimal pairs, causal direction, double edge, and necessary-vs-possible; factual and interpretive notes mostly earn necessary-vs-possible and comparison-shaped moves.
 - Put the learner at risk of the error — never narrate it. A stem may present a claim, derivation, or approach, but must not disclose whether it is correct: "why is this claim wrong?" and "explain why X fails" give the verdict away and reduce the move to recall. Ask what follows, what happens, or which conclusion holds, with wrongness live among the options. The "someone argues X" frame is worn out — at most one question per session may use it, and even then the stem must not reveal whether the person is right.
 - A hard question must leave at least two options standing after a first honest pass: build them as conclusions of two complete, plausible reasoning chains that diverge at exactly one step (same claim with the direction, boundary, or quantifier flipped is the classic form). If two options can be discarded by tone, extremity, or obvious silliness without touching the mechanism, the question is medium at best — fix the options or relabel.
 - Vary the moves across a session instead of repeating one; different subtopics usually reward different moves.
