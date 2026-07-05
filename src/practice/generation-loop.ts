@@ -341,11 +341,9 @@ async function repairChallengeIfNeeded(
 				config.challengeMode
 			);
 		} catch {
-			if (strict) {
-				throw new Error(
-					"Failed to generate enough challenging questions for the current high-skill note."
-				);
-			}
+			// A failed challenge top-up is a quality shortfall, not a session
+			// failure — even for strict high-skill notes the learner is better
+			// served by the strongest available batch than by an error.
 			return selectFlowBalancedQuestions(
 				batch,
 				[],
@@ -374,6 +372,14 @@ function needsChallengeRepair(
 	);
 }
 
+/**
+ * Difficulty targets shape effort, never gate service: shortfalls drive the
+ * repair top-ups above, but a batch that is still softer than the skill level
+ * wants ships anyway. Refusing the whole session over the difficulty mix
+ * (as this used to) turns an estimator disagreement about one "easy" label
+ * into a hard error — and the flow controller adapts difficulty mid-session
+ * regardless.
+ */
 function ensureChallengeAcceptable(
 	questions: Question[],
 	config: Pick<SessionConfig, "questionCount" | "topics" | "challengeMode">
@@ -384,7 +390,11 @@ function ensureChallengeAcceptable(
 		config.challengeMode,
 		config.questionCount
 	);
-	if (message) throw new Error(message);
+	if (message) {
+		console.warn(
+			`Adaptive Practice: serving the strongest available batch despite a challenge shortfall — ${message}`
+		);
+	}
 	return questions;
 }
 

@@ -1569,7 +1569,7 @@ test("session generation keeps hard surplus from a weak-first high-skill Linux r
 	assert.equal(questions.filter((question) => question.difficulty === "medium").length, 2);
 });
 
-test("session generation rejects repeated fake-medium Linux retries for skill 83", async () => {
+test("session generation keeps repairing fake-medium retries but still serves the batch", async () => {
 	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
 	const config = makeLinuxSessionConfig(topic);
 	const topicContexts = [makeLinuxTopicContext(topic)];
@@ -1579,19 +1579,18 @@ test("session generation rejects repeated fake-medium Linux retries for skill 83
 		Array.from({ length: 8 }, (_, index) => makeLinuxFakeMediumRecallQuestion(`retry-two-fake-${index}`)),
 	]);
 
-	await assert.rejects(
-		() =>
-			generateQuestionsFromClient(
-				client,
-				{ textPrompt: "Generate exactly 8 questions.", attachments: [] },
-				config,
-				topicContexts
-			),
-		/Failed to generate questions: Generated questions for high-skill topic "Linux Commands" are still too easy/
+	// Difficulty targets shape effort (two strict repair attempts) but never
+	// gate service: the shortfall is logged and the best batch still ships.
+	const questions = await generateQuestionsFromClient(
+		client,
+		{ textPrompt: "Generate exactly 8 questions.", attachments: [] },
+		config,
+		topicContexts
 	);
 	assert.equal(client.calls.length, 3);
 	assert.match(client.calls[1]?.textPrompt ?? "", /Challenge correction/);
 	assert.match(client.calls[1]?.textPrompt ?? "", /Under-challenging stems to avoid duplicating:\n1\. \[easy\]/);
+	assert.ok(questions.length > 0, "the strongest available batch must be served");
 });
 
 test("session generation treats command-choice Linux fake-hard questions as too easy for skill 83", async () => {
@@ -1699,7 +1698,7 @@ test("session generation accepts note-alias source labels for high-skill coverag
 	assert.equal(challengeShortfallMessage(questions, [linux, novice], "steady", 8), "");
 });
 
-test("session generation rejects repeated under-challenge for high-skill Linux notes", async () => {
+test("session generation repairs under-challenge twice and serves the batch", async () => {
 	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
 	const config = makeLinuxSessionConfig(topic);
 	const topicContexts = [makeLinuxTopicContext(topic)];
@@ -1709,17 +1708,15 @@ test("session generation rejects repeated under-challenge for high-skill Linux n
 		Array.from({ length: 8 }, (_, index) => makeLinuxMediumQuestion(`still-medium-${index}`)),
 	]);
 
-	await assert.rejects(
-		() =>
-			generateQuestionsFromClient(
-				client,
-				{ textPrompt: "Generate exactly 8 questions.", attachments: [] },
-				config,
-				topicContexts
-			),
-		/Failed to generate questions: Generated questions for high-skill topic "Linux Commands" are still too easy/
+	// Two strict repair rounds fire; the still-soft batch ships regardless.
+	const questions = await generateQuestionsFromClient(
+		client,
+		{ textPrompt: "Generate exactly 8 questions.", attachments: [] },
+		config,
+		topicContexts
 	);
 	assert.equal(client.calls.length, 3);
+	assert.ok(questions.length > 0, "the strongest available batch must be served");
 });
 
 test("session generation repairs underfilled high-skill Linux batches with challenge top-up", async () => {
@@ -1751,7 +1748,7 @@ test("session generation repairs underfilled high-skill Linux batches with chall
 	assert.equal(questions.filter((question) => question.difficulty === "easy").length, 0);
 });
 
-test("session generation rejects underfilled high-skill batches that remain too medium-heavy", async () => {
+test("session generation runs the full repair ladder and serves medium-heavy batches", async () => {
 	const topic = makeTopic({ title: "Linux Commands", skill: 83 });
 	const config = makeLinuxSessionConfig(topic);
 	const topicContexts = [makeLinuxTopicContext(topic)];
@@ -1762,20 +1759,19 @@ test("session generation rejects underfilled high-skill batches that remain too 
 		Array.from({ length: 5 }, (_, index) => makeLinuxMediumQuestion(`repair-two-medium-${index}`)),
 	]);
 
-	await assert.rejects(
-		() =>
-			generateQuestionsFromClient(
-				client,
-				{ textPrompt: "Generate exactly 8 questions.", attachments: [] },
-				config,
-				topicContexts
-			),
-		/Failed to generate questions: Generated questions for high-skill topic "Linux Commands" are still too easy/
+	// The full repair ladder runs (retry + two challenge corrections), and the
+	// medium-heavy result still ships — shortfalls warn, they do not error.
+	const questions = await generateQuestionsFromClient(
+		client,
+		{ textPrompt: "Generate exactly 8 questions.", attachments: [] },
+		config,
+		topicContexts
 	);
 	assert.equal(client.calls.length, 4);
 	assert.match(client.calls[1]?.textPrompt ?? "", /Retry correction/);
 	assert.match(client.calls[2]?.textPrompt ?? "", /Challenge correction/);
 	assert.match(client.calls[3]?.textPrompt ?? "", /Challenge correction/);
+	assert.ok(questions.length > 0, "the strongest available batch must be served");
 });
 
 test("flow calibration sequences balanced batches as a ramp instead of an easy block", () => {
@@ -6979,6 +6975,57 @@ test("generateQuestionsFromClient sharpens before the blind re-solve when deep a
 	const kept = await generateQuestionsFromClient(noopClient, prompt, config, contexts);
 	assert.equal(kept.length, 1);
 	assert.equal(kept[0]!.questionText, original.questionText);
+});
+
+test("a strict high-skill session ships its best batch instead of erroring on the mix", async () => {
+	// Live failure (skill-85 notes, 2026-07-05): the estimator relabeled part
+	// of the batch easy, the challenge repair could not fix it, and the whole
+	// session died with "Failed to generate enough challenging questions".
+	// Difficulty targets drive repair effort; they must never gate service.
+	const topic = makeTopic({ title: "Procedures and the stack", skill: 85 });
+	const contexts = [makeTopicContext(topic, "Calling conventions and stack discipline.")];
+	const reasonOptions = [
+		"The rotation point must lie right of mid, so the minimum stays inside the kept half",
+		"The left half is always the longer one, so discarding it converges in fewer iterations",
+		"Comparing against `arr[hi]` sorts both halves, which makes plain binary search valid",
+		"The loop only terminates when the array was never rotated in the first place",
+	];
+	const batch = [
+		makeQuestion({
+			id: "g1",
+			questionText: "What is the name of the register that holds the return address?",
+			sourceTopics: [topic.title],
+			sourceSubtopics: ["return address"],
+			difficulty: "easy",
+		}),
+		makeQuestion({
+			id: "g2",
+			questionText: "A sorted array is rotated once and searched with a loop comparing `arr[mid]` to `arr[hi]`. When `arr[mid] > arr[hi]`, why is discarding the left half safe?",
+			options: [...reasonOptions],
+			correctAnswer: reasonOptions[0]!,
+			explanation: "If `arr[mid] > arr[hi]` the order breaks between mid and hi, so the rotation point and the minimum lie in that half.",
+			sourceTopics: [topic.title],
+			sourceSubtopics: ["rotation invariant"],
+			difficulty: "medium",
+		}),
+	];
+	const config: SessionConfig = {
+		topics: [topic],
+		questionCount: 2,
+		challengeMode: "steady",
+		challengeReason: "strict shortfall test",
+	};
+	const prompt: StructuredPrompt = {
+		textPrompt: "SYSTEM\n\nGenerate exactly 2 questions",
+		systemPrompt: "SYSTEM",
+		userPrompt: "Generate exactly 2 questions",
+		maxOutputTokens: 2800,
+		attachments: [],
+	};
+	// Every repair/top-up attempt returns nothing usable.
+	const client = makeBatchClient([batch]);
+	const served = await generateQuestionsFromClient(client, prompt, config, contexts);
+	assert.ok(served.length >= 1, "session must serve the strongest available batch");
 });
 
 test("system prompt carries the self-containment, no-link, and option-parity rules", () => {
