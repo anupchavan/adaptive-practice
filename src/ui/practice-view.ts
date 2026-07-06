@@ -5,6 +5,7 @@ import {
 	Modal,
 	Notice,
 	WorkspaceLeaf,
+	setIcon,
 } from "obsidian";
 import { Question, QuizResult, TopicNote } from "../types";
 import { checkAnswer, multiCorrectAnswers } from "../practice/grader";
@@ -484,6 +485,7 @@ export class PracticeView extends ItemView {
 			nextBtn.disabled = true;
 			nextBtn.addClass("ap-next-button-loading");
 			nextBtn.setAttr("aria-busy", "true");
+			setIcon(nextBtn.createSpan({ cls: "ap-loading-spinner" }), "loader-2");
 		}
 		nextBtn.addEventListener("click", () => {
 			if (awaitingMore) return;
