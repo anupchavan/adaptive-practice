@@ -1261,7 +1261,7 @@
 
 .ap-question-source {
 	margin-top: var(--size-4-3);
-	font-size: var(--font-ui-smaller);
+	font-size: var(--font-ui-small);
 	color: var(--text-muted);
 }
 

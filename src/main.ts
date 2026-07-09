@@ -1,4 +1,12 @@
-import { MarkdownView, Notice, Plugin, TAbstractFile, TFile, TFolder, normalizePath } from "obsidian";
+import {
+	MarkdownView,
+	Notice,
+	Plugin,
+	TAbstractFile,
+	TFile,
+	TFolder,
+	normalizePath,
+} from "obsidian";
 import {
 	AdaptivePracticeSettings,
 	DEFAULT_SETTINGS,
@@ -21,7 +29,11 @@ import { DashboardView, DASHBOARD_VIEW_TYPE } from "./ui/dashboard-view";
 import { ConfirmationModal } from "./ui/confirmation-modal";
 import { showActionNotice } from "./ui/notices";
 import { ADAPTIVE_PRACTICE_HOVER_SOURCE } from "./ui/markdown";
-import { createFlowSessionGenerator, generateQuestions, finalizeSession } from "./practice/session";
+import {
+	createFlowSessionGenerator,
+	generateQuestions,
+	finalizeSession,
+} from "./practice/session";
 import { FlowSessionGenerator } from "./practice/flow-engine";
 import { hasPracticedToday as memoryHasPracticedToday } from "./practice/daily-status";
 import { resolvePracticeCredit } from "./practice/daily-credit";
@@ -56,10 +68,7 @@ import {
 	normalizeProviderSecretNames,
 	syncLegacySecretName,
 } from "./practice/provider-secrets";
-import {
-	getSecretSafely,
-	setSecretSafely,
-} from "./practice/secret-storage";
+import { getSecretSafely, setSecretSafely } from "./practice/secret-storage";
 import {
 	normalizeProviderModels,
 	providerModelsNeedNormalization,
@@ -93,7 +102,10 @@ export default class AdaptivePracticePlugin extends Plugin {
 		await this.migrateApiKey();
 
 		this.registerView(PRACTICE_VIEW_TYPE, (leaf) => new PracticeView(leaf));
-		this.registerView(DASHBOARD_VIEW_TYPE, (leaf) => new DashboardView(leaf, this));
+		this.registerView(
+			DASHBOARD_VIEW_TYPE,
+			(leaf) => new DashboardView(leaf, this),
+		);
 		this.registerHoverLinkSource(ADAPTIVE_PRACTICE_HOVER_SOURCE, {
 			display: "Adaptive Practice",
 			defaultMod: false,
@@ -103,29 +115,39 @@ export default class AdaptivePracticePlugin extends Plugin {
 			void this.restoreWorkspaceAfterReload();
 		});
 
-		this.registerEvent(this.app.workspace.on("layout-change", () => {
-			this.scheduleDashboardOpenSync();
-		}));
+		this.registerEvent(
+			this.app.workspace.on("layout-change", () => {
+				this.scheduleDashboardOpenSync();
+			}),
+		);
 
 		// Keep practice state attached to notes across renames/moves and pruned on
 		// delete. Without these, all path-keyed state is silently orphaned.
-		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
-			this.handleVaultRename(file, oldPath);
-		}));
-		this.registerEvent(this.app.vault.on("delete", (file) => {
-			this.handleVaultDelete(file);
-		}));
+		this.registerEvent(
+			this.app.vault.on("rename", (file, oldPath) => {
+				this.handleVaultRename(file, oldPath);
+			}),
+		);
+		this.registerEvent(
+			this.app.vault.on("delete", (file) => {
+				this.handleVaultDelete(file);
+			}),
+		);
 
 		// Event-driven index freshness: edits and new notes schedule one quiet
 		// incremental sweep (the indexer skips files whose stats are unchanged)
 		// instead of waiting for the half-hour interval. Debounced so a burst of
 		// typing or a bulk import causes a single rescan.
-		this.registerEvent(this.app.vault.on("modify", (file) => {
-			this.scheduleIncrementalIndexRefresh(file);
-		}));
-		this.registerEvent(this.app.vault.on("create", (file) => {
-			this.scheduleIncrementalIndexRefresh(file);
-		}));
+		this.registerEvent(
+			this.app.vault.on("modify", (file) => {
+				this.scheduleIncrementalIndexRefresh(file);
+			}),
+		);
+		this.registerEvent(
+			this.app.vault.on("create", (file) => {
+				this.scheduleIncrementalIndexRefresh(file);
+			}),
+		);
 		this.register(() => {
 			if (this.incrementalIndexTimer !== null) {
 				window.clearTimeout(this.incrementalIndexTimer);
@@ -133,19 +155,26 @@ export default class AdaptivePracticePlugin extends Plugin {
 			}
 		});
 
-		this.registerInterval(window.setInterval(() => {
-			void this.checkDailyReminder();
-		}, 60 * 1000));
+		this.registerInterval(
+			window.setInterval(() => {
+				void this.checkDailyReminder();
+			}, 60 * 1000),
+		);
 
-		this.registerInterval(window.setInterval(() => {
-			void this.refreshPracticePlan(false);
-		}, 30 * 60 * 1000));
+		this.registerInterval(
+			window.setInterval(
+				() => {
+					void this.refreshPracticePlan(false);
+				},
+				30 * 60 * 1000,
+			),
+		);
 
 		this.practiceStatusBarEl = this.addStatusBarItem();
 		this.practiceStatusBarEl.addClass("mod-clickable");
 		this.practiceStatusBarEl.setAttribute(
 			"aria-label",
-			"Practice streak and due notes. Click to open the dashboard."
+			"Practice streak and due notes. Click to open the dashboard.",
 		);
 		this.practiceStatusBarEl.addEventListener("click", () => {
 			void this.openDashboard();
@@ -156,7 +185,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 			this.openSetupModal();
 		});
 
-		this.addRibbonIcon("calendar-check", "Open dashboard", () => {
+		this.addRibbonIcon("brain", "Open dashboard", () => {
 			void this.openDashboard();
 		});
 
@@ -212,7 +241,8 @@ export default class AdaptivePracticePlugin extends Plugin {
 			id: "practice-current-note",
 			name: "Practice current note",
 			checkCallback: (checking) => {
-				const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
+				const mdView =
+					this.app.workspace.getActiveViewOfType(MarkdownView);
 				if (mdView?.file) {
 					if (!checking) this.openSetupModal(mdView.file.path);
 					return true;
@@ -245,9 +275,11 @@ export default class AdaptivePracticePlugin extends Plugin {
 	}
 
 	private detachPracticeLeaves(): void {
-		this.app.workspace.getLeavesOfType(PRACTICE_VIEW_TYPE).forEach((leaf) => {
-			leaf.detach();
-		});
+		this.app.workspace
+			.getLeavesOfType(PRACTICE_VIEW_TYPE)
+			.forEach((leaf) => {
+				leaf.detach();
+			});
 	}
 
 	private async restorePracticeViewsAfterReload(): Promise<void> {
@@ -287,7 +319,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 					draft.results,
 					draft.currentIndex,
 					draft.topics,
-					draft.config
+					draft.config,
 				);
 			}
 		}
@@ -350,8 +382,12 @@ export default class AdaptivePracticePlugin extends Plugin {
 	}
 
 	private pluginDir(): string {
-		return this.manifest.dir ??
-			normalizePath(`${this.app.vault.configDir}/plugins/${this.manifest.id}`);
+		return (
+			this.manifest.dir ??
+			normalizePath(
+				`${this.app.vault.configDir}/plugins/${this.manifest.id}`,
+			)
+		);
 	}
 
 	private async loadIndexStore(): Promise<boolean> {
@@ -359,7 +395,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 		if (stored) {
 			this.settings.practiceMemory.index = stored;
 			this.settings.practiceMemory = normalizePracticeMemory(
-				this.settings.practiceMemory
+				this.settings.practiceMemory,
 			);
 			return false;
 		}
@@ -376,7 +412,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 		await writeIndexStore(
 			this.app,
 			this.pluginDir(),
-			this.settings.practiceMemory.index
+			this.settings.practiceMemory.index,
 		);
 	}
 
@@ -389,13 +425,13 @@ export default class AdaptivePracticePlugin extends Plugin {
 			this.settings.practiceMemory,
 			oldPath,
 			newPath,
-			isFolder
+			isFolder,
 		);
 		const pdfChanged = migratePdfSkillPaths(
 			this.settings.pdfSkills,
 			oldPath,
 			newPath,
-			isFolder
+			isFolder,
 		);
 		if (memoryChanged || pdfChanged) this.scheduleVaultChangePersist();
 	}
@@ -405,12 +441,12 @@ export default class AdaptivePracticePlugin extends Plugin {
 		const memoryChanged = prunePracticeMemoryPaths(
 			this.settings.practiceMemory,
 			file.path,
-			isFolder
+			isFolder,
 		);
 		const pdfChanged = prunePdfSkillPaths(
 			this.settings.pdfSkills,
 			file.path,
-			isFolder
+			isFolder,
 		);
 		if (memoryChanged || pdfChanged) this.scheduleVaultChangePersist();
 	}
@@ -449,21 +485,25 @@ export default class AdaptivePracticePlugin extends Plugin {
 		const memory = this.settings.practiceMemory;
 		const rows: string[] = [];
 		for (const entry of memory.questionFeedback ?? []) {
-			rows.push(JSON.stringify({ record: "question_feedback", ...entry }));
+			rows.push(
+				JSON.stringify({ record: "question_feedback", ...entry }),
+			);
 		}
 		for (const note of Object.values(memory.notes ?? {})) {
-			rows.push(JSON.stringify({
-				record: "note_state",
-				path: note.path,
-				skill: note.skill,
-				attempts: note.attempts,
-				correct: note.correct,
-				skipped: note.skipped,
-				stabilityDays: note.stabilityDays,
-				lastSessionAccuracy: note.lastSessionAccuracy,
-				lastSessionFluency: note.lastSessionFluency,
-				practicedSubtopics: note.practicedSubtopics,
-			}));
+			rows.push(
+				JSON.stringify({
+					record: "note_state",
+					path: note.path,
+					skill: note.skill,
+					attempts: note.attempts,
+					correct: note.correct,
+					skipped: note.skipped,
+					stabilityDays: note.stabilityDays,
+					lastSessionAccuracy: note.lastSessionAccuracy,
+					lastSessionFluency: note.lastSessionFluency,
+					practicedSubtopics: note.practicedSubtopics,
+				}),
+			);
 		}
 		if (rows.length === 0) {
 			new Notice("No practice data to export yet.");
@@ -496,7 +536,8 @@ export default class AdaptivePracticePlugin extends Plugin {
 	async refreshPracticePlan(showNotice: boolean): Promise<TopicNote[]> {
 		if (showNotice) this.practicePlanRefreshNoticeRequested = true;
 		if (this.practicePlanRefresh) {
-			if (showNotice) new Notice("Adaptive practice scan already running...");
+			if (showNotice)
+				new Notice("Adaptive practice scan already running...");
 			return this.practicePlanRefresh;
 		}
 
@@ -514,7 +555,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 			this.settings.pdfSkills,
 			this.settings.filterRules,
 			this.settings.practiceMemory.index,
-			this.settings
+			this.settings,
 		);
 		const topics = scan.topics;
 		const now = Date.now();
@@ -522,7 +563,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 		this.settings.practiceMemory = reconcilePracticeMemory(
 			this.settings.practiceMemory,
 			topics,
-			now
+			now,
 		);
 		await this.saveSettings();
 		await this.saveIndex();
@@ -530,17 +571,17 @@ export default class AdaptivePracticePlugin extends Plugin {
 		const indexed = applyPracticeMemoryToTopics(
 			topics,
 			this.settings.practiceMemory,
-			now
+			now,
 		);
 		if (this.practicePlanRefreshNoticeRequested) {
 			const dueCount = selectDailyTopics(
 				indexed,
 				this.settings.practiceMemory,
 				this.settings.dailyTopicLimit,
-				now
+				now,
 			).length;
 			new Notice(
-				`Adaptive Practice scanned ${scan.stats.total} notes (${scan.stats.indexed} updated, ${scan.stats.reused} reused). ${dueCount} topic${dueCount === 1 ? "" : "s"} ready.`
+				`Adaptive Practice scanned ${scan.stats.total} notes (${scan.stats.indexed} updated, ${scan.stats.reused} reused). ${dueCount} topic${dueCount === 1 ? "" : "s"} ready.`,
 			);
 		}
 		this.renderDashboardViews(indexed);
@@ -554,15 +595,23 @@ export default class AdaptivePracticePlugin extends Plugin {
 			(config) => {
 				void this.startSession(config);
 			},
-			preselectedPath
+			preselectedPath,
 		).open();
 	}
 
 	async openDashboard(): Promise<void> {
 		await this.setDashboardOpen(true);
-		const leaf = this.app.workspace.getRightLeaf(false) ??
+		// Reuse an existing dashboard leaf (per the Views docs pattern) —
+		// always creating one duplicated the tab after plugin updates, when
+		// the previous leaf survives the reload.
+		const existing = this.app.workspace.getLeavesOfType(DASHBOARD_VIEW_TYPE)[0];
+		const leaf =
+			existing ??
+			this.app.workspace.getRightLeaf(false) ??
 			this.app.workspace.getLeaf("tab");
-		await leaf.setViewState({ type: DASHBOARD_VIEW_TYPE, active: true });
+		if (!existing) {
+			await leaf.setViewState({ type: DASHBOARD_VIEW_TYPE, active: true });
+		}
 		this.app.workspace.rightSplit.expand();
 		await this.app.workspace.revealLeaf(leaf);
 	}
@@ -587,13 +636,16 @@ export default class AdaptivePracticePlugin extends Plugin {
 
 	private async syncDashboardOpenState(): Promise<void> {
 		if (this.unloading) return;
-		await this.setDashboardOpen(
-			this.app.workspace.getLeavesOfType(DASHBOARD_VIEW_TYPE).length > 0
-		);
+		// A reload can race the revival of the pre-update leaf and leave two
+		// dashboards; keep the first, detach the rest.
+		const leaves = this.app.workspace.getLeavesOfType(DASHBOARD_VIEW_TYPE);
+		for (const extra of leaves.slice(1)) extra.detach();
+		await this.setDashboardOpen(leaves.length > 0);
 	}
 
 	private async restoreDashboardAfterReload(): Promise<boolean> {
-		if (this.app.workspace.getLeavesOfType(DASHBOARD_VIEW_TYPE).length > 0) return true;
+		if (this.app.workspace.getLeavesOfType(DASHBOARD_VIEW_TYPE).length > 0)
+			return true;
 		if (!this.settings.dashboardOpen) return false;
 		await this.openDashboard();
 		return true;
@@ -605,12 +657,12 @@ export default class AdaptivePracticePlugin extends Plugin {
 
 	getDailyTopicOverview(
 		topics: TopicNote[],
-		now = Date.now()
+		now = Date.now(),
 	): { topics: TopicNote[]; warning: string; skippedPdfCount: number } {
 		const selection = this.getDailyTopicSelection(
 			topics,
 			now,
-			this.hasPracticedToday(new Date(now))
+			this.hasPracticedToday(new Date(now)),
 		);
 		return {
 			topics: selection.compatibleTopics,
@@ -626,7 +678,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 	private getDailyTopicSelection(
 		topics: TopicNote[],
 		now = Date.now(),
-		extraPractice = false
+		extraPractice = false,
 	): {
 		compatibleTopics: TopicNote[];
 		skippedPdfTopics: TopicNote[];
@@ -635,49 +687,46 @@ export default class AdaptivePracticePlugin extends Plugin {
 		const candidateLimit = dailyTopicCandidateLimitForProvider(
 			this.settings.llmProvider,
 			topics.length,
-			this.settings.dailyTopicLimit
+			this.settings.dailyTopicLimit,
 		);
 		const candidates = extraPractice
 			? selectPracticeMoreTopics(
-				topics,
-				this.settings.practiceMemory,
-				candidateLimit,
-				now
-			)
+					topics,
+					this.settings.practiceMemory,
+					candidateLimit,
+					now,
+				)
 			: selectDailyTopics(
-				topics,
-				this.settings.practiceMemory,
-				candidateLimit,
-				now
-			);
+					topics,
+					this.settings.practiceMemory,
+					candidateLimit,
+					now,
+				);
 		const compatibility = splitProviderCompatibleTopics(
 			this.settings.llmProvider,
-			candidates
+			candidates,
 		);
 		return {
 			...compatibility,
 			compatibleTopics: compatibility.compatibleTopics.slice(
 				0,
-				this.settings.dailyTopicLimit
+				this.settings.dailyTopicLimit,
 			),
 		};
 	}
 
 	getDailySessionPlan(topics: TopicNote[]): DailySessionPlan {
-		return this.buildDailySessionPlan(
-			topics,
-			this.hasPracticedToday()
-		);
+		return this.buildDailySessionPlan(topics, this.hasPracticedToday());
 	}
 
 	private buildDailySessionPlan(
 		topics: TopicNote[],
-		extraPractice: boolean
+		extraPractice: boolean,
 	): DailySessionPlan {
 		const plan = planDailySession(
 			topics,
 			this.settings.practiceMemory,
-			this.settings.dailyQuestionCount
+			this.settings.dailyQuestionCount,
 		);
 		if (!extraPractice) return plan;
 		return {
@@ -709,7 +758,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 			draft.results,
 			draft.currentIndex,
 			draft.topics,
-			draft.config
+			draft.config,
 		);
 	}
 
@@ -723,21 +772,24 @@ export default class AdaptivePracticePlugin extends Plugin {
 		const selection = this.getDailyTopicSelection(
 			topics,
 			Date.now(),
-			alreadyPracticedToday
+			alreadyPracticedToday,
 		);
 		const dailyTopics = selection.compatibleTopics;
 		const plan = this.buildDailySessionPlan(
 			dailyTopics,
-			alreadyPracticedToday
+			alreadyPracticedToday,
 		);
 
 		if (dailyTopics.length === 0) {
-			new Notice(selection.warning || "No practice topics are available right now.");
+			new Notice(
+				selection.warning ||
+					"No practice topics are available right now.",
+			);
 			return;
 		}
 		if (selection.skippedPdfTopics.length > 0) {
 			new Notice(
-				`Skipped ${selection.skippedPdfTopics.length} PDF topic${selection.skippedPdfTopics.length === 1 ? "" : "s"} for the current provider.`
+				`Skipped ${selection.skippedPdfTopics.length} PDF topic${selection.skippedPdfTopics.length === 1 ? "" : "s"} for the current provider.`,
 			);
 		}
 
@@ -753,26 +805,32 @@ export default class AdaptivePracticePlugin extends Plugin {
 	private async checkDailyReminder(): Promise<void> {
 		if (this.dailyReminderCheckInProgress) return;
 		const now = new Date();
-		if (!shouldOfferDailyReminder({
-			enabled: this.settings.dailyPracticeEnabled,
-			reminderTime: this.settings.dailyReminderTime,
-			memory: this.settings.practiceMemory,
-			now,
-			hasPracticeDraft: !!this.getPracticeDraft(),
-			generationInProgress: this.sessionGenerationInProgress,
-			noticeActive: !!this.dailyReminderNotice,
-		})) return;
+		if (
+			!shouldOfferDailyReminder({
+				enabled: this.settings.dailyPracticeEnabled,
+				reminderTime: this.settings.dailyReminderTime,
+				memory: this.settings.practiceMemory,
+				now,
+				hasPracticeDraft: !!this.getPracticeDraft(),
+				generationInProgress: this.sessionGenerationInProgress,
+				noticeActive: !!this.dailyReminderNotice,
+			})
+		)
+			return;
 
 		this.dailyReminderCheckInProgress = true;
 		try {
 			const topics = await this.refreshPracticePlan(false);
-			const selection = this.getDailyTopicSelection(topics, now.getTime());
+			const selection = this.getDailyTopicSelection(
+				topics,
+				now.getTime(),
+			);
 			const dailyTopics = selection.compatibleTopics;
 
 			if (dailyTopics.length === 0) {
 				this.settings.practiceMemory = recordDailyReminderAttempt(
 					this.settings.practiceMemory,
-					now.getTime()
+					now.getTime(),
 				);
 				await this.saveSettings();
 				if (selection.warning) new Notice(selection.warning);
@@ -780,24 +838,25 @@ export default class AdaptivePracticePlugin extends Plugin {
 			}
 			this.settings.practiceMemory = recordDailyReminderAttempt(
 				this.settings.practiceMemory,
-				now.getTime()
+				now.getTime(),
 			);
 			await this.saveSettings();
 			this.showDailyPracticeNotice(
 				dailyTopics.length,
-				this.getDailySessionPlan(dailyTopics)
+				this.getDailySessionPlan(dailyTopics),
 			);
 		} finally {
 			this.dailyReminderCheckInProgress = false;
 		}
 	}
 
-	private showDailyPracticeNotice(topicCount: number, plan: DailySessionPlan): void {
+	private showDailyPracticeNotice(
+		topicCount: number,
+		plan: DailySessionPlan,
+	): void {
 		this.hideDailyReminderNotice();
 		const streak = this.settings.practiceMemory?.daily?.streak ?? 0;
-		const streakPrefix = streak > 0
-			? `🔥 ${streak}-day streak. `
-			: "";
+		const streakPrefix = streak > 0 ? `🔥 ${streak}-day streak. ` : "";
 		const notice = showActionNotice(
 			`${streakPrefix}${topicCount} topic${topicCount === 1 ? "" : "s"} ready for ${plan.questionCount} ${formatChallengeMode(plan.challengeMode)} questions.`,
 			[
@@ -818,14 +877,15 @@ export default class AdaptivePracticePlugin extends Plugin {
 					label: "Tomorrow",
 					kind: "tertiary",
 					onClick: () => {
-						this.settings.practiceMemory = suppressDailyReminderForToday(
-							this.settings.practiceMemory
-						);
+						this.settings.practiceMemory =
+							suppressDailyReminderForToday(
+								this.settings.practiceMemory,
+							);
 						void this.saveSettings();
 						this.hideDailyReminderNotice(notice);
 					},
 				},
-			]
+			],
 		);
 		this.dailyReminderNotice = notice;
 		this.watchNoticeDismissal(notice);
@@ -879,23 +939,25 @@ export default class AdaptivePracticePlugin extends Plugin {
 						void this.discardPracticeDraft();
 					},
 				},
-			]
+			],
 		);
 	}
 
 	private async startSession(
 		config: SessionConfig,
-		options: { replaceDraft?: boolean } = {}
+		options: { replaceDraft?: boolean } = {},
 	): Promise<void> {
 		if (this.sessionGenerationInProgress) {
 			new Notice("Practice questions are already generating.");
 			return;
 		}
 		this.hideDailyReminderNotice();
-		if (shouldConfirmPracticeDraftReplacement(
-			this.settings.practiceDraft,
-			options.replaceDraft ?? false
-		)) {
+		if (
+			shouldConfirmPracticeDraftReplacement(
+				this.settings.practiceDraft,
+				options.replaceDraft ?? false,
+			)
+		) {
 			this.confirmPracticeDraftReplacement(config);
 			return;
 		}
@@ -911,16 +973,19 @@ export default class AdaptivePracticePlugin extends Plugin {
 		try {
 			const compatibility = splitProviderCompatibleTopics(
 				this.settings.llmProvider,
-				config.topics
+				config.topics,
 			);
 			if (compatibility.skippedPdfTopics.length > 0) {
-				if (config.mode !== "daily" || compatibility.compatibleTopics.length === 0) {
+				if (
+					config.mode !== "daily" ||
+					compatibility.compatibleTopics.length === 0
+				) {
 					loadingNotice.hide();
 					new Notice(compatibility.warning);
 					return;
 				}
 				new Notice(
-					`Skipped ${compatibility.skippedPdfTopics.length} PDF topic${compatibility.skippedPdfTopics.length === 1 ? "" : "s"} for the current provider.`
+					`Skipped ${compatibility.skippedPdfTopics.length} PDF topic${compatibility.skippedPdfTopics.length === 1 ? "" : "s"} for the current provider.`,
 				);
 				config = {
 					...config,
@@ -933,7 +998,9 @@ export default class AdaptivePracticePlugin extends Plugin {
 			if (!apiKey && this.providerNeedsApiKey()) {
 				loadingNotice.hide();
 				const label = LLM_PROVIDER_LABELS[this.settings.llmProvider];
-				new Notice(`${label} API key not configured. Go to Settings \u2192 Adaptive Practice to add it.`);
+				new Notice(
+					`${label} API key not configured. Go to Settings \u2192 Adaptive Practice to add it.`,
+				);
 				return;
 			}
 
@@ -942,8 +1009,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 			// how the session is going. Single-shot remains for small sessions
 			// and as the fallback when flow is disabled.
 			const useFlow =
-				this.settings.flowGeneration &&
-				config.questionCount > 4;
+				this.settings.flowGeneration && config.questionCount > 4;
 			let flow: FlowSessionGenerator | undefined;
 			let questions: Question[];
 			if (useFlow) {
@@ -952,7 +1018,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 					apiKey,
 					config,
 					this.settings.llmProvider,
-					this.settings
+					this.settings,
 				);
 				questions = await flow.firstBatch();
 			} else {
@@ -961,7 +1027,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 					apiKey,
 					config,
 					this.settings.llmProvider,
-					this.settings
+					this.settings,
 				);
 			}
 
@@ -973,32 +1039,39 @@ export default class AdaptivePracticePlugin extends Plugin {
 			loadingNotice.hide();
 
 			if (questions.length === 0) {
-				new Notice("No questions were generated. Try different topics.");
+				new Notice(
+					"No questions were generated. Try different topics.",
+				);
 				return;
 			}
 
 			await this.savePracticeDraft(config, questions, [], 0);
 
 			const usedTopics = new Set(
-				questions.flatMap((q) => q.sourceTopics)
+				questions.flatMap((q) => q.sourceTopics),
 			);
 			const selectedCount = config.topics.length;
 			const usedCount = config.topics.filter((t) =>
-				usedTopics.has(t.title)
+				usedTopics.has(t.title),
 			).length;
 			new Notice(
 				flow
 					? `Practice started — ${questions.length} of ${config.questionCount} questions ready; the rest adapt to your answers.`
-					: `${questions.length} questions generated from ${usedCount} / ${selectedCount} selected notes.`
+					: `${questions.length} questions generated from ${usedCount} / ${selectedCount} selected notes.`,
 			);
 
-			await this.openPracticeView(questions, [], 0, config.topics, config, flow);
+			await this.openPracticeView(
+				questions,
+				[],
+				0,
+				config.topics,
+				config,
+				flow,
+			);
 		} catch (e) {
 			if (this.isStaleGeneration(generationId, canceled)) return;
 			loadingNotice.hide();
-			new Notice(
-				`Error: ${e instanceof Error ? e.message : String(e)}`
-			);
+			new Notice(`Error: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
 			if (this.sessionGenerationId === generationId) {
 				this.sessionGenerationInProgress = false;
@@ -1008,15 +1081,18 @@ export default class AdaptivePracticePlugin extends Plugin {
 
 	private createGenerationNotice(
 		config: SessionConfig,
-		onCancel: () => void
+		onCancel: () => void,
 	): Notice {
 		return showActionNotice(
 			`Generating ${config.questionCount} adaptive question${config.questionCount === 1 ? "" : "s"} from ${config.topics.length} note${config.topics.length === 1 ? "" : "s"}… The practice tab opens when ready.`,
-			[{ label: "Cancel", kind: "tertiary", onClick: onCancel }]
+			[{ label: "Cancel", kind: "tertiary", onClick: onCancel }],
 		);
 	}
 
-	private cancelSessionGeneration(generationId: number, notice: Notice): void {
+	private cancelSessionGeneration(
+		generationId: number,
+		notice: Notice,
+	): void {
 		if (this.sessionGenerationId !== generationId) return;
 		this.sessionGenerationInProgress = false;
 		this.sessionGenerationId++;
@@ -1024,14 +1100,18 @@ export default class AdaptivePracticePlugin extends Plugin {
 		new Notice("Question generation cancelled.");
 	}
 
-	private isStaleGeneration(generationId: number, canceled: boolean): boolean {
+	private isStaleGeneration(
+		generationId: number,
+		canceled: boolean,
+	): boolean {
 		return canceled || this.sessionGenerationId !== generationId;
 	}
 
 	private confirmPracticeDraftReplacement(config: SessionConfig): void {
 		new ConfirmationModal(this.app, {
 			title: "Replace unfinished session?",
-			message: "Starting a new practice session will discard the generated questions saved from your unfinished session.",
+			message:
+				"Starting a new practice session will discard the generated questions saved from your unfinished session.",
 			confirmText: "Start new session",
 			cancelText: "Keep unfinished",
 			destructive: true,
@@ -1050,28 +1130,32 @@ export default class AdaptivePracticePlugin extends Plugin {
 	private providerNeedsApiKey(): boolean {
 		if (this.settings.llmProvider !== "openai-compatible") return true;
 		const baseUrl = getProviderBaseUrl(this.settings);
-		return !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?\b/i.test(baseUrl);
+		return !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?\b/i.test(
+			baseUrl,
+		);
 	}
 
 	private async completeSession(
 		config: SessionConfig,
-		results: QuizResult[]
+		results: QuizResult[],
 	): Promise<void> {
 		const finalNotice = new Notice("Saving results\u2026", 0);
 		try {
 			const completedAt = Date.now();
 			const previousMemory = this.settings.practiceMemory;
-			const dailyMeaningfulness = config.mode === "daily"
-				? evaluatePracticeSessionMeaningfulness(results)
-				: null;
-			const recordResults = !dailyMeaningfulness || dailyMeaningfulness.meaningful;
+			const dailyMeaningfulness =
+				config.mode === "daily"
+					? evaluatePracticeSessionMeaningfulness(results)
+					: null;
+			const recordResults =
+				!dailyMeaningfulness || dailyMeaningfulness.meaningful;
 			const deltas = recordResults
 				? await finalizeSession(
-					this.app,
-					config.topics,
-					results,
-					(path, skill) => this.savePdfSkill(path, skill)
-				)
+						this.app,
+						config.topics,
+						results,
+						(path, skill) => this.savePdfSkill(path, skill),
+					)
 				: [];
 			if (recordResults) {
 				this.settings.practiceMemory = updatePracticeMemoryAfterSession(
@@ -1083,17 +1167,18 @@ export default class AdaptivePracticePlugin extends Plugin {
 					{
 						countDailyCredit: config.mode === "daily",
 						targetRetention: this.settings.targetRetention,
-					}
+					},
 				);
 			}
-			const practiceCredit = config.mode === "daily"
-				? resolvePracticeCredit(
-					previousMemory,
-					this.settings.practiceMemory,
-					new Date(completedAt),
-					results
-				)
-				: null;
+			const practiceCredit =
+				config.mode === "daily"
+					? resolvePracticeCredit(
+							previousMemory,
+							this.settings.practiceMemory,
+							new Date(completedAt),
+							results,
+						)
+					: null;
 			this.settings.practiceDraft = null;
 			await this.saveSettings();
 			this.renderDashboardViews();
@@ -1103,24 +1188,25 @@ export default class AdaptivePracticePlugin extends Plugin {
 				results,
 				deltas,
 				practiceCredit,
-				(result, feedback) => this.recordQuestionFeedback(result, feedback)
+				(result, feedback) =>
+					this.recordQuestionFeedback(result, feedback),
 			).open();
 		} catch (e) {
 			finalNotice.hide();
 			new Notice(
-				`Error saving results: ${e instanceof Error ? e.message : String(e)}`
+				`Error saving results: ${e instanceof Error ? e.message : String(e)}`,
 			);
 		}
 	}
 
 	private async recordQuestionFeedback(
 		result: QuizResult,
-		feedback: QuestionFeedbackKind
+		feedback: QuestionFeedbackKind,
 	): Promise<void> {
 		this.settings.practiceMemory = recordQuestionFeedbackInMemory(
 			this.settings.practiceMemory,
 			result,
-			feedback
+			feedback,
 		);
 		await this.saveSettings();
 	}
@@ -1131,9 +1217,15 @@ export default class AdaptivePracticePlugin extends Plugin {
 		currentIndex: number,
 		topics: TopicNote[],
 		config: SessionConfig,
-		flow?: FlowSessionGenerator
+		flow?: FlowSessionGenerator,
 	): Promise<void> {
-		await this.savePracticeDraft(config, questions, results, currentIndex, topics);
+		await this.savePracticeDraft(
+			config,
+			questions,
+			results,
+			currentIndex,
+			topics,
+		);
 		const leaf = this.app.workspace.getLeaf("tab");
 		await leaf.setViewState({ type: PRACTICE_VIEW_TYPE, active: true });
 		await this.app.workspace.revealLeaf(leaf);
@@ -1147,7 +1239,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 				currentIndex,
 				topics,
 				config,
-				flow
+				flow,
 			);
 		}
 	}
@@ -1159,7 +1251,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 		currentIndex: number,
 		topics: TopicNote[],
 		config: SessionConfig,
-		flow?: FlowSessionGenerator
+		flow?: FlowSessionGenerator,
 	): void {
 		const onComplete = (completedResults: QuizResult[]) => {
 			void this.completeSession(config, completedResults);
@@ -1174,21 +1266,21 @@ export default class AdaptivePracticePlugin extends Plugin {
 			onStateChange: (
 				nextQuestions: Question[],
 				nextResults: QuizResult[],
-				nextIndex: number
+				nextIndex: number,
 			) => {
 				void this.savePracticeDraft(
 					config,
 					nextQuestions,
 					nextResults,
 					nextIndex,
-					topics
+					topics,
 				);
 			},
 			questionPaneSide: this.settings.questionPaneSide,
 			totalPlannedCount: flow ? flow.totalPlanned : undefined,
 			onNeedMoreQuestions: flow
 				? (sessionResults: QuizResult[], asked: Question[]) =>
-					flow.nextBatch(sessionResults, asked)
+						flow.nextBatch(sessionResults, asked)
 				: undefined,
 		});
 	}
@@ -1198,7 +1290,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 		questions: Question[],
 		results: QuizResult[],
 		currentIndex: number,
-		topics = config.topics
+		topics = config.topics,
 	): Promise<void> {
 		const completed = hasAnsweredEveryQuestion(questions, results);
 		this.settings.practiceDraft = buildPracticeDraft(
@@ -1207,7 +1299,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 			currentIndex,
 			topics,
 			{ ...config, topics },
-			Date.now()
+			Date.now(),
 		);
 		if (completed && this.settings.practiceDraft) {
 			this.settings.practiceDraft.completed = true;
@@ -1224,12 +1316,14 @@ export default class AdaptivePracticePlugin extends Plugin {
 	}
 
 	private renderDashboardViews(topics?: TopicNote[]): void {
-		this.app.workspace.getLeavesOfType(DASHBOARD_VIEW_TYPE).forEach((leaf) => {
-			const view = leaf.view;
-			if (view instanceof DashboardView) {
-				view.renderCurrentState(topics);
-			}
-		});
+		this.app.workspace
+			.getLeavesOfType(DASHBOARD_VIEW_TYPE)
+			.forEach((leaf) => {
+				const view = leaf.view;
+				if (view instanceof DashboardView) {
+					view.renderCurrentState(topics);
+				}
+			});
 		this.updatePracticeStatusBar();
 	}
 
@@ -1244,7 +1338,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 		const streak = memory?.daily?.streak ?? 0;
 		const now = Date.now();
 		const due = Object.values(memory?.notes ?? {}).filter(
-			(note) => note.attempts > 0 && note.dueAt > 0 && note.dueAt <= now
+			(note) => note.attempts > 0 && note.dueAt > 0 && note.dueAt <= now,
 		).length;
 		const parts: string[] = [];
 		if (streak > 0) parts.push(`🔥 ${streak}d`);
@@ -1257,8 +1351,10 @@ export default class AdaptivePracticePlugin extends Plugin {
 function normalizeSettings(raw: unknown): AdaptivePracticeSettings {
 	const settings = Object.assign(
 		{},
-		JSON.parse(JSON.stringify(DEFAULT_SETTINGS)) as AdaptivePracticeSettings,
-		raw && typeof raw === "object" ? raw : {}
+		JSON.parse(
+			JSON.stringify(DEFAULT_SETTINGS),
+		) as AdaptivePracticeSettings,
+		raw && typeof raw === "object" ? raw : {},
 	);
 
 	if (!(settings.llmProvider in LLM_PROVIDER_LABELS)) {
@@ -1267,16 +1363,25 @@ function normalizeSettings(raw: unknown): AdaptivePracticeSettings {
 	settings.providerSecretNames = normalizeProviderSecretNames(
 		settings.providerSecretNames,
 		settings.llmProvider,
-		settings.secretName
+		settings.secretName,
 	);
 	syncLegacySecretName(settings);
-	settings.providerBaseUrls = normalizeProviderStrings(settings.providerBaseUrls);
-	if (settings.providerBaseUrls.openai === "https://api.openai.com/v1/chat/completions") {
+	settings.providerBaseUrls = normalizeProviderStrings(
+		settings.providerBaseUrls,
+	);
+	if (
+		settings.providerBaseUrls.openai ===
+		"https://api.openai.com/v1/chat/completions"
+	) {
 		settings.providerBaseUrls.openai = PROVIDER_PRESETS.openai.baseUrl;
 	}
 	settings.providerModels = normalizeProviderModels(settings.providerModels);
-	settings.providerJsonModes = normalizeProviderJsonModes(settings.providerJsonModes);
-	settings.providerSupportsImages = normalizeProviderBooleans(settings.providerSupportsImages);
+	settings.providerJsonModes = normalizeProviderJsonModes(
+		settings.providerJsonModes,
+	);
+	settings.providerSupportsImages = normalizeProviderBooleans(
+		settings.providerSupportsImages,
+	);
 	// Stored filter rules keep the pre-0.5 shape; this validates the tree and
 	// drops only structurally malformed entries (see normalizeFilterRules).
 	settings.filterRules = normalizeFilterRules(settings.filterRules);
@@ -1285,23 +1390,46 @@ function normalizeSettings(raw: unknown): AdaptivePracticeSettings {
 	}
 	settings.createdDateProperties = stringSetting(
 		settings.createdDateProperties,
-		DEFAULT_SETTINGS.createdDateProperties
+		DEFAULT_SETTINGS.createdDateProperties,
 	);
 	settings.updatedDateProperties = stringSetting(
 		settings.updatedDateProperties,
-		DEFAULT_SETTINGS.updatedDateProperties
+		DEFAULT_SETTINGS.updatedDateProperties,
 	);
 	if (!/^(\d{1,2}):(\d{2})$/.test(settings.dailyReminderTime)) {
 		settings.dailyReminderTime = DEFAULT_SETTINGS.dailyReminderTime;
 	}
-	if (settings.questionPaneSide !== "left" && settings.questionPaneSide !== "right") {
+	if (
+		settings.questionPaneSide !== "left" &&
+		settings.questionPaneSide !== "right"
+	) {
 		settings.questionPaneSide = DEFAULT_SETTINGS.questionPaneSide;
 	}
 	settings.dashboardOpen = settings.dashboardOpen === true;
-	settings.defaultQuestionCount = clamp(settings.defaultQuestionCount, 5, 30, DEFAULT_SETTINGS.defaultQuestionCount);
-	settings.dailyQuestionCount = clamp(settings.dailyQuestionCount, 3, 20, DEFAULT_SETTINGS.dailyQuestionCount);
-	settings.dailyTopicLimit = clamp(settings.dailyTopicLimit, 1, 30, DEFAULT_SETTINGS.dailyTopicLimit);
-	settings.targetRetention = clamp(settings.targetRetention, 0.7, 0.97, DEFAULT_SETTINGS.targetRetention);
+	settings.defaultQuestionCount = clamp(
+		settings.defaultQuestionCount,
+		5,
+		30,
+		DEFAULT_SETTINGS.defaultQuestionCount,
+	);
+	settings.dailyQuestionCount = clamp(
+		settings.dailyQuestionCount,
+		3,
+		20,
+		DEFAULT_SETTINGS.dailyQuestionCount,
+	);
+	settings.dailyTopicLimit = clamp(
+		settings.dailyTopicLimit,
+		1,
+		30,
+		DEFAULT_SETTINGS.dailyTopicLimit,
+	);
+	settings.targetRetention = clamp(
+		settings.targetRetention,
+		0.7,
+		0.97,
+		DEFAULT_SETTINGS.targetRetention,
+	);
 	if (
 		settings.practiceIntent !== "mastery" &&
 		settings.practiceIntent !== "cram" &&
@@ -1318,13 +1446,16 @@ function normalizeSettings(raw: unknown): AdaptivePracticeSettings {
 }
 
 function getProviderBaseUrl(settings: AdaptivePracticeSettings): string {
-	return settings.providerBaseUrls[settings.llmProvider] ||
-		PROVIDER_PRESETS[settings.llmProvider].baseUrl;
+	return (
+		settings.providerBaseUrls[settings.llmProvider] ||
+		PROVIDER_PRESETS[settings.llmProvider].baseUrl
+	);
 }
 
 function rawProviderModelsNeedNormalization(raw: unknown): boolean {
 	if (!raw || typeof raw !== "object") return false;
-	const providerModels = (raw as Partial<AdaptivePracticeSettings>).providerModels;
+	const providerModels = (raw as Partial<AdaptivePracticeSettings>)
+		.providerModels;
 	return providerModelsNeedNormalization(providerModels);
 }
 
@@ -1338,27 +1469,34 @@ function formatChallengeMode(mode: DailySessionPlan["challengeMode"]): string {
 }
 
 function normalizeProviderStrings(
-	input: unknown
+	input: unknown,
 ): AdaptivePracticeSettings["providerBaseUrls"] {
 	if (!input || typeof input !== "object") return {};
 	const output: AdaptivePracticeSettings["providerBaseUrls"] = {};
-	for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+	for (const [key, value] of Object.entries(
+		input as Record<string, unknown>,
+	)) {
 		if (key in LLM_PROVIDER_LABELS && typeof value === "string") {
-			output[key as keyof AdaptivePracticeSettings["providerBaseUrls"]] = value;
+			output[key as keyof AdaptivePracticeSettings["providerBaseUrls"]] =
+				value;
 		}
 	}
 	return output;
 }
 
 function normalizeProviderJsonModes(
-	input: unknown
+	input: unknown,
 ): AdaptivePracticeSettings["providerJsonModes"] {
 	if (!input || typeof input !== "object") return {};
 	const output: AdaptivePracticeSettings["providerJsonModes"] = {};
-	for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+	for (const [key, value] of Object.entries(
+		input as Record<string, unknown>,
+	)) {
 		if (
 			key in LLM_PROVIDER_LABELS &&
-			(value === "json_schema" || value === "json_object" || value === "prompt_only")
+			(value === "json_schema" ||
+				value === "json_object" ||
+				value === "prompt_only")
 		) {
 			output[key as keyof AdaptivePracticeSettings["providerJsonModes"]] =
 				value;
@@ -1368,19 +1506,28 @@ function normalizeProviderJsonModes(
 }
 
 function normalizeProviderBooleans(
-	input: unknown
+	input: unknown,
 ): AdaptivePracticeSettings["providerSupportsImages"] {
 	if (!input || typeof input !== "object") return {};
 	const output: AdaptivePracticeSettings["providerSupportsImages"] = {};
-	for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+	for (const [key, value] of Object.entries(
+		input as Record<string, unknown>,
+	)) {
 		if (key in LLM_PROVIDER_LABELS && typeof value === "boolean") {
-			output[key as keyof AdaptivePracticeSettings["providerSupportsImages"]] = value;
+			output[
+				key as keyof AdaptivePracticeSettings["providerSupportsImages"]
+			] = value;
 		}
 	}
 	return output;
 }
 
-function clamp(value: unknown, min: number, max: number, fallback: number): number {
+function clamp(
+	value: unknown,
+	min: number,
+	max: number,
+	fallback: number,
+): number {
 	if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
 	return Math.min(max, Math.max(min, value));
 }

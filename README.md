@@ -31,7 +31,7 @@ Image attachments are sent only when the selected provider is configured to supp
 
 ## Daily practice
 
-Use the **Open dashboard** command or the calendar-check ribbon icon to open the Adaptive Practice dashboard. The dashboard shows your current streak, how many notes are ready for review, the last vault scan, and the selected daily review topics. From there you can start the daily session, choose notes manually, or rescan the vault skeleton.
+Use the **Open dashboard** command or the "brain" ribbon icon to open the Adaptive Practice dashboard. The dashboard shows your current streak, how many notes are ready for review, the last vault scan, and the selected daily review topics. From there you can start the daily session, choose notes manually, or rescan the vault skeleton.
 
 When choosing notes manually, the picker uses practice memory to sort due and low-skill notes first. You can search by title/path, filter to due/new/low-skill/PDF notes, and select all currently visible matches without rendering the whole vault at once.
 

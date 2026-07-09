@@ -165,6 +165,7 @@ ${stripped}
 
 Rules:
 - Derive each answer step by step in "explanation" FIRST, using only facts stated in the stem and the source material; then commit to the answer that derivation supports. If the stem asserts a fact (an index, a value, a result), your answer must be consistent with it.
+- Keep each "explanation" compact: at most two short sentences carrying the decisive step of the derivation — this pass is graded on the answer, not the prose.
 - Copy "id", "type", "questionText", "options", "sourceTopics", "sourceSubtopics", and "difficulty" EXACTLY as given. Do not rephrase, reorder, add, or remove options.
 - For "multi", list every correct option in "correctAnswers". For "integer"/"decimal", give the numeric string.
 - Re-emit all ${questions.length} question${questions.length === 1 ? "" : "s"} in the standard JSON schema.

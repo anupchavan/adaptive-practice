@@ -1,6 +1,12 @@
 import { ItemView, Notice, TFile, WorkspaceLeaf, setIcon } from "obsidian";
 import type AdaptivePracticePlugin from "../main";
-import { DailySessionPlan, NoteIndexEntry, NotePracticeState, PracticeDraft, TopicNote } from "../types";
+import {
+	DailySessionPlan,
+	NoteIndexEntry,
+	NotePracticeState,
+	PracticeDraft,
+	TopicNote,
+} from "../types";
 import { practiceDraftProgress } from "../practice/draft";
 
 export const DASHBOARD_VIEW_TYPE = "adaptive-practice-dashboard-view";
@@ -45,7 +51,7 @@ export class DashboardView extends ItemView {
 	}
 
 	getIcon(): string {
-		return "calendar-check";
+		return "brain";
 	}
 
 	async onOpen(): Promise<void> {
@@ -139,17 +145,20 @@ export class DashboardView extends ItemView {
 			stats,
 			"Streak",
 			`${memory.daily.streak}`,
-			this.state.dailyComplete ? "ap-dash-stat-streak-done" : "ap-dash-stat-streak-due"
+			this.state.dailyComplete
+				? "ap-dash-stat-streak-done"
+				: "ap-dash-stat-streak-due",
 		);
-		this.renderStat(
-			stats,
-			"Due notes",
-			`${this.state.dailyTopics.length}`
-		);
+		this.renderStat(stats, "Due notes", `${this.state.dailyTopics.length}`);
 		this.renderStat(stats, "Plan", `${this.state.dailyPlan.questionCount}`);
 	}
 
-	private renderStat(container: HTMLElement, label: string, value: string, extraClass?: string): void {
+	private renderStat(
+		container: HTMLElement,
+		label: string,
+		value: string,
+		extraClass?: string,
+	): void {
 		const stat = container.createDiv({ cls: "ap-dash-stat" });
 		if (extraClass) stat.addClass(extraClass);
 		stat.createDiv({ text: value, cls: "ap-dash-stat-value" });
@@ -189,13 +198,16 @@ export class DashboardView extends ItemView {
 			text: this.state.practiceDraft
 				? `Unfinished session: ${practiceDraftProgress(this.state.practiceDraft)}.`
 				: this.state.dailyComplete
-				? "Daily practice counted today. You can still take another limited batch if you want more reps."
-				: `Today's plan: ${formatChallengeMode(this.state.dailyPlan.challengeMode)} · ${this.state.dailyPlan.reason}`,
+					? "Daily practice counted today. You can still take another limited batch if you want more reps."
+					: `Today's plan: ${formatChallengeMode(this.state.dailyPlan.challengeMode)} · ${this.state.dailyPlan.reason}`,
 			cls: "ap-dash-plan",
 		});
 		if (this.state.dailyWarning) {
 			const warning = container.createDiv({ cls: "ap-dash-warning" });
-			setIcon(warning.createSpan({ cls: "ap-dash-warning-icon" }), "info");
+			setIcon(
+				warning.createSpan({ cls: "ap-dash-warning-icon" }),
+				"info",
+			);
 			warning.createSpan({ text: this.state.dailyWarning });
 		}
 	}
@@ -203,12 +215,17 @@ export class DashboardView extends ItemView {
 	private renderDueTopics(container: HTMLElement): void {
 		const section = container.createDiv({ cls: "ap-dash-section" });
 		section.createEl("h3", {
-			text: this.state.dailyComplete ? "More practice available" : "Today's note mix",
+			text: this.state.dailyComplete
+				? "More practice available"
+				: "Today's note mix",
 		});
 
 		if (this.state.dailyTopics.length === 0) {
 			const empty = section.createDiv({ cls: "ap-dash-empty" });
-			setIcon(empty.createSpan({ cls: "ap-dash-empty-icon" }), "check-circle");
+			setIcon(
+				empty.createSpan({ cls: "ap-dash-empty-icon" }),
+				"check-circle",
+			);
 			empty.createSpan({
 				text: this.state.dailyComplete
 					? "Daily practice counted today. No extra batch is ready right now."
@@ -298,7 +315,12 @@ function formatDueText(dueAt: number | undefined): string {
 function formatIndexSummary(entry: NoteIndexEntry): string {
 	const bits: string[] = [];
 	if (entry.headings.length > 0) {
-		bits.push(entry.headings.slice(0, 2).map((heading) => heading.heading).join(" / "));
+		bits.push(
+			entry.headings
+				.slice(0, 2)
+				.map((heading) => heading.heading)
+				.join(" / "),
+		);
 	}
 	if (entry.tags.length > 0) {
 		bits.push(entry.tags.slice(0, 2).join(" "));
