@@ -1020,6 +1020,24 @@ export default class AdaptivePracticePlugin extends Plugin {
 					this.settings.llmProvider,
 					this.settings,
 				);
+				// Sessions start on the unverified batch; when the blind
+				// re-solve lands, contested questions the learner hasn't
+				// reached are quietly retracted.
+				flow.onBatchVerified = (verified, original) => {
+					const surviving = new Set(verified.map((q) => q.id));
+					const contested = new Set(
+						original
+							.filter((q) => !surviving.has(q.id))
+							.map((q) => q.id),
+					);
+					for (const leaf of this.app.workspace.getLeavesOfType(
+						PRACTICE_VIEW_TYPE,
+					)) {
+						if (leaf.view instanceof PracticeView) {
+							leaf.view.retractQuestions(contested);
+						}
+					}
+				};
 				questions = await flow.firstBatch();
 			} else {
 				questions = await generateQuestions(

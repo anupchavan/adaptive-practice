@@ -166,6 +166,29 @@ export class PracticeView extends ItemView {
 		return "graduation-cap";
 	}
 
+	/**
+	 * Remove contested questions the learner hasn't reached (background
+	 * answer verification landed after the session started). Only strictly
+	 * future, unanswered questions are removable, so every per-index
+	 * structure (savedIndices, questionReactions — all ≤ currentIndex)
+	 * keeps its meaning.
+	 */
+	retractQuestions(ids: Set<string>): void {
+		if (!this.state || this.completed || ids.size === 0) return;
+		const { questions, results, currentIndex } = this.state;
+		const answered = new Set(results.map((r) => r.question.id));
+		const kept = questions.filter(
+			(question, index) =>
+				index <= currentIndex ||
+				answered.has(question.id) ||
+				!ids.has(question.id),
+		);
+		if (kept.length === questions.length) return;
+		this.state = { ...this.state, questions: kept };
+		this.emitStateChange();
+		this.render();
+	}
+
 	setPracticeState(state: PracticeState): void {
 		this.state = state;
 		this.completed = false;

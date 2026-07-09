@@ -26,7 +26,8 @@ export async function generateQuestionsFromClient(
 	client: LlmClient,
 	prompt: StructuredPrompt,
 	config: SessionConfig,
-	topicContexts: TopicContext[]
+	topicContexts: TopicContext[],
+	onVerified?: (verified: Question[], original: Question[]) => void
 ): Promise<Question[]> {
 	let questions = await generateUnverifiedQuestions(
 		client,
@@ -38,6 +39,18 @@ export async function generateQuestionsFromClient(
 		questions = await sharpenQuestions(client, prompt, config, topicContexts, questions);
 	}
 	if (config.verifyAnswers !== true || questions.length === 0) return questions;
+	if (onVerified) {
+		// Non-blocking verification: the session starts on the unverified
+		// batch (halving time-to-first-question) and the blind re-solve runs
+		// behind it; the caller retracts contested questions the learner
+		// hasn't reached. Answered questions are past retracting — the same
+		// trade the blocking path never had to make.
+		const batch = questions;
+		void verifyQuestionAnswers(client, prompt, batch).then((verified) => {
+			if (verified.length < batch.length) onVerified(verified, batch);
+		});
+		return batch;
+	}
 	return verifyQuestionAnswers(client, prompt, questions);
 }
 

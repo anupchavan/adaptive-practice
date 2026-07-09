@@ -160,6 +160,9 @@ export interface FlowPromptOptions {
  */
 export class FlowSessionGenerator {
 	private client: LlmClient;
+	/** When set, verification runs in the background and this receives the
+	 * surviving questions so the session can retract contested ones. */
+	onBatchVerified?: (verified: Question[], original: Question[]) => void;
 	private contexts: TopicContext[];
 	private config: SessionConfig;
 	private promptOptions: FlowPromptOptions;
@@ -231,7 +234,8 @@ export class FlowSessionGenerator {
 			this.client,
 			prompt,
 			batchConfig,
-			this.contexts
+			this.contexts,
+			this.onBatchVerified
 		);
 		this.batchIndex += 1;
 		// Merge against everything already asked so a duplicated stem from the
