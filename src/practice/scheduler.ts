@@ -201,7 +201,7 @@ export function selectDailyTopics(
 		);
 	});
 	const pool = due.length > 0 ? due : scored.filter((item) => item.score >= 1.25);
-	const selected = selectDailyTopicMix(pool, reconciled, safeLimit);
+	const selected = selectDailyTopicMix(pool, reconciled, safeLimit, now);
 
 	return selected.map((item) => ({
 		...item.topic,
@@ -212,35 +212,61 @@ export function selectDailyTopics(
 	}));
 }
 
+/** Notes created within this window are in the learning phase: recall is
+ * cheapest to consolidate NOW, so they outrank the new-material throttle. */
+const LEARNING_PHASE_MS = 48 * 60 * 60 * 1000;
+
 function selectDailyTopicMix(
 	pool: TopicScore[],
 	memory: PracticeMemory,
-	limit: number
+	limit: number,
+	now = Date.now()
 ): TopicScore[] {
 	const reviewed = pool.filter((item) => {
 		const state = memory.notes[item.topic.path];
 		return !!state && state.attempts > 0;
 	});
-	const untouched = pool.filter((item) => {
+	const untouchedAll = pool.filter((item) => {
 		const state = memory.notes[item.topic.path];
 		return !!state && state.attempts === 0;
 	});
+	// Forgetting-curve priority: just-created notes first (newest at the
+	// front), THEN older untouched material. Without this, a vault full of
+	// old never-practiced notes buries the notes made today and yesterday —
+	// exactly the ones whose recall decays fastest.
+	const createdAt = (item: TopicScore) =>
+		memory.notes[item.topic.path]?.createdAt ?? item.topic.createdAt ?? 0;
+	const fresh = untouchedAll
+		.filter((item) => now - createdAt(item) <= LEARNING_PHASE_MS)
+		.sort((a, b) => createdAt(b) - createdAt(a));
+	const older = untouchedAll.filter((item) => now - createdAt(item) > LEARNING_PHASE_MS);
+	const untouched = [...fresh, ...older];
+
 	// A vault with no practiced notes yet has no review debt to displace, so
 	// day one honors the user's topic limit outright.
 	if (reviewed.length === 0) return untouched.slice(0, limit);
 
-	// Old AND new every day: when never-practiced notes exist, reserve up to
-	// two slots for them so a large review backlog cannot crowd fresh material
-	// out entirely. The reviews it displaces stay due and return tomorrow.
-	const reservedNew = Math.min(2, untouched.length, Math.max(0, limit - 1));
+	// Old AND new every day: reserve slots for never-practiced notes so a
+	// large review backlog cannot crowd fresh material out entirely — and
+	// every learning-phase note gets a seat (capped at half the session).
+	const reservedNew = Math.min(
+		Math.max(2, fresh.length),
+		untouched.length,
+		Math.max(0, limit - 1),
+		Math.max(1, Math.ceil(limit / 2))
+	);
 	const selected = reviewed.slice(0, limit - reservedNew);
 	const remaining = limit - selected.length;
 	if (remaining <= 0) return selected;
 
-	// New-material throttle: once reviews exist, at most three never-practiced
-	// notes join a session regardless of the topic limit, so novelty cannot
-	// displace review debt.
-	const maxUntouched = Math.max(reservedNew, Math.min(3, Math.ceil(limit / 2)));
+	// New-material throttle: once reviews exist, older never-practiced notes
+	// stay capped at three per session, but learning-phase notes ride above
+	// the cap — novelty must not displace review debt, except when the
+	// novelty is what the learner studied in the last two days.
+	const maxUntouched = Math.max(
+		reservedNew,
+		Math.min(Math.max(3, fresh.length), Math.ceil(limit / 2))
+	);
 	selected.push(...untouched.slice(0, Math.min(remaining, maxUntouched)));
 	// Backfill with remaining due reviews if fewer new notes existed than the
 	// reservation assumed.
