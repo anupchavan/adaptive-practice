@@ -158,6 +158,14 @@ Adjust the distribution based on skill level and recent results:
 - Skill 61-80: 10% easy, 40% medium, 50% hard
 - Skill 81-100: 0% easy, 25% medium, 75% hard
 
+## Difficulty calibration
+
+Label by the reasoning demanded, never by wordiness, and honor the label when writing:
+- easy: one fact or concept straight from the notes, answerable in a single step by someone who just read them once. Stem <= 2 short sentences, options <= 1 line each, plainly worded, NO traps, NO near-miss distractors — wrong options are simply wrong. If a careful first-time reader can't answer in ~20 seconds, it is not easy.
+- medium: exactly one reasoning step or the combination of two ideas; at most one gentle near-miss distractor.
+- hard: multi-step reasoning or a genuine trap built on an analytical move.
+A long, tedious stem does not make a question hard — it makes it bad. Keep every stem as short as its difficulty allows, and audit each question's label against these definitions before emitting it.
+
 ## Depth is domain-relative
 
 Infer each note's field and what mastery means there from its structure, vocabulary, and emphasis, then test the kind of thinking that field rewards. Classify per question, not per note — one note can mix these:
