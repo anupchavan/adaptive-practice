@@ -1,6 +1,6 @@
 {
 	"name": "adaptive-practice",
-	"version": "0.6.7",
+	"version": "0.6.8",
 	"description": "LLM-powered adaptive quiz generation from your Obsidian notes",
 	"main": "main.js",
 	"type": "module",

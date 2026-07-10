@@ -83,11 +83,18 @@ export function flowSkillAdjustment(signals: FlowSignal[]): FlowAdjustment {
 			note: "flow: easing difficulty after recent misses (protecting the ~80% success band)",
 		};
 	}
-	if (accuracy >= 0.85 && fastRatio >= 0.5) {
-		return {
-			skillDelta: FLOW_STEP,
-			note: "flow: raising challenge after fast, accurate answers (holding the ~80% success band)",
-		};
+	if (accuracy >= 0.85) {
+		// Sustained accuracy alone earns an escalation; fast AND accurate
+		// earns a double step (crossing into the next difficulty mix band).
+		return fastRatio >= 0.5
+			? {
+				skillDelta: FLOW_STEP * 2,
+				note: "flow: raising challenge after fast, accurate answers (double step)",
+			}
+			: {
+				skillDelta: FLOW_STEP,
+				note: "flow: raising challenge after consistently correct answers",
+			};
 	}
 	return { skillDelta: 0, note: "flow: steady in the target success band" };
 }

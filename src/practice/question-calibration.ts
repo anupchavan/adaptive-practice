@@ -72,7 +72,18 @@ export function calibrateQuestionForPractice(
 		...question,
 		sourceSubtopics,
 	};
-	calibrated.difficulty = normalizeQuestionDifficulty(calibrated);
+	// The heuristic may only DEMOTE (its anti-gaming job: fake-hard recall
+	// must not count as hard) or fill a missing label. It must never promote:
+	// it reads wordiness as depth, which mislabeled crisp-but-long questions
+	// as hard and made tags look random.
+	const heuristicDifficulty = normalizeQuestionDifficulty(calibrated);
+	const difficultyRank = { easy: 0, medium: 1, hard: 2 } as const;
+	const modelRank = difficultyRank[calibrated.difficulty as keyof typeof difficultyRank];
+	if (modelRank === undefined) {
+		calibrated.difficulty = heuristicDifficulty;
+	} else if (difficultyRank[heuristicDifficulty] < modelRank) {
+		calibrated.difficulty = heuristicDifficulty;
+	}
 	return calibrated;
 }
 
