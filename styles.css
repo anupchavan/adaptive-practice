@@ -1162,6 +1162,14 @@
 	cursor: default;
 }
 
+.ap-nav-cell.is-pending {
+	border: 1.5px dashed var(--text-faint);
+	background: transparent;
+	color: var(--text-faint);
+	opacity: 0.9;
+	cursor: default;
+}
+
 .ap-nav-cell.is-reachable {
 	cursor: pointer;
 }

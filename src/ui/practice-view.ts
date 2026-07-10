@@ -6,6 +6,7 @@ import {
 	Notice,
 	WorkspaceLeaf,
 	setIcon,
+	setTooltip,
 } from "obsidian";
 import { Question, QuizResult, TopicNote } from "../types";
 import { checkAnswer, multiCorrectAnswers } from "../practice/grader";
@@ -330,14 +331,6 @@ export class PracticeView extends ItemView {
 
 		const grid = container.createDiv({ cls: "ap-practice-navigator" });
 		const furthestReachable = this.getFurthestReachableIndex();
-		if (this.hasPendingFlowQuestions()) {
-			container.createDiv({
-				cls: "ap-flow-pending",
-				text: this.fetchingMoreQuestions
-					? "Generating the next questions…"
-					: "More questions adapt to your answers…",
-			});
-		}
 
 		for (let i = 0; i < s.questions.length; i++) {
 			const cell = grid.createEl("button", { text: `${i + 1}`, cls: "ap-nav-cell" });
@@ -363,6 +356,24 @@ export class PracticeView extends ItemView {
 			} else {
 				cell.disabled = true;
 			}
+		}
+
+		// Planned-but-not-yet-generated questions: dashed slots with a
+		// tooltip instead of a caption below the grid.
+		const plannedTotal = s.totalPlannedCount ?? s.questions.length;
+		for (let i = s.questions.length; i < plannedTotal; i++) {
+			const cell = grid.createEl("button", {
+				text: `${i + 1}`,
+				cls: "ap-nav-cell is-pending",
+			});
+			cell.disabled = true;
+			setTooltip(
+				cell,
+				this.fetchingMoreQuestions
+					? "Generating…"
+					: "Generated as you answer — adapts to how you're doing",
+				{ placement: "top" },
+			);
 		}
 
 		const stats = container.createDiv({ cls: "ap-practice-stats" });
