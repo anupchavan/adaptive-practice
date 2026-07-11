@@ -7218,12 +7218,23 @@ test("flow controller holds the target band with hysteresis", () => {
 	assert.ok(flowSkillAdjustment([miss(), miss(), fastCorrect(), miss()]).skillDelta < 0);
 	// Two skips read as overload.
 	assert.ok(flowSkillAdjustment([fastCorrect(), skip(), fastCorrect(), skip()]).skillDelta < 0);
-	// Mid-band accuracy with slow answers: hold steady.
+	// 80% answered-accuracy sits at the top of the band: step up (single).
 	const steady = flowSkillAdjustment([
 		fastCorrect(), miss(), fastCorrect(), fastCorrect(),
 		{ isCorrect: true, skipped: false, timeTakenMs: 170_000, difficulty: "medium" },
 	]);
-	assert.equal(steady.skillDelta, 0);
+	assert.ok(steady.skillDelta > 0);
+	// The user's reported case: 3 correct, 1 wrong, 1 skipped — the skip must
+	// not dilute accuracy (3/4 answered = 75%), so this steps up.
+	const mixed = flowSkillAdjustment([
+		fastCorrect(), miss(), fastCorrect(), skip(), fastCorrect(),
+	]);
+	assert.ok(mixed.skillDelta > 0);
+	// True mid-band (two misses out of five answered): hold steady.
+	assert.equal(
+		flowSkillAdjustment([fastCorrect(), miss(), fastCorrect(), miss(), fastCorrect()]).skillDelta,
+		0
+	);
 });
 
 test("flow generator conditions later batches on session results", async () => {

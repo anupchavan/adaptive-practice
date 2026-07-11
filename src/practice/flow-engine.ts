@@ -67,26 +67,40 @@ export function flowSkillAdjustment(signals: FlowSignal[]): FlowAdjustment {
 	if (window.length < 3) {
 		return { skillDelta: 0, note: "flow: calibrating on the opening questions" };
 	}
-	const accuracy = window.filter((signal) => signal.isCorrect).length / window.length;
+	// Skips signal avoidance, not failure: they push toward easing but must
+	// not dilute accuracy — 3 correct of 4 answered is a 75% learner even if
+	// a fifth question was skipped.
 	const skips = window.filter((signal) => signal.skipped).length;
+	const answered = window.filter((signal) => !signal.skipped);
+	// Repeated skips read as overload even before enough answers accumulate.
+	if (skips >= 2) {
+		return {
+			skillDelta: -FLOW_STEP,
+			note: "flow: easing difficulty after repeated skips (protecting the ~80% success band)",
+		};
+	}
+	if (answered.length < 3) {
+		return { skillDelta: 0, note: "flow: calibrating on the opening questions" };
+	}
+	const accuracy = answered.filter((signal) => signal.isCorrect).length / answered.length;
 	const fastRatio =
-		window.filter(
+		answered.filter(
 			(signal) =>
 				signal.isCorrect &&
 				signal.timeTakenMs > 0 &&
 				signal.timeTakenMs <= EXPECTED_TIME_MS[signal.difficulty]
-		).length / window.length;
+		).length / answered.length;
 
-	if (skips >= 2 || accuracy <= 0.55) {
+	if (accuracy <= 0.5) {
 		return {
 			skillDelta: -FLOW_STEP,
 			note: "flow: easing difficulty after recent misses (protecting the ~80% success band)",
 		};
 	}
-	if (accuracy >= 0.85) {
-		// Sustained accuracy alone earns an escalation; fast AND accurate
-		// earns a double step (crossing into the next difficulty mix band).
-		return fastRatio >= 0.5
+	if (accuracy >= 0.75) {
+		// Above the target band, step up; fast AND highly accurate earns a
+		// double step (crossing into the next difficulty mix band).
+		return accuracy >= 0.85 && fastRatio >= 0.5
 			? {
 				skillDelta: FLOW_STEP * 2,
 				note: "flow: raising challenge after fast, accurate answers (double step)",
@@ -175,6 +189,11 @@ export class FlowSessionGenerator {
 	private promptOptions: FlowPromptOptions;
 	private batches: number[];
 	private batchIndex = 0;
+	/** Running sum of controller deltas: sustained success must COMPOUND
+	 * across batches (50→60→70 crosses mix bands) instead of hovering one
+	 * step above base skill forever. Clamped so one session can't swing a
+	 * topic from remedial to expert. */
+	private flowDelta = 0;
 
 	constructor(
 		client: LlmClient,
@@ -219,7 +238,8 @@ export class FlowSessionGenerator {
 		const size = this.batches[this.batchIndex];
 		if (!size) return [];
 		const adjustment = flowSkillAdjustment(toFlowSignals(results));
-		const topics = adjustTopicsForFlow(this.config.topics, adjustment.skillDelta);
+		this.flowDelta = Math.max(-30, Math.min(40, this.flowDelta + adjustment.skillDelta));
+		const topics = adjustTopicsForFlow(this.config.topics, this.flowDelta);
 		const batchConfig: SessionConfig = {
 			...this.config,
 			topics,
