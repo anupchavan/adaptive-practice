@@ -1025,6 +1025,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 				// reached are quietly retracted.
 				flow.onBatchVerified = (verified, original) => {
 					const surviving = new Set(verified.map((q) => q.id));
+					flow?.noteRetracted(original.length - verified.length);
 					const contested = new Set(
 						original
 							.filter((q) => !surviving.has(q.id))

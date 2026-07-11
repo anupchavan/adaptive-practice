@@ -184,6 +184,10 @@ export class FlowSessionGenerator {
 	/** When set, verification runs in the background and this receives the
 	 * surviving questions so the session can retract contested ones. */
 	onBatchVerified?: (verified: Question[], original: Question[]) => void;
+
+	noteRetracted(count: number): void {
+		this.deficit += Math.max(0, count);
+	}
 	private contexts: TopicContext[];
 	private config: SessionConfig;
 	private promptOptions: FlowPromptOptions;
@@ -194,6 +198,9 @@ export class FlowSessionGenerator {
 	 * step above base skill forever. Clamped so one session can't swing a
 	 * topic from remedial to expert. */
 	private flowDelta = 0;
+	/** Questions retracted by background verification: the next batch grows
+	 * by this much so the session still delivers the promised count. */
+	private deficit = 0;
 
 	constructor(
 		client: LlmClient,
@@ -235,8 +242,12 @@ export class FlowSessionGenerator {
 		results: QuizResult[],
 		asked: Question[]
 	): Promise<Question[]> {
-		const size = this.batches[this.batchIndex];
+		let size = this.batches[this.batchIndex];
 		if (!size) return [];
+		if (this.deficit > 0) {
+			size += this.deficit;
+			this.deficit = 0;
+		}
 		const adjustment = flowSkillAdjustment(toFlowSignals(results));
 		this.flowDelta = Math.max(-30, Math.min(40, this.flowDelta + adjustment.skillDelta));
 		const topics = adjustTopicsForFlow(this.config.topics, this.flowDelta);
