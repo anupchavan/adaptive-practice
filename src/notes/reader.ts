@@ -82,6 +82,7 @@ export function fileToTopicNote(
 		skill,
 		isPdf: pdf,
 		createdAt: timestamps.createdAt,
+		fileCreatedAt: f.stat.ctime,
 		updatedAt: timestamps.updatedAt,
 	};
 }

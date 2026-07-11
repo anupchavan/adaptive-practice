@@ -321,6 +321,8 @@ export interface TopicNote {
 	skill: number;
 	isPdf: boolean;
 	createdAt?: number;
+	/** Filesystem ctime — tiebreak when frontmatter created dates collide. */
+	fileCreatedAt?: number;
 	updatedAt?: number;
 	lastPracticedAt?: number;
 	dueAt?: number;

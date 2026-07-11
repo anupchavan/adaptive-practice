@@ -77,11 +77,13 @@ export function calibrateQuestionForPractice(
 	// it reads wordiness as depth, which mislabeled crisp-but-long questions
 	// as hard and made tags look random.
 	const heuristicDifficulty = normalizeQuestionDifficulty(calibrated);
-	const difficultyRank = { easy: 0, medium: 1, hard: 2 } as const;
-	const modelRank = difficultyRank[calibrated.difficulty as keyof typeof difficultyRank];
+	// difficulty comes from the model at runtime, so junk values are possible
+	// despite the Difficulty type — the lookup stays undefined-tolerant.
+	const difficultyRank: Partial<Record<string, number>> = { easy: 0, medium: 1, hard: 2 };
+	const modelRank = difficultyRank[calibrated.difficulty];
 	if (modelRank === undefined) {
 		calibrated.difficulty = heuristicDifficulty;
-	} else if (difficultyRank[heuristicDifficulty] < modelRank) {
+	} else if ((difficultyRank[heuristicDifficulty] ?? 0) < modelRank) {
 		calibrated.difficulty = heuristicDifficulty;
 	}
 	return calibrated;

@@ -4434,11 +4434,16 @@ test("selectDailyTopics introduces untouched notes only up to the daily limit", 
 	const selected = selectDailyTopics(topics, undefined, 6, now);
 
 	assert.equal(selected.length, 6);
-	assert.deepEqual(
-		selected.map((topic) => topic.title),
-		["CS topic 1", "CS topic 2", "CS topic 3", "CS topic 4", "CS topic 5", "CS topic 6"]
-	);
+	// Older untouched notes are day-shuffled, so assert membership + limit,
+	// not a fixed order — and that the same day yields the same plan.
+	const titles = new Set(topics.map((topic) => topic.title));
+	assert.ok(selected.every((topic) => titles.has(topic.title)));
+	assert.equal(new Set(selected.map((t) => t.title)).size, 6);
 	assert.ok(selected.every((topic) => /new/.test(topic.scheduleReason ?? "")));
+	assert.deepEqual(
+		selectDailyTopics(topics, undefined, 6, now).map((t) => t.title),
+		selected.map((t) => t.title)
+	);
 });
 
 test("selectDailyTopics mixes due review with a capped untouched intro", () => {

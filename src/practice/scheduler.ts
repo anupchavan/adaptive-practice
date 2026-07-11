@@ -238,8 +238,28 @@ function selectDailyTopicMix(
 		memory.notes[item.topic.path]?.createdAt ?? item.topic.createdAt ?? 0;
 	const fresh = untouchedAll
 		.filter((item) => now - createdAt(item) <= LEARNING_PHASE_MS)
-		.sort((a, b) => createdAt(b) - createdAt(a));
+		.sort(
+			(a, b) =>
+				createdAt(a) - createdAt(b) ||
+				(a.topic.fileCreatedAt ?? 0) - (b.topic.fileCreatedAt ?? 0)
+		);
+	// Older untouched notes carry no recency signal worth preserving —
+	// shuffle so the same stale notes don't lead every session. Seeded by
+	// the calendar day: the plan stays stable across refreshes within a day
+	// but rotates daily.
 	const older = untouchedAll.filter((item) => now - createdAt(item) > LEARNING_PHASE_MS);
+	let seed = 0;
+	for (const ch of localDateKey(new Date(now))) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+	const rand = () => {
+		seed = (seed + 0x6d2b79f5) >>> 0;
+		let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+		t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
+	for (let i = older.length - 1; i > 0; i--) {
+		const j = Math.floor(rand() * (i + 1));
+		[older[i], older[j]] = [older[j]!, older[i]!];
+	}
 	const untouched = [...fresh, ...older];
 
 	// A vault with no practiced notes yet has no review debt to displace, so
