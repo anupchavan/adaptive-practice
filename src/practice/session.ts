@@ -40,12 +40,8 @@ export async function generateQuestions(
 			`${provider} cannot generate questions: pick Anthropic, Gemini, OpenAI, Ollama, Claude Code, or Codex in settings.`
 		);
 	}
-	const pdf = config.topics.find((topic) => topic.isPdf);
-	if (pdf) {
-		throw new Error(
-			`PDF topics are not supported by the engine yet - deselect "${pdf.title}".`
-		);
-	}
+	// PDF topics ride through natively; the engine itself refuses with a
+	// clear message when the selected provider cannot read documents.
 	const questions = await generateWithEngine(app, apiKey, config, provider, settings);
 	return prepareGeneratedQuestionsForSession(questions, config);
 }

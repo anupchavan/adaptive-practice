@@ -30,7 +30,7 @@ Open **Settings → Adaptive Practice** and choose a provider, then select or cr
 | Ollama (local) | `http://localhost:11434/v1/chat/completions`, `llama3.1` | Runs against your local Ollama server. No API key, free, fully offline. Pick any pulled model in settings. |
 | OpenAI-compatible | `http://localhost:1234/v1/chat/completions` | For LM Studio, local gateways, or other compatible servers. Local endpoints may omit an API key. |
 
-Image attachments are sent only when the selected provider is configured to support vision input. PDF/document attachments currently require Gemini or Anthropic. The note picker warns and blocks PDF-topic sessions for providers that cannot read PDF attachments through this plugin yet; daily practice skips incompatible PDF topics and uses compatible due notes when available. Standalone PDF topics are capped at 10 MB per file before upload.
+Image attachments are sent only when the selected provider is configured to support vision input. PDF topics generate through the native engine and require Anthropic or Gemini (the providers that read documents natively); the engine refuses other providers with a clear message. Daily practice skips incompatible PDF topics and uses compatible due notes when available. Standalone PDF topics are capped at 10 MB per file before upload.
 
 ## Daily practice
 
