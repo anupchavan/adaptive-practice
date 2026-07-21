@@ -35,14 +35,48 @@ function vaultBasePath(app: App): string | null {
 	return adapter.getBasePath ? adapter.getBasePath() : null;
 }
 
+const ENGINE_RELEASE_BASE =
+	"https://github.com/anupchavan/whetstone-releases/releases/latest/download";
+
+/** The per-platform engine asset name, or null when none is published. */
+export function engineAssetName(): string | null {
+	if (Platform.isMobile) return null;
+	const arch = process.arch;
+	switch (process.platform) {
+		case "darwin":
+			return arch === "arm64" ? "whetstone-engine-macos-arm64" : null;
+		case "linux":
+			return arch === "arm64"
+				? "whetstone-engine-linux-arm64"
+				: "whetstone-engine-linux-x64";
+		case "win32":
+			return arch === "arm64"
+				? "whetstone-engine-windows-arm64.exe"
+				: "whetstone-engine-windows-x64.exe";
+		default:
+			return null;
+	}
+}
+
+function downloadedEnginePath(app: App): string | null {
+	const base = vaultBasePath(app);
+	const asset = engineAssetName();
+	if (!base || !asset) return null;
+	return `${base}/${app.vault.configDir}/plugins/adaptive-practice/bin/${asset}`;
+}
+
 /** Resolve the engine binary, or null when this device cannot run it. */
-export function engineBinaryPath(settings: AdaptivePracticeSettings): string | null {
+export function engineBinaryPath(
+	settings: AdaptivePracticeSettings,
+	app?: App
+): string | null {
 	if (Platform.isMobile) return null;
 	// eslint-disable-next-line @typescript-eslint/no-require-imports
 	const fs = require("fs") as typeof import("fs");
 	const explicit = settings.nativeEnginePath.trim();
 	const home = process.env.HOME ?? "";
 	const candidates = explicit.length > 0 ? [explicit] : [
+		app ? downloadedEnginePath(app) ?? "" : "",
 		"/Applications/Whetstone.app/Contents/MacOS/whetstone-sidecar",
 		`${home}/Applications/Whetstone.app/Contents/MacOS/whetstone-sidecar`,
 		`${home}/Projects/whetstone/target/release/whetstone`,
@@ -58,6 +92,33 @@ export function engineBinaryPath(settings: AdaptivePracticeSettings): string | n
 	return null;
 }
 
+/**
+ * The plugin works without the Whetstone app: when no binary is found,
+ * fetch the platform's engine from the public releases into the plugin's
+ * own bin directory. One-time, ~7 MB, desktop only.
+ */
+export async function ensureEngine(
+	app: App,
+	settings: AdaptivePracticeSettings
+): Promise<string | null> {
+	const existing = engineBinaryPath(settings, app);
+	if (existing) return existing;
+	const target = downloadedEnginePath(app);
+	const asset = engineAssetName();
+	if (!target || !asset) return null;
+	// eslint-disable-next-line @typescript-eslint/no-require-imports
+	const fs = require("fs") as typeof import("fs");
+	// eslint-disable-next-line @typescript-eslint/no-require-imports
+	const path = require("path") as typeof import("path");
+	const response = await fetch(`${ENGINE_RELEASE_BASE}/${asset}`);
+	if (!response.ok) return null;
+	const bytes = Buffer.from(await response.arrayBuffer());
+	fs.mkdirSync(path.dirname(target), { recursive: true });
+	fs.writeFileSync(target, bytes);
+	if (process.platform !== "win32") fs.chmodSync(target, 0o755);
+	return target;
+}
+
 export function engineUsable(
 	settings: AdaptivePracticeSettings,
 	provider: LlmProvider,
@@ -67,7 +128,7 @@ export function engineUsable(
 		settings.useNativeEngine &&
 		ENGINE_PROVIDERS.includes(provider) &&
 		config.topics.every((topic) => !topic.isPdf) &&
-		engineBinaryPath(settings) !== null
+		engineAssetName() !== null
 	);
 }
 
@@ -78,9 +139,13 @@ export async function generateWithEngine(
 	provider: LlmProvider,
 	settings: AdaptivePracticeSettings
 ): Promise<Question[]> {
-	const binary = engineBinaryPath(settings);
+	const binary = await ensureEngine(app, settings);
 	const base = vaultBasePath(app);
-	if (!binary || !base) throw new Error("The native engine is not available here.");
+	if (!binary || !base) {
+		throw new Error(
+			"The native engine could not be found or downloaded. Set an explicit path in settings, or turn the native engine off."
+		);
+	}
 	// eslint-disable-next-line @typescript-eslint/no-require-imports
 	const { spawn } = require("child_process") as typeof import("child_process");
 	const dataDir = `${base}/${app.vault.configDir}/plugins/adaptive-practice/engine-data`;
