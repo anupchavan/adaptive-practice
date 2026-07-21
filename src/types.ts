@@ -201,6 +201,8 @@ export interface AdaptivePracticeSettings {
 	pdfSkills: Record<string, number>;
 	practiceMemory: PracticeMemory;
 	practiceDraft: PracticeDraft | null;
+	/** Editorial depth for the engine: scholar | deep_work | olympiad_studio. */
+	qualityTier: string;
 	/** Desktop only: delegate generation to the Whetstone native engine. */
 	useNativeEngine: boolean;
 	/** Optional explicit path to the whetstone sidecar binary. */
@@ -281,6 +283,7 @@ export const DEFAULT_PRACTICE_MEMORY: PracticeMemory = {
 };
 
 export const DEFAULT_SETTINGS: AdaptivePracticeSettings = {
+	qualityTier: "scholar",
 	useNativeEngine: true,
 	nativeEnginePath: "",
 	geminiApiKey: "",

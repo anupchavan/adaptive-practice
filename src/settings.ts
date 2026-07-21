@@ -213,12 +213,12 @@ export class AdaptivePracticeSettingTab extends PluginSettingTab {
 				heading: "Generation",
 				items: [
 					{
-						name: "Practice intent",
-						desc: "Mastery favors understanding and transfer, exam cram favors high-yield facts and classic traps, review favors quick checks across many subtopics.",
+						name: "Editorial depth",
+						desc: "Grind: solid recall and understanding questions, independently checked. Hone: multi-step questions that chain ideas across your notes. Strop: competition-grade compositions with machine verification, slowest to prepare.",
 						control: {
 							type: "dropdown",
-							key: "practiceIntent",
-							options: { mastery: "Durable mastery", cram: "Exam cram", review: "Broad review" },
+							key: "qualityTier",
+							options: { scholar: "Grind", deep_work: "Hone", olympiad_studio: "Strop" },
 						},
 					},
 					{
@@ -608,18 +608,18 @@ export class AdaptivePracticeSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
-			.setName("Practice intent")
-			.setDesc("Mastery favors understanding and transfer, exam cram favors high-yield facts and classic traps, review favors quick checks across many subtopics.")
+			.setName("Editorial depth")
+			.setDesc("Grind: solid recall and understanding questions, independently checked. Hone: multi-step questions that chain ideas across your notes. Strop: competition-grade compositions with machine verification, slowest to prepare.")
 			.addDropdown((dropdown) => {
-				dropdown.addOption("mastery", "Durable mastery");
-				dropdown.addOption("cram", "Exam cram");
-				dropdown.addOption("review", "Broad review");
-				dropdown.setValue(this.plugin.settings.practiceIntent);
-				dropdown.onChange(async (value) => {
-					this.plugin.settings.practiceIntent =
-						value === "cram" || value === "review" ? value : "mastery";
-					await this.plugin.saveSettings();
-				});
+				dropdown
+					.addOption("scholar", "Grind")
+					.addOption("deep_work", "Hone")
+					.addOption("olympiad_studio", "Strop")
+					.setValue(this.plugin.settings.qualityTier || "scholar")
+					.onChange(async (value) => {
+						this.plugin.settings.qualityTier = value;
+						await this.plugin.saveSettings();
+					});
 			});
 
 		new Setting(containerEl)

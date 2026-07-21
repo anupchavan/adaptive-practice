@@ -312,6 +312,7 @@ export async function generateSessionWithEngine(
 	await request("set_config", {
 		library_root: base,
 		provider,
+		quality_tier: settings.qualityTier || "scholar",
 		ollama_model: settings.providerModels.ollama ?? undefined,
 		cli_model: settings.providerModels["claude-code"] ?? undefined,
 		codex_model: settings.providerModels.codex ?? undefined,
