@@ -1,13 +1,13 @@
 /**
- * Desktop bridge to the Whetstone native engine (the Rust sidecar the
- * desktop apps ship). When enabled and available, whole-session
- * generation delegates to its far stronger pipeline - seeded authoring,
- * machine verification, blind probes, clarity gating - and the plugin
- * receives finished, verified questions. Mobile and unsupported
- * providers fall back to the built-in TypeScript pipeline untouched.
+ * Desktop bridge to the Whetstone native engine - the open-source Rust
+ * pipeline behind the desktop apps. Whole-session generation delegates to
+ * it: seeded authoring, machine verification, blind probes, clarity
+ * gating, Elo calibration. The engine binary is resolved from an explicit
+ * path, an installed app, or a one-time download from the public releases,
+ * and every candidate must pass a health probe before it is trusted.
  */
 
-import { App, Platform } from "obsidian";
+import { App, Platform, requestUrl } from "obsidian";
 import type {
 	AdaptivePracticeSettings,
 	Difficulty,
@@ -16,7 +16,8 @@ import type {
 	SessionConfig,
 } from "../types";
 
-const ENGINE_PROVIDERS: LlmProvider[] = ["anthropic", "gemini", "openai", "ollama", "claude-code", "codex"];
+const ENGINE_RELEASE_BASE =
+	"https://github.com/anupchavan/whetstone-releases/releases/latest/download";
 
 interface EngineQuestion {
 	id: string;
@@ -30,19 +31,90 @@ interface EngineQuestion {
 	difficulty?: string;
 }
 
+interface EngineProcess {
+	stdin: { write(data: string): void };
+	stdout: { on(event: "data", listener: (chunk: Uint8Array) => void): void };
+	on(event: "error", listener: (error: Error) => void): void;
+	on(event: "exit", listener: (code: number | null, signal: string | null) => void): void;
+	kill(): void;
+}
+
+/** The Node surface this bridge needs, reachable only on desktop. */
+interface DesktopApis {
+	spawn(command: string, args: string[], options: {
+		env: Record<string, string | undefined>;
+		stdio: [string, string, string];
+	}): EngineProcess;
+	probeStatus(command: string, args: string[], timeoutMs: number): number | null;
+	existsSync(path: string): boolean;
+	mkdirSync(path: string, options: { recursive: boolean }): void;
+	writeFileSync(path: string, data: Uint8Array): void;
+	chmodSync(path: string, mode: number): void;
+	rmSync(path: string, options: { force: boolean }): void;
+	dirname(path: string): string;
+	env: Record<string, string | undefined>;
+}
+
+let cachedApis: DesktopApis | null | undefined;
+
+function desktopApis(): DesktopApis | null {
+	if (Platform.isMobile) return null;
+	if (cachedApis !== undefined) return cachedApis;
+	// Electron's require is the only road to Node built-ins; it does not
+	// exist on mobile, which the Platform guard above already excludes.
+	const nodeRequire = (globalThis as { require?: (module: string) => unknown }).require;
+	if (!nodeRequire) {
+		cachedApis = null;
+		return cachedApis;
+	}
+	const fs = nodeRequire("fs") as {
+		existsSync(path: string): boolean;
+		mkdirSync(path: string, options: { recursive: boolean }): void;
+		writeFileSync(path: string, data: Uint8Array): void;
+		chmodSync(path: string, mode: number): void;
+		rmSync(path: string, options: { force: boolean }): void;
+	};
+	const childProcess = nodeRequire("child_process") as {
+		spawn: DesktopApis["spawn"];
+		spawnSync(command: string, args: string[], options: { timeout: number }): {
+			status: number | null;
+		};
+	};
+	const path = nodeRequire("path") as { dirname(p: string): string };
+	const proc = nodeRequire("process") as { env: Record<string, string | undefined> };
+	cachedApis = {
+		spawn: childProcess.spawn.bind(childProcess),
+		probeStatus: (command, args, timeoutMs) => {
+			try {
+				return childProcess.spawnSync(command, args, { timeout: timeoutMs }).status;
+			} catch {
+				return null;
+			}
+		},
+		existsSync: fs.existsSync.bind(fs),
+		mkdirSync: fs.mkdirSync.bind(fs),
+		writeFileSync: fs.writeFileSync.bind(fs),
+		chmodSync: fs.chmodSync.bind(fs),
+		rmSync: fs.rmSync.bind(fs),
+		dirname: path.dirname.bind(path),
+		env: proc.env,
+	};
+	return cachedApis;
+}
+
 function vaultBasePath(app: App): string | null {
 	const adapter = app.vault.adapter as unknown as { getBasePath?: () => string };
 	return adapter.getBasePath ? adapter.getBasePath() : null;
 }
 
-const ENGINE_RELEASE_BASE =
-	"https://github.com/anupchavan/whetstone-releases/releases/latest/download";
-
 /** The per-platform engine asset name, or null when none is published. */
 export function engineAssetName(): string | null {
-	if (Platform.isMobile) return null;
-	const arch = process.arch;
-	switch (process.platform) {
+	const apis = desktopApis();
+	if (!apis) return null;
+	const proc = globalThis as unknown as { process?: { platform: string; arch: string } };
+	const platform = proc.process?.platform;
+	const arch = proc.process?.arch;
+	switch (platform) {
 		case "darwin":
 			return arch === "arm64" ? "whetstone-engine-macos-arm64" : null;
 		case "linux":
@@ -65,26 +137,34 @@ function downloadedEnginePath(app: App): string | null {
 	return `${base}/${app.vault.configDir}/plugins/adaptive-practice/bin/${asset}`;
 }
 
-/** Resolve the engine binary, or null when this device cannot run it. */
+/**
+ * A candidate must actually run: a stale or broken install (for example a
+ * sidecar that dies on launch) is skipped so resolution falls through to
+ * the next candidate or a fresh download instead of hanging forever.
+ */
+function binaryResponds(apis: DesktopApis, binary: string): boolean {
+	return apis.probeStatus(binary, ["--version"], 5000) === 0;
+}
+
+/** Resolve a working engine binary, or null when this device has none. */
 export function engineBinaryPath(
 	settings: AdaptivePracticeSettings,
 	app?: App
 ): string | null {
-	if (Platform.isMobile) return null;
-	// eslint-disable-next-line @typescript-eslint/no-require-imports
-	const fs = require("fs") as typeof import("fs");
+	const apis = desktopApis();
+	if (!apis) return null;
 	const explicit = settings.nativeEnginePath.trim();
-	const home = process.env.HOME ?? "";
+	const home = apis.env.HOME ?? "";
 	const candidates = explicit.length > 0 ? [explicit] : [
 		app ? downloadedEnginePath(app) ?? "" : "",
 		"/Applications/Whetstone.app/Contents/MacOS/whetstone-sidecar",
 		`${home}/Applications/Whetstone.app/Contents/MacOS/whetstone-sidecar`,
 		`${home}/Projects/whetstone/target/release/whetstone`,
-		`${process.env.LOCALAPPDATA ?? ""}\\Whetstone\\whetstone-engine.exe`,
+		`${apis.env.LOCALAPPDATA ?? ""}\\Whetstone\\whetstone-engine.exe`,
 	];
 	for (const candidate of candidates) {
 		try {
-			if (candidate && fs.existsSync(candidate) && binaryResponds(candidate)) {
+			if (candidate && apis.existsSync(candidate) && binaryResponds(apis, candidate)) {
 				return candidate;
 			}
 		} catch {
@@ -95,52 +175,33 @@ export function engineBinaryPath(
 }
 
 /**
- * A candidate must actually run: a stale or broken install (for example a
- * sidecar that dies on launch) is skipped so resolution falls through to
- * the next candidate or a fresh download instead of hanging forever.
- */
-function binaryResponds(binary: string): boolean {
-	// eslint-disable-next-line @typescript-eslint/no-require-imports
-	const { spawnSync } = require("child_process") as typeof import("child_process");
-	try {
-		const probe = spawnSync(binary, ["--version"], { timeout: 5000 });
-		return probe.status === 0;
-	} catch {
-		return false;
-	}
-}
-
-/**
- * The plugin works without the Whetstone app: when no binary is found,
- * fetch the platform's engine from the public releases into the plugin's
- * own bin directory. One-time, ~7 MB, desktop only.
+ * The plugin works without the Whetstone app: when no working binary is
+ * found, fetch the platform's engine from the public releases into the
+ * plugin's own bin directory. One-time, a few megabytes, desktop only.
  */
 export async function ensureEngine(
 	app: App,
 	settings: AdaptivePracticeSettings
 ): Promise<string | null> {
+	const apis = desktopApis();
+	if (!apis) return null;
 	const existing = engineBinaryPath(settings, app);
 	if (existing) return existing;
 	const target = downloadedEnginePath(app);
 	const asset = engineAssetName();
 	if (!target || !asset) return null;
-	// eslint-disable-next-line @typescript-eslint/no-require-imports
-	const fs = require("fs") as typeof import("fs");
-	// eslint-disable-next-line @typescript-eslint/no-require-imports
-	const path = require("path") as typeof import("path");
-	const response = await fetch(`${ENGINE_RELEASE_BASE}/${asset}`);
-	if (!response.ok) return null;
-	const bytes = Buffer.from(await response.arrayBuffer());
-	fs.mkdirSync(path.dirname(target), { recursive: true });
-	fs.writeFileSync(target, bytes);
-	if (process.platform !== "win32") fs.chmodSync(target, 0o755);
-	if (!binaryResponds(target)) {
-		fs.rmSync(target, { force: true });
+	const response = await requestUrl({ url: `${ENGINE_RELEASE_BASE}/${asset}` });
+	if (response.status !== 200) return null;
+	apis.mkdirSync(apis.dirname(target), { recursive: true });
+	apis.writeFileSync(target, new Uint8Array(response.arrayBuffer));
+	const proc = globalThis as unknown as { process?: { platform: string } };
+	if (proc.process?.platform !== "win32") apis.chmodSync(target, 0o755);
+	if (!binaryResponds(apis, target)) {
+		apis.rmSync(target, { force: true });
 		return null;
 	}
 	return target;
 }
-
 
 export interface EngineSession {
 	/** The early-ready opening batch (the engine streams the rest). */
@@ -149,6 +210,15 @@ export interface EngineSession {
 	next(asked: Question[]): Promise<Question[]>;
 	cancel(): void;
 }
+
+interface EngineResponse {
+	status: string;
+	question_set?: { questions: EngineQuestion[] };
+	job?: { job_id: string; state: string; error?: string; message?: string } | null;
+}
+
+const sleep = (ms: number): Promise<void> =>
+	new Promise((resolve) => window.setTimeout(resolve, ms));
 
 /**
  * Start generation and return as soon as the engine's opening batch is
@@ -162,18 +232,17 @@ export async function generateSessionWithEngine(
 	provider: LlmProvider,
 	settings: AdaptivePracticeSettings
 ): Promise<EngineSession> {
+	const apis = desktopApis();
 	const binary = await ensureEngine(app, settings);
 	const base = vaultBasePath(app);
-	if (!binary || !base) {
+	if (!apis || !binary || !base) {
 		throw new Error(
 			"The native engine could not be found or downloaded. Set an explicit path in settings."
 		);
 	}
-	// eslint-disable-next-line @typescript-eslint/no-require-imports
-	const { spawn } = require("child_process") as typeof import("child_process");
 	const dataDir = `${base}/${app.vault.configDir}/plugins/adaptive-practice/engine-data`;
-	const child = spawn(binary, ["serve"], {
-		env: { ...process.env, WHETSTONE_DATA_DIR: dataDir },
+	const child = apis.spawn(binary, ["serve"], {
+		env: { ...apis.env, WHETSTONE_DATA_DIR: dataDir },
 		stdio: ["pipe", "pipe", "pipe"],
 	});
 
@@ -183,17 +252,18 @@ export async function generateSessionWithEngine(
 		for (const waiter of pending.values()) waiter.reject(new Error(reason));
 		pending.clear();
 	};
-	child.on("error", (error: Error) => rejectAll(`The engine could not start: ${error.message}`));
-	child.on("exit", (code: number | null, signal: string | null) => {
+	child.on("error", (error) => rejectAll(`The engine could not start: ${error.message}`));
+	child.on("exit", (code, signal) => {
 		if (pending.size > 0) {
 			rejectAll(
-				`The engine stopped unexpectedly (${signal ?? code}). Try again; a fresh engine will be downloaded if needed.`
+				`The engine stopped unexpectedly (${signal ?? code ?? "?"}). Try again; a fresh engine will be downloaded if needed.`
 			);
 		}
 	});
 	let buffer = "";
-	child.stdout.on("data", (chunk: Buffer) => {
-		buffer += chunk.toString("utf8");
+	const decoder = new TextDecoder();
+	child.stdout.on("data", (chunk) => {
+		buffer += decoder.decode(chunk, { stream: true });
 		let newline = buffer.indexOf("\n");
 		while (newline >= 0) {
 			const line = buffer.slice(0, newline);
@@ -201,7 +271,12 @@ export async function generateSessionWithEngine(
 			newline = buffer.indexOf("\n");
 			if (!line.trim()) continue;
 			try {
-				const message = JSON.parse(line) as { id: number; ok?: boolean; data?: unknown; error?: string };
+				const message = JSON.parse(line) as {
+					id: number;
+					ok?: boolean;
+					data?: unknown;
+					error?: string;
+				};
 				const waiter = pending.get(message.id);
 				if (waiter) {
 					pending.delete(message.id);
@@ -220,12 +295,6 @@ export async function generateSessionWithEngine(
 			pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
 			child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
 		});
-
-	interface EngineResponse {
-		status: string;
-		question_set?: { questions: EngineQuestion[] };
-		job?: { job_id: string; state: string; error?: string } | null;
-	}
 
 	const seen = new Set<string>();
 	const pool: Question[] = [];
@@ -259,7 +328,7 @@ export async function generateSessionWithEngine(
 			child.kill();
 			throw new Error(response.job.error ?? "The engine could not prepare questions.");
 		}
-		await new Promise((r) => setTimeout(r, 3000));
+		await sleep(3000);
 		response = await request<EngineResponse>("preparation_status", { job_id: jobId });
 	}
 	absorb(response);
@@ -268,7 +337,7 @@ export async function generateSessionWithEngine(
 	// Background poller: keep absorbing until the job settles.
 	const poll = async (): Promise<void> => {
 		while (!done) {
-			await new Promise((r) => setTimeout(r, 3000));
+			await sleep(3000);
 			if (done) break;
 			try {
 				const fresh = await request<EngineResponse>("preparation_status", { job_id: jobId });
@@ -309,7 +378,7 @@ export async function generateSessionWithEngine(
 					if (failure && asked.length === 0) throw failure;
 					return [];
 				}
-				await new Promise((r) => setTimeout(r, 1000));
+				await sleep(1000);
 			}
 		},
 		cancel(): void {
