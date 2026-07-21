@@ -135,9 +135,8 @@ class ComboboxSuggestModal extends FuzzySuggestModal<ComboboxItem> {
 		if (promptEl) {
 			promptEl.addClass("ap-search-input-container");
 			// Render search icon via Obsidian API (avoids CSS mask-image)
-			const searchIcon = createEl("div", { cls: "ap-search-icon" });
+			const searchIcon = promptEl.createDiv({ cls: "ap-search-icon", prepend: true });
 			setIcon(searchIcon, "search");
-			promptEl.prepend(searchIcon);
 			const input = promptEl.querySelector("input");
 			if (input) {
 				input.setAttribute("type", "search");

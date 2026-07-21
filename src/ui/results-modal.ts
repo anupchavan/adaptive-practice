@@ -41,11 +41,11 @@ export class ResultsModal extends Modal {
 
 		// Score summary
 		const scoreEl = contentEl.createDiv({ cls: "ap-score-summary" });
-		scoreEl.createEl("span", {
+		scoreEl.createSpan({
 			text: `${correct}`,
 			cls: "ap-score-correct",
 		});
-		scoreEl.createEl("span", { text: ` / ${total} correct` });
+		scoreEl.createSpan({ text: ` / ${total} correct` });
 		const scoreStats = contentEl.createDiv({ cls: "ap-results-stats" });
 		scoreStats.createDiv({ text: `Skipped: ${skipped}`, cls: "ap-results-stat" });
 		scoreStats.createDiv({
@@ -65,9 +65,9 @@ export class ResultsModal extends Modal {
 			const list = contentEl.createDiv({ cls: "ap-skill-changes" });
 			for (const delta of this.deltas) {
 				const row = list.createDiv({ cls: "ap-skill-row" });
-				row.createEl("span", { text: delta.title, cls: "ap-skill-title" });
+				row.createSpan({ text: delta.title, cls: "ap-skill-title" });
 				const strengthened = delta.after >= delta.before;
-				row.createEl("span", {
+				row.createSpan({
 					text: strengthened ? "interval strengthened" : "review sooner",
 					cls: strengthened ? "ap-skill-change-up" : "ap-skill-change-down",
 				});

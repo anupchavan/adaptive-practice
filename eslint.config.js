@@ -24,6 +24,7 @@ export default defineConfig([
             globals: {
                 ...globals.browser,
                 createEl: "readonly",
+                createFragment: "readonly",
                 activeDocument: "readonly",
             },
             parserOptions: { project: "./tsconfig.json" },

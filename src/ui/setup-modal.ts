@@ -242,7 +242,7 @@ export class SetupModal extends Modal {
 			const selectAllCheckbox = selectAllLabel.createEl("input", {
 				type: "checkbox",
 			});
-			selectAllLabel.createEl("span", { text: "Select visible" });
+			selectAllLabel.createSpan({ text: "Select visible" });
 
 			const listHost = groupEl.createDiv({ cls: "setting-items" });
 
@@ -484,7 +484,7 @@ export class SetupModal extends Modal {
 			this.settings,
 		);
 		preview.empty();
-		preview.createEl("span", {
+		preview.createSpan({
 			text: `${matched.length} note${matched.length !== 1 ? "s" : ""} matched`,
 			cls:
 				matched.length > 0

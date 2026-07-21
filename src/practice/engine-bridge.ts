@@ -62,7 +62,7 @@ function desktopApis(): DesktopApis | null {
 	if (cachedApis !== undefined) return cachedApis;
 	// Electron's require is the only road to Node built-ins; it does not
 	// exist on mobile, which the Platform guard above already excludes.
-	const nodeRequire = (globalThis as { require?: (module: string) => unknown }).require;
+	const nodeRequire = (window as unknown as { require?: (module: string) => unknown }).require;
 	if (!nodeRequire) {
 		cachedApis = null;
 		return cachedApis;
@@ -111,7 +111,7 @@ function vaultBasePath(app: App): string | null {
 export function engineAssetName(): string | null {
 	const apis = desktopApis();
 	if (!apis) return null;
-	const proc = globalThis as unknown as { process?: { platform: string; arch: string } };
+	const proc = window as unknown as { process?: { platform: string; arch: string } };
 	const platform = proc.process?.platform;
 	const arch = proc.process?.arch;
 	switch (platform) {
@@ -194,7 +194,7 @@ export async function ensureEngine(
 	if (response.status !== 200) return null;
 	apis.mkdirSync(apis.dirname(target), { recursive: true });
 	apis.writeFileSync(target, new Uint8Array(response.arrayBuffer));
-	const proc = globalThis as unknown as { process?: { platform: string } };
+	const proc = window as unknown as { process?: { platform: string } };
 	if (proc.process?.platform !== "win32") apis.chmodSync(target, 0o755);
 	if (!binaryResponds(apis, target)) {
 		apis.rmSync(target, { force: true });

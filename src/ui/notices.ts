@@ -20,8 +20,7 @@ export function showActionNotice(
 	actions: NoticeAction[],
 	options: { timeout?: number; label?: string } = {}
 ): Notice {
-	// Notices render in the active window, so build the fragment from its document.
-	const body = activeDocument.createDocumentFragment();
+	const body = createFragment();
 	const label = body.createEl("p", { cls: "ap-notice-label" });
 	label.setText(options.label ?? "Adaptive Practice");
 	body.createEl("p", { cls: "ap-notice-message", text: message });

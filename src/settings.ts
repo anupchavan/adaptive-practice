@@ -597,9 +597,9 @@ export class AdaptivePracticeSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Engine path")
-			.setDesc("Optional: explicit path to the whetstone sidecar binary. Leave empty to auto-detect the installed Whetstone app.")
+			.setDesc("Explicit path to the engine binary. Leave empty to detect it automatically.")
 			.addText((text) => {
-				text.setPlaceholder("/Applications/Whetstone.app/…")
+				text.setPlaceholder("Detected automatically")
 					.setValue(this.plugin.settings.nativeEnginePath)
 					.onChange(async (value) => {
 						this.plugin.settings.nativeEnginePath = value;
