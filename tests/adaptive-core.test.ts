@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import {
 	formatBytes,
 	MAX_PDF_ATTACHMENT_BYTES,
@@ -24,7 +24,6 @@ import {
 	isSafeRemoteAttachmentUrl,
 } from "../src/notes/remote-media";
 import { LocalMediaLink, mergeLocalMediaLink } from "../src/notes/media-links";
-import { extractConceptCandidates } from "../src/notes/concepts";
 import {
 	frontmatterDateMs,
 	normalizeDatePropertyNames,
@@ -74,9 +73,6 @@ import {
 	shouldOfferDailyReminder,
 	suppressDailyReminderForToday,
 	updatePracticeMemoryAfterSession,
-	retrievability,
-	intervalForRetention,
-	nextStabilityDays,
 } from "../src/practice/scheduler";
 import {
 	migratePdfSkillPaths,
@@ -116,22 +112,17 @@ import {
 	shouldConfirmPracticeDraftReplacement,
 } from "../src/practice/draft";
 import { folderLabel, stringifyGroupValue } from "../src/ui/topic-groups";
-import { checkRules, normalizeFilterRules } from "../src/filters/matcher";
 import { hasBlockMarkdown } from "../src/ui/markdown-detection";
 import { normalizeMarkdownForRender } from "../src/ui/markdown-normalize";
 import {
 	AdaptivePracticeSettings,
 	PracticeMemory,
 	NoteIndexEntry,
-	NoteStructure,
 	NoteMediaReference,
 	DEFAULT_SETTINGS,
-	FilterGroup,
 	PROVIDER_PRESETS,
 	Question,
-	QuestionFeedbackEntry,
 	QuizResult,
-	SessionConfig,
 	SkillDelta,
 	TopicNote,
 } from "../src/types";
@@ -3125,25 +3116,8 @@ test("planDailySession escalates after a fluent correct streak before skill catc
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function frontmatterSkill(markdown: string): number | null {
-	const match = markdown.match(/^---[\s\S]*?\bskill:\s*([0-9]+(?:\.[0-9]+)?)/);
-	if (!match) return null;
-	const value = Number(match[1]);
-	return Number.isFinite(value) ? value : null;
-}
 
-function escapeRegExp(value: string): string {
-	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
-function makeLinuxSessionConfig(topic: TopicNote): SessionConfig {
-	return {
-		topics: [topic],
-		questionCount: 8,
-		challengeMode: "steady",
-		challengeReason: "high-skill Linux regression",
-	};
-}
 
 function makeLinuxRecallQuestion(id: string): Question {
 	return makeQuestion({
@@ -3169,148 +3143,9 @@ function makeLinuxMediumQuestion(id: string): Question {
 	});
 }
 
-function makeLinuxFakeMediumRecallQuestion(id: string): Question {
-	const variants = [
-		{
-			questionText: `Explain why \`ls -a\` shows dotfiles while plain \`ls\` does not in case ${id}.`,
-			correctAnswer: "`-a` includes entries whose names begin with `.`.",
-			explanation: "`ls -a` includes hidden dotfiles; plain `ls` omits them.",
-			sourceSubtopics: ["Shell wildcard characters", "ls options"],
-		},
-		{
-			questionText: `In \`ls -l | less\`, explain what the pipe connects and why the output becomes page-scrollable in case ${id}.`,
-			correctAnswer: "The pipe connects stdout of `ls -l` to stdin of `less`.",
-			explanation: "`less` reads the listing from stdin and displays it page by page.",
-			sourceSubtopics: ["Redirection, Pipes and Filters", "less"],
-		},
-		{
-			questionText: `Given \`chmod 755 script.sh\`, explain which user classes can execute the file in case ${id}.`,
-			correctAnswer: "Owner, group, and others can execute it.",
-			explanation: "The execute bit is set in 7, 5, and 5.",
-			sourceSubtopics: ["Default permissions", "chmod"],
-		},
-		{
-			questionText: `Compare \`kill PID\` and \`kill -9 PID\`: which one sends SIGKILL in case ${id}?`,
-			correctAnswer: "`kill -9 PID` sends SIGKILL.",
-			explanation: "Signal number 9 is SIGKILL; plain `kill` sends SIGTERM by default.",
-			sourceSubtopics: ["Processes and signals"],
-		},
-	];
-	const variant = pickVariant(variants, id);
-	return makeQuestion({
-		id,
-		...variant,
-		sourceTopics: ["Linux Commands"],
-		difficulty: "medium",
-	});
-}
 
-function makeLinuxSimplePredictionQuestion(id: string): Question {
-	const variants = [
-		{
-			questionText: `Predict what \`echo "$HOME"\` versus \`echo '$HOME'\` prints in case ${id}.`,
-			options: [
-				"Double quotes expand HOME; single quotes keep `$HOME` literal",
-				"Both commands print `$HOME` literally",
-				"Both commands print the home directory path",
-				"Single quotes expand HOME; double quotes keep it literal",
-			],
-			correctAnswer: "Double quotes expand HOME; single quotes keep `$HOME` literal",
-			explanation: "The shell expands variables inside double quotes but not inside single quotes.",
-			sourceSubtopics: ["quoting", "shell expansion"],
-		},
-		{
-			questionText: `What does \`echo *.txt\` expand to when the directory contains \`a.txt\`, \`b.txt\`, and \`notes.md\` in case ${id}?`,
-			options: [
-				"`a.txt b.txt`",
-				"`*.txt`",
-				"`a.txt b.txt notes.md`",
-				"`notes.md`",
-			],
-			correctAnswer: "`a.txt b.txt`",
-			explanation: "The shell expands `*.txt` to matching pathnames before `echo` runs.",
-			sourceSubtopics: ["Shell wildcard characters", "globbing"],
-		},
-		{
-			questionText: `Predict the result of \`pwd\` after running \`cd /tmp\` in case ${id}.`,
-			options: ["/tmp", "$HOME", "/", "The previous directory"],
-			correctAnswer: "/tmp",
-			explanation: "`cd /tmp` changes the current working directory for that shell.",
-			sourceSubtopics: ["Paths", "cd", "pwd"],
-		},
-	];
-	const variant = pickVariant(variants, id);
-	return makeQuestion({
-		id,
-		...variant,
-		sourceTopics: ["Linux Commands"],
-		difficulty: "medium",
-	});
-}
 
-function makeLinuxBasicSectionQuestion(id: string): Question {
-	const variants = [
-		{
-			questionText: `Compare SSH key-based login with password login in case ${id}. Why is key-based login preferred?`,
-			correctAnswer: "Key-based login avoids sending or reusing a password and supports stronger authentication.",
-			explanation: "The note recommends SSH with keys and treats insecure remote login commands as deprecated.",
-			sourceSubtopics: ["Login"],
-		},
-		{
-			questionText: `Explain how \`uname -o\`, \`uname -r\`, and \`uname -m\` differ in case ${id}.`,
-			correctAnswer: "`-o` prints OS, `-r` prints kernel release, and `-m` prints hardware architecture.",
-			explanation: "These are direct `uname` option meanings from the note.",
-			sourceSubtopics: ["uname"],
-		},
-		{
-			questionText: `Compare \`/dev/pts/6\`, \`/dev/tty1\`, and \`/dev/ttyS0\` in case ${id}. What session type does each indicate?`,
-			correctAnswer: "pts is a pseudo-terminal, tty is a tele terminal, and ttyS is a serial console.",
-			explanation: "This is direct session-identification mapping.",
-			sourceSubtopics: ["Session identification"],
-		},
-		{
-			questionText: `Compare \`who -u\`, \`w\`, and \`last\` in case ${id}. Which ones show current sessions versus session history?`,
-			correctAnswer: "`who -u` and `w` show current sessions; `last` shows login history.",
-			explanation: "The commands are listed in the other-sessions and session-history sections.",
-			sourceSubtopics: ["Other sessions", "Session history"],
-		},
-		{
-			questionText: `Explain when \`man 5 passwd\` should be used instead of plain \`man passwd\` in case ${id}.`,
-			correctAnswer: "`man 5 passwd` selects the file-format manual page rather than the command page.",
-			explanation: "Manual sections disambiguate command, system-call, library, and file-format pages.",
-			sourceSubtopics: ["Manual pages"],
-		},
-	];
-	const variant = pickVariant(variants, id);
-	return makeQuestion({
-		id,
-		...variant,
-		sourceTopics: ["Linux Commands"],
-		difficulty: "hard",
-	});
-}
 
-function makeLinuxFakeHardOptionQuestion(id: string): Question {
-	const correct = "find . -name '*.log' -mtime -7 -print0 2>/dev/null | xargs -0 grep -h 'ERROR' | wc -l";
-	return makeQuestion({
-		id,
-		questionText: [
-			`Given case ${id}: a directory tree may contain spaces in filenames and permission-denied subdirectories.`,
-			"Which command sequence correctly counts `ERROR` lines in `.log` files modified in the last 7 days while keeping stderr out of the count?",
-		].join(" "),
-		options: [
-			correct,
-			"find . -name *.log -mtime -7 | xargs grep ERROR 2>/dev/null | wc -l",
-			"grep -R ERROR *.log 2>&1 | wc -l",
-			"ls -R | grep '.log' | xargs grep ERROR | wc -l",
-		],
-		correctAnswer: correct,
-		explanation: "The correct option uses null-delimited paths and redirects stderr before the pipe.",
-		sourceTopics: ["Linux Commands"],
-		sourceSubtopics: ["find", "xargs", "quoting", "stderr redirection", "pipes"],
-		difficulty: "hard",
-	});
-}
 
 function makeLinuxWeakHardQuestion(id: string): Question {
 	return makeQuestion({
@@ -3563,34 +3398,6 @@ function makeIndexEntry(overrides: Partial<NoteIndexEntry> = {}): NoteIndexEntry
 	};
 }
 
-function makeStructure(overrides: Partial<NoteStructure> = {}): NoteStructure {
-	const sections = overrides.sections ?? [
-		{
-			heading: "Body",
-			level: 0,
-			content: "A compact note section.",
-			wordCount: 4,
-		},
-	];
-	return {
-		path: "notes/example.md",
-		title: "Example note",
-		frontmatter: {},
-		tags: [],
-		links: [],
-		headings: sections.map((section) => ({
-			heading: section.heading,
-			level: section.level,
-		})),
-		sections,
-		cleanedText: sections.map((section) => section.content).join("\n\n"),
-		media: [],
-		createdAt: Date.UTC(2026, 5, 1),
-		updatedAt: Date.UTC(2026, 5, 20),
-		contentHash: "test",
-		...overrides,
-	};
-}
 
 function makeRemoteImageMedia(url: string): NoteMediaReference {
 	return {
