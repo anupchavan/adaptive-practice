@@ -46,7 +46,8 @@ export type LlmProvider =
 	| "deepseek"
 	| "qwen"
 	| "openrouter"
-	| "openai-compatible";
+	| "openai-compatible"
+	| "ollama";
 
 export const LLM_PROVIDER_LABELS: Record<LlmProvider, string> = {
 	gemini: "Gemini",
@@ -56,6 +57,7 @@ export const LLM_PROVIDER_LABELS: Record<LlmProvider, string> = {
 	qwen: "Qwen",
 	openrouter: "OpenRouter",
 	"openai-compatible": "OpenAI-compatible",
+	ollama: "Ollama (local)",
 };
 
 export const OPENAI_COMPATIBLE_PROVIDERS: LlmProvider[] = [
@@ -64,6 +66,7 @@ export const OPENAI_COMPATIBLE_PROVIDERS: LlmProvider[] = [
 	"qwen",
 	"openrouter",
 	"openai-compatible",
+	"ollama",
 ];
 
 export interface ProviderPreset {
@@ -124,6 +127,14 @@ export const PROVIDER_PRESETS: Record<LlmProvider, ProviderPreset> = {
 		supportsImages: true,
 		supportsPdfs: false,
 	},
+	ollama: {
+		baseUrl: "http://localhost:11434/v1/chat/completions",
+		model: "llama3.1",
+		secretName: "ollama-api-key",
+		jsonMode: "json_object",
+		supportsImages: false,
+		supportsPdfs: false,
+	},
 	"openai-compatible": {
 		baseUrl: "http://localhost:1234/v1/chat/completions",
 		model: "",
@@ -167,6 +178,10 @@ export interface AdaptivePracticeSettings {
 	pdfSkills: Record<string, number>;
 	practiceMemory: PracticeMemory;
 	practiceDraft: PracticeDraft | null;
+	/** Desktop only: delegate generation to the Whetstone native engine. */
+	useNativeEngine: boolean;
+	/** Optional explicit path to the whetstone sidecar binary. */
+	nativeEnginePath: string;
 }
 
 export interface DailyPracticeState {
@@ -243,6 +258,8 @@ export const DEFAULT_PRACTICE_MEMORY: PracticeMemory = {
 };
 
 export const DEFAULT_SETTINGS: AdaptivePracticeSettings = {
+	useNativeEngine: false,
+	nativeEnginePath: "",
 	geminiApiKey: "",
 	llmProvider: "gemini",
 	secretName: "gemini-api-key",

@@ -1,3 +1,4 @@
+import { engineUsable, generateWithEngine } from "./engine-bridge";
 import { App } from "obsidian";
 import {
 	AdaptivePracticeSettings,
@@ -130,6 +131,11 @@ export async function generateQuestions(
 	provider: LlmProvider,
 	settings: AdaptivePracticeSettings
 ): Promise<Question[]> {
+	// The native engine path replaces the whole TypeScript pipeline when
+	// available: verified, calibrated questions come back ready to serve.
+	if (engineUsable(settings, provider, config)) {
+		return generateWithEngine(app, apiKey, config, provider, settings);
+	}
 	assertModelConfigured(provider, settings);
 	config = {
 		...config,

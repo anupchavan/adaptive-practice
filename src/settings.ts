@@ -221,6 +221,11 @@ export class AdaptivePracticeSettingTab extends PluginSettingTab {
 						control: { type: "toggle", key: "deepAuthoring" },
 					},
 					{
+						name: "Native engine",
+						desc: "Desktop only: generate through the Whetstone app's engine - seeded authoring, machine verification, and clarity gating. Falls back to the built-in pipeline when unavailable.",
+						control: { type: "toggle", key: "useNativeEngine" },
+					},
+					{
 						name: "Practice intent",
 						desc: "Mastery favors understanding and transfer, exam cram favors high-yield facts and classic traps, review favors quick checks across many subtopics.",
 						control: {
@@ -624,6 +629,29 @@ export class AdaptivePracticeSettingTab extends PluginSettingTab {
 					this.plugin.settings.deepAuthoring = value;
 					await this.plugin.saveSettings();
 				});
+			});
+
+		new Setting(containerEl)
+			.setName("Native engine")
+			.setDesc("Desktop only: generate through the Whetstone app's engine - seeded authoring, machine verification, and clarity gating. Falls back to the built-in pipeline when unavailable. Anthropic, Gemini, OpenAI, and Ollama providers.")
+			.addToggle((toggle) => {
+				toggle.setValue(this.plugin.settings.useNativeEngine);
+				toggle.onChange(async (value) => {
+					this.plugin.settings.useNativeEngine = value;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new Setting(containerEl)
+			.setName("Engine path")
+			.setDesc("Optional: explicit path to the whetstone sidecar binary. Leave empty to auto-detect the installed Whetstone app.")
+			.addText((text) => {
+				text.setPlaceholder("/Applications/Whetstone.app/…")
+					.setValue(this.plugin.settings.nativeEnginePath)
+					.onChange(async (value) => {
+						this.plugin.settings.nativeEnginePath = value;
+						await this.plugin.saveSettings();
+					});
 			});
 
 		new Setting(containerEl)

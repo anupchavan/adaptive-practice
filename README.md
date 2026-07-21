@@ -10,7 +10,7 @@ Adaptive Practice is an Obsidian community plugin that helps you practice and re
 - Daily practice reminders with a spaced, skill-aware topic queue stored in plugin data.
 - Fluency-aware review that uses correctness, skips, and response time to detect fragile recall.
 - A dashboard view for streak, due notes, scan status, and one-click daily practice.
-- Multi-provider BYOK support for Gemini, Anthropic, OpenAI, DeepSeek, Qwen, OpenRouter, and custom OpenAI-compatible endpoints.
+- Multi-provider BYOK support for Gemini, Anthropic, OpenAI, DeepSeek, Qwen, OpenRouter, local Ollama, and custom OpenAI-compatible endpoints.
 - Obsidian-native Markdown output with LaTeX and code block guidance in the generation prompt.
 
 ## Model providers
@@ -25,6 +25,7 @@ Open **Settings → Adaptive Practice** and choose a provider, then select or cr
 | DeepSeek | `https://api.deepseek.com/chat/completions`, `deepseek-v4-flash` | Uses OpenAI-compatible chat completions with JSON object mode. Change the model in settings if you want the pro route. |
 | Qwen | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions`, `qwen3.7-plus` | Uses Alibaba Cloud Model Studio's OpenAI-compatible interface. Change the model in settings if your region or account uses another Qwen route. |
 | OpenRouter | `https://openrouter.ai/api/v1/chat/completions`, `openai/gpt-5.4-mini` | Uses OpenRouter's OpenAI-compatible route. Change the model to any route you have access to. |
+| Ollama (local) | `http://localhost:11434/v1/chat/completions`, `llama3.1` | Runs against your local Ollama server. No API key, free, fully offline. Pick any pulled model in settings. |
 | OpenAI-compatible | `http://localhost:1234/v1/chat/completions` | For LM Studio, local gateways, or other compatible servers. Local endpoints may omit an API key. |
 
 Image attachments are sent only when the selected provider is configured to support vision input. PDF/document attachments currently require Gemini or Anthropic. The note picker warns and blocks PDF-topic sessions for providers that cannot read PDF attachments through this plugin yet; daily practice skips incompatible PDF topics and uses compatible due notes when available. Standalone PDF topics are capped at 10 MB per file before upload.
