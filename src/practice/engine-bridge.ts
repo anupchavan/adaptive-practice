@@ -84,12 +84,30 @@ export function engineBinaryPath(
 	];
 	for (const candidate of candidates) {
 		try {
-			if (candidate && fs.existsSync(candidate)) return candidate;
+			if (candidate && fs.existsSync(candidate) && binaryResponds(candidate)) {
+				return candidate;
+			}
 		} catch {
 			// unreadable candidate - keep looking
 		}
 	}
 	return null;
+}
+
+/**
+ * A candidate must actually run: a stale or broken install (for example a
+ * sidecar that dies on launch) is skipped so resolution falls through to
+ * the next candidate or a fresh download instead of hanging forever.
+ */
+function binaryResponds(binary: string): boolean {
+	// eslint-disable-next-line @typescript-eslint/no-require-imports
+	const { spawnSync } = require("child_process") as typeof import("child_process");
+	try {
+		const probe = spawnSync(binary, ["--version"], { timeout: 5000 });
+		return probe.status === 0;
+	} catch {
+		return false;
+	}
 }
 
 /**
@@ -116,6 +134,10 @@ export async function ensureEngine(
 	fs.mkdirSync(path.dirname(target), { recursive: true });
 	fs.writeFileSync(target, bytes);
 	if (process.platform !== "win32") fs.chmodSync(target, 0o755);
+	if (!binaryResponds(target)) {
+		fs.rmSync(target, { force: true });
+		return null;
+	}
 	return target;
 }
 
@@ -157,6 +179,18 @@ export async function generateSessionWithEngine(
 
 	let nextId = 1;
 	const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+	const rejectAll = (reason: string): void => {
+		for (const waiter of pending.values()) waiter.reject(new Error(reason));
+		pending.clear();
+	};
+	child.on("error", (error: Error) => rejectAll(`The engine could not start: ${error.message}`));
+	child.on("exit", (code: number | null, signal: string | null) => {
+		if (pending.size > 0) {
+			rejectAll(
+				`The engine stopped unexpectedly (${signal ?? code}). Try again; a fresh engine will be downloaded if needed.`
+			);
+		}
+	});
 	let buffer = "";
 	child.stdout.on("data", (chunk: Buffer) => {
 		buffer += chunk.toString("utf8");
