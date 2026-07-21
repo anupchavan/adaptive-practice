@@ -1167,14 +1167,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 			await this.saveSettings();
 			this.renderDashboardViews();
 			finalNotice.hide();
-			new ResultsModal(
-				this.app,
-				results,
-				deltas,
-				practiceCredit,
-				(result, feedback) =>
-					this.recordQuestionFeedback(result, feedback),
-			).open();
+			new ResultsModal(this.app, results, deltas, practiceCredit).open();
 		} catch (e) {
 			finalNotice.hide();
 			new Notice(

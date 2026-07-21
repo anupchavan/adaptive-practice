@@ -1,33 +1,24 @@
-import { App, ButtonComponent, Component, Modal, Notice, Setting } from "obsidian";
+import { App, Component, Modal, Setting } from "obsidian";
 import { PracticeCredit } from "../practice/daily-credit";
 import { averageFluency } from "../practice/grader";
-import { QuestionFeedbackKind, QuizResult, SkillDelta } from "../types";
-import { hasBlockMarkdown, renderMarkdown } from "./markdown";
-
-type QuestionFeedbackHandler = (
-	result: QuizResult,
-	feedback: QuestionFeedbackKind
-) => void | Promise<void>;
+import { QuizResult, SkillDelta } from "../types";
 
 export class ResultsModal extends Modal {
 	private results: QuizResult[];
 	private deltas: SkillDelta[];
 	private practiceCredit: PracticeCredit | null;
-	private onQuestionFeedback: QuestionFeedbackHandler | null;
 	private renderComponent: Component;
 
 	constructor(
 		app: App,
 		results: QuizResult[],
 		deltas: SkillDelta[],
-		practiceCredit: PracticeCredit | null,
-		onQuestionFeedback?: QuestionFeedbackHandler
+		practiceCredit: PracticeCredit | null
 	) {
 		super(app);
 		this.results = results;
 		this.deltas = deltas;
 		this.practiceCredit = practiceCredit;
-		this.onQuestionFeedback = onQuestionFeedback ?? null;
 		this.renderComponent = new Component();
 	}
 
@@ -67,54 +58,20 @@ export class ResultsModal extends Modal {
 		});
 		if (this.practiceCredit) this.renderPracticeCredit(contentEl);
 
-		// Skill changes
+		// The app's results anatomy: which notes' review schedules moved,
+		// stated as direction, never as raw skill arithmetic.
 		if (this.deltas.length > 0) {
-			new Setting(contentEl).setName("Skill changes").setHeading();
-			const skillList = contentEl.createDiv({ cls: "ap-skill-changes" });
-			for (const d of this.deltas) {
-				const row = skillList.createDiv({ cls: "ap-skill-row" });
+			new Setting(contentEl).setName("Review schedule updated").setHeading();
+			const list = contentEl.createDiv({ cls: "ap-skill-changes" });
+			for (const delta of this.deltas) {
+				const row = list.createDiv({ cls: "ap-skill-row" });
+				row.createEl("span", { text: delta.title, cls: "ap-skill-title" });
+				const strengthened = delta.after >= delta.before;
 				row.createEl("span", {
-					text: d.title,
-					cls: "ap-skill-title",
-				});
-
-				const change = d.after - d.before;
-				const sign = change >= 0 ? "+" : "";
-				const cls =
-					change >= 0 ? "ap-skill-change-up" : "ap-skill-change-down";
-
-				row.createEl("span", {
-					text: `${Math.round(d.before)} \u2192 ${Math.round(d.after)} (${sign}${change.toFixed(1)})`,
-					cls,
+					text: strengthened ? "interval strengthened" : "review sooner",
+					cls: strengthened ? "ap-skill-change-up" : "ap-skill-change-down",
 				});
 			}
-		}
-
-		// Question review
-		new Setting(contentEl).setName("Question review").setHeading();
-		const reviewList = contentEl.createDiv({ cls: "ap-review-list" });
-
-		for (let i = 0; i < this.results.length; i++) {
-			const r = this.results[i]!;
-			const item = reviewList.createDiv({
-				cls: `ap-review-item ${r.isCorrect ? "ap-review-correct" : "ap-review-incorrect"}`,
-			});
-
-			const questionWrap = item.createDiv({ cls: "ap-review-question" });
-			questionWrap.createSpan({ text: `${i + 1}. `, cls: "ap-review-question-number" });
-			const questionText = questionWrap.createDiv({ cls: "ap-review-question-text" });
-			this.renderMarkdown(r.question.questionText, questionText);
-
-			const details = item.createDiv({ cls: "ap-review-details" });
-			this.renderReviewValue(details, "Your answer", r.skipped ? "Skipped" : r.userAnswer);
-			if (!r.isCorrect) {
-				this.renderReviewValue(details, "Correct", r.question.correctAnswer);
-			}
-			details.createEl("span", {
-				text: `Time: ${formatTime(r.timeTakenMs)}`,
-				cls: "ap-review-time",
-			});
-			this.renderFeedbackButtons(item, r);
 		}
 
 		new Setting(contentEl).addButton((button) =>
@@ -127,57 +84,8 @@ export class ResultsModal extends Modal {
 		this.contentEl.empty();
 	}
 
-	private renderReviewValue(container: HTMLElement, label: string, markdown: string): void {
-		const row = container.createDiv({ cls: "ap-review-value" });
-		row.createSpan({ text: `${label}: `, cls: "ap-review-value-label" });
-		const value = hasBlockMarkdown(markdown)
-			? row.createDiv({ cls: "ap-review-value-block" })
-			: row.createSpan({ cls: "ap-review-value-inline" });
-		this.renderMarkdown(markdown, value);
-	}
 
-	private renderFeedbackButtons(container: HTMLElement, result: QuizResult): void {
-		if (!this.onQuestionFeedback) return;
-		const row = container.createDiv({ cls: "ap-review-feedback" });
-		row.createSpan({ text: "Flag question:", cls: "ap-review-feedback-label" });
-		const options: Array<{ kind: QuestionFeedbackKind; label: string }> = [
-			{ kind: "too_easy", label: "Too easy" },
-			{ kind: "too_hard", label: "Too hard" },
-			{ kind: "bad_concept", label: "Bad concept" },
-		];
-		for (const option of options) {
-			const component = new ButtonComponent(row)
-				.setButtonText(option.label)
-				.setClass("ap-review-feedback-button");
-			component.onClick(() => {
-				void this.saveQuestionFeedback(row, component.buttonEl, result, option.kind);
-			});
-		}
-	}
 
-	private async saveQuestionFeedback(
-		row: HTMLElement,
-		button: HTMLButtonElement,
-		result: QuizResult,
-		feedback: QuestionFeedbackKind
-	): Promise<void> {
-		if (!this.onQuestionFeedback || button.disabled) return;
-		row.querySelectorAll<HTMLButtonElement>("button").forEach((btn) => {
-			btn.disabled = true;
-			btn.removeClass("is-active");
-		});
-		button.addClass("is-active");
-		try {
-			await this.onQuestionFeedback(result, feedback);
-			new Notice("Question feedback saved.");
-		} catch (e) {
-			new Notice(`Failed to save feedback: ${e instanceof Error ? e.message : String(e)}`);
-			row.querySelectorAll<HTMLButtonElement>("button").forEach((btn) => {
-				btn.disabled = false;
-			});
-			button.removeClass("is-active");
-		}
-	}
 
 	private renderPracticeCredit(container: HTMLElement): void {
 		if (!this.practiceCredit) return;
@@ -194,9 +102,6 @@ export class ResultsModal extends Modal {
 		});
 	}
 
-	private renderMarkdown(markdown: string, el: HTMLElement): void {
-		renderMarkdown(this.app, markdown, el, this.renderComponent);
-	}
 }
 
 function formatTime(ms: number): string {
