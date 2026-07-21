@@ -20,6 +20,9 @@ export const PROVIDER_MODEL_SUGGESTIONS: Partial<Record<LlmProvider, string[]>> 
 	deepseek: ["deepseek-v4-flash"],
 	qwen: ["qwen3.7-plus"],
 	openrouter: ["openai/gpt-5.4-mini"],
+	"claude-code": ["sonnet", "opus", "fable"],
+	codex: ["terra", "sol", "luna"],
+	ollama: ["llama3.1", "qwen3:14b", "deepseek-r1:14b", "gemma3:12b"],
 };
 
 export const CUSTOM_MODEL_OPTION = "__custom__";
