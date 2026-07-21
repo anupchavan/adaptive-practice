@@ -47,7 +47,9 @@ export type LlmProvider =
 	| "qwen"
 	| "openrouter"
 	| "openai-compatible"
-	| "ollama";
+	| "ollama"
+	| "claude-code"
+	| "codex";
 
 export const LLM_PROVIDER_LABELS: Record<LlmProvider, string> = {
 	gemini: "Gemini",
@@ -58,7 +60,12 @@ export const LLM_PROVIDER_LABELS: Record<LlmProvider, string> = {
 	openrouter: "OpenRouter",
 	"openai-compatible": "OpenAI-compatible",
 	ollama: "Ollama (local)",
+	"claude-code": "Claude Code (subscription)",
+	codex: "Codex CLI (subscription)",
 };
+
+/** Providers that only run through the Whetstone native engine. */
+export const ENGINE_ONLY_PROVIDERS: LlmProvider[] = ["claude-code", "codex"];
 
 export const OPENAI_COMPATIBLE_PROVIDERS: LlmProvider[] = [
 	"openai",
@@ -125,6 +132,22 @@ export const PROVIDER_PRESETS: Record<LlmProvider, ProviderPreset> = {
 		secretName: "openrouter-api-key",
 		jsonMode: "json_schema",
 		supportsImages: true,
+		supportsPdfs: false,
+	},
+	"claude-code": {
+		baseUrl: "",
+		model: "sonnet",
+		secretName: "",
+		jsonMode: "prompt_only",
+		supportsImages: false,
+		supportsPdfs: false,
+	},
+	codex: {
+		baseUrl: "",
+		model: "terra",
+		secretName: "",
+		jsonMode: "prompt_only",
+		supportsImages: false,
 		supportsPdfs: false,
 	},
 	ollama: {

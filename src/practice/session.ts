@@ -1,4 +1,5 @@
 import { engineUsable, generateWithEngine } from "./engine-bridge";
+import { ENGINE_ONLY_PROVIDERS } from "../types";
 import { App } from "obsidian";
 import {
 	AdaptivePracticeSettings,
@@ -108,6 +109,11 @@ export async function createFlowSessionGenerator(
 	settings: AdaptivePracticeSettings,
 	batchPlan?: number[]
 ): Promise<FlowSessionGenerator> {
+	if (ENGINE_ONLY_PROVIDERS.includes(provider)) {
+		throw new Error(
+			"Claude Code and Codex generate whole sessions through the native engine. Turn off Adaptive flow to use them."
+		);
+	}
 	assertModelConfigured(provider, settings);
 	config = {
 		...config,
@@ -135,6 +141,11 @@ export async function generateQuestions(
 	// available: verified, calibrated questions come back ready to serve.
 	if (engineUsable(settings, provider, config)) {
 		return generateWithEngine(app, apiKey, config, provider, settings);
+	}
+	if (ENGINE_ONLY_PROVIDERS.includes(provider)) {
+		throw new Error(
+			"Claude Code and Codex run only through the native engine. Enable it in settings (desktop, no PDF topics) and make sure the CLI is installed and signed in."
+		);
 	}
 	assertModelConfigured(provider, settings);
 	config = {

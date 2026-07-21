@@ -16,7 +16,7 @@ import type {
 	SessionConfig,
 } from "../types";
 
-const ENGINE_PROVIDERS: LlmProvider[] = ["anthropic", "gemini", "openai", "ollama"];
+const ENGINE_PROVIDERS: LlmProvider[] = ["anthropic", "gemini", "openai", "ollama", "claude-code", "codex"];
 
 interface EngineQuestion {
 	id: string;
@@ -191,6 +191,8 @@ export async function generateWithEngine(
 			library_root: base,
 			provider,
 			ollama_model: settings.providerModels.ollama ?? undefined,
+			cli_model: settings.providerModels["claude-code"] ?? undefined,
+			codex_model: settings.providerModels.codex ?? undefined,
 		});
 		const notePaths = config.topics.map((topic) => topic.path);
 		let response = await request<{
