@@ -31,7 +31,7 @@ import { ConfirmationModal } from "./ui/confirmation-modal";
 import { showActionNotice } from "./ui/notices";
 import { ADAPTIVE_PRACTICE_HOVER_SOURCE } from "./ui/markdown";
 import {
-	generateQuestions,
+	generateQuestionSession,
 	finalizeSession,
 } from "./practice/session";
 import { hasPracticedToday as memoryHasPracticedToday } from "./practice/daily-status";
@@ -81,6 +81,7 @@ import {
 import { hasAnsweredEveryQuestion } from "./practice/results";
 
 export default class AdaptivePracticePlugin extends Plugin {
+	private activeEngineSession: import("./practice/engine-bridge").EngineSession | null = null;
 	settings: AdaptivePracticeSettings = DEFAULT_SETTINGS;
 	private sessionTopics: TopicNote[] = [];
 	private sessionGenerationInProgress = false;
@@ -967,6 +968,8 @@ export default class AdaptivePracticePlugin extends Plugin {
 		let canceled = false;
 		const loadingNotice = this.createGenerationNotice(config, () => {
 			canceled = true;
+			this.activeEngineSession?.cancel();
+			this.activeEngineSession = null;
 			this.cancelSessionGeneration(generationId, loadingNotice);
 		});
 
@@ -1004,13 +1007,16 @@ export default class AdaptivePracticePlugin extends Plugin {
 				return;
 			}
 
-			const questions: Question[] = await generateQuestions(
+			const engineSession = await generateQuestionSession(
 				this.app,
 				apiKey,
 				config,
 				this.settings.llmProvider,
 				this.settings,
 			);
+			this.activeEngineSession?.cancel();
+			this.activeEngineSession = engineSession;
+			const questions: Question[] = engineSession.first;
 
 			if (this.isStaleGeneration(generationId, canceled)) {
 				loadingNotice.hide();
@@ -1252,6 +1258,17 @@ export default class AdaptivePracticePlugin extends Plugin {
 				);
 			},
 			questionPaneSide: this.settings.questionPaneSide,
+			// Streaming: while the engine is still writing, the view pulls
+			// new questions as the learner nears the end of what it has.
+			...(this.activeEngineSession && questions.length < config.questionCount
+				? {
+					totalPlannedCount: config.questionCount,
+					onNeedMoreQuestions: (_results: QuizResult[], asked: Question[]) =>
+						this.activeEngineSession
+							? this.activeEngineSession.next(asked)
+							: Promise.resolve([]),
+				}
+				: {}),
 		});
 	}
 

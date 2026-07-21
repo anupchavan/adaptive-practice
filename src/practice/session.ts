@@ -1,4 +1,4 @@
-import { generateWithEngine } from "./engine-bridge";
+import { generateSessionWithEngine, EngineSession } from "./engine-bridge";
 import { App } from "obsidian";
 import type {
 	AdaptivePracticeSettings,
@@ -28,13 +28,13 @@ const ENGINE_PROVIDERS: LlmProvider[] = [
  * machine verification, blind probes, clarity gating, Elo calibration).
  * The engine binary is auto-downloaded on first use; see engine-bridge.
  */
-export async function generateQuestions(
+export async function generateQuestionSession(
 	app: App,
 	apiKey: string,
 	config: SessionConfig,
 	provider: LlmProvider,
 	settings: AdaptivePracticeSettings
-): Promise<Question[]> {
+): Promise<EngineSession> {
 	if (!ENGINE_PROVIDERS.includes(provider)) {
 		throw new Error(
 			`${provider} cannot generate questions: pick Anthropic, Gemini, OpenAI, Ollama, Claude Code, or Codex in settings.`
@@ -42,8 +42,11 @@ export async function generateQuestions(
 	}
 	// PDF topics ride through natively; the engine itself refuses with a
 	// clear message when the selected provider cannot read documents.
-	const questions = await generateWithEngine(app, apiKey, config, provider, settings);
-	return prepareGeneratedQuestionsForSession(questions, config);
+	const session = await generateSessionWithEngine(app, apiKey, config, provider, settings);
+	return {
+		...session,
+		first: prepareGeneratedQuestionsForSession(session.first, config),
+	};
 }
 
 export async function finalizeSession(

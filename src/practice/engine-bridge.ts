@@ -120,18 +120,31 @@ export async function ensureEngine(
 }
 
 
-export async function generateWithEngine(
+export interface EngineSession {
+	/** The early-ready opening batch (the engine streams the rest). */
+	first: Question[];
+	/** New questions accumulated since `asked`; [] once generation ends. */
+	next(asked: Question[]): Promise<Question[]>;
+	cancel(): void;
+}
+
+/**
+ * Start generation and return as soon as the engine's opening batch is
+ * ready (it begins serving at three accepted questions); keep polling in
+ * the background and hand later arrivals to the practice view on demand.
+ */
+export async function generateSessionWithEngine(
 	app: App,
 	apiKey: string,
 	config: SessionConfig,
 	provider: LlmProvider,
 	settings: AdaptivePracticeSettings
-): Promise<Question[]> {
+): Promise<EngineSession> {
 	const binary = await ensureEngine(app, settings);
 	const base = vaultBasePath(app);
 	if (!binary || !base) {
 		throw new Error(
-			"The native engine could not be found or downloaded. Set an explicit path in settings, or turn the native engine off."
+			"The native engine could not be found or downloaded. Set an explicit path in settings."
 		);
 	}
 	// eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -174,36 +187,102 @@ export async function generateWithEngine(
 			child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
 		});
 
-	try {
-		await request("set_config", {
-			library_root: base,
-			provider,
-			ollama_model: settings.providerModels.ollama ?? undefined,
-			cli_model: settings.providerModels["claude-code"] ?? undefined,
-			codex_model: settings.providerModels.codex ?? undefined,
-		});
-		const notePaths = config.topics.map((topic) => topic.path);
-		let response = await request<{
-			status: string;
-			question_set?: { questions: EngineQuestion[] };
-			job?: { job_id: string; state: string; error?: string };
-		}>("start_session", {
-			note_paths: notePaths,
-			count: config.questionCount,
-			api_key: apiKey,
-		});
-		while (response.status !== "ready") {
-			if (response.job?.state === "failed") {
-				throw new Error(response.job.error ?? "The engine could not prepare questions.");
-			}
-			await new Promise((r) => setTimeout(r, 3000));
-			response = await request("preparation_status", { job_id: response.job?.job_id });
-		}
-		const questions = response.question_set?.questions ?? [];
-		return questions.map((q) => toPluginQuestion(q, config));
-	} finally {
-		child.kill();
+	interface EngineResponse {
+		status: string;
+		question_set?: { questions: EngineQuestion[] };
+		job?: { job_id: string; state: string; error?: string } | null;
 	}
+
+	const seen = new Set<string>();
+	const pool: Question[] = [];
+	let done = false;
+	let failure: Error | null = null;
+
+	const absorb = (response: EngineResponse): void => {
+		for (const q of response.question_set?.questions ?? []) {
+			if (seen.has(q.id)) continue;
+			seen.add(q.id);
+			pool.push(toPluginQuestion(q, config));
+		}
+	};
+
+	await request("set_config", {
+		library_root: base,
+		provider,
+		ollama_model: settings.providerModels.ollama ?? undefined,
+		cli_model: settings.providerModels["claude-code"] ?? undefined,
+		codex_model: settings.providerModels.codex ?? undefined,
+	});
+	let response = await request<EngineResponse>("start_session", {
+		note_paths: config.topics.map((topic) => topic.path),
+		count: config.questionCount,
+		api_key: apiKey,
+	});
+	const jobId = response.job?.job_id;
+	// Wait for the opening batch (or a cached-ready pool, or a failure).
+	while (response.status !== "ready") {
+		if (response.job?.state === "failed") {
+			child.kill();
+			throw new Error(response.job.error ?? "The engine could not prepare questions.");
+		}
+		await new Promise((r) => setTimeout(r, 3000));
+		response = await request<EngineResponse>("preparation_status", { job_id: jobId });
+	}
+	absorb(response);
+	if (!response.job) done = true;
+
+	// Background poller: keep absorbing until the job settles.
+	const poll = async (): Promise<void> => {
+		while (!done) {
+			await new Promise((r) => setTimeout(r, 3000));
+			if (done) break;
+			try {
+				const fresh = await request<EngineResponse>("preparation_status", { job_id: jobId });
+				absorb(fresh);
+				if (fresh.job?.state === "failed") {
+					failure = new Error(fresh.job.error ?? "Generation stopped early.");
+					done = true;
+				} else if (!fresh.job) {
+					done = true;
+				}
+			} catch (error) {
+				failure = error instanceof Error ? error : new Error(String(error));
+				done = true;
+			}
+		}
+		child.kill();
+	};
+	if (!done) void poll();
+	else child.kill();
+
+	const first = pool.splice(0, pool.length);
+	return {
+		first,
+		async next(asked: Question[]): Promise<Question[]> {
+			const askedIds = new Set(asked.map((q) => q.id));
+			// Serve immediately when something is waiting; otherwise wait
+			// for the poller until new questions arrive or the job ends.
+			for (;;) {
+				const fresh = pool.filter((q) => !askedIds.has(q.id));
+				if (fresh.length > 0) {
+					for (const q of fresh) {
+						const index = pool.indexOf(q);
+						if (index >= 0) pool.splice(index, 1);
+					}
+					return fresh;
+				}
+				if (done) {
+					if (failure && asked.length === 0) throw failure;
+					return [];
+				}
+				await new Promise((r) => setTimeout(r, 1000));
+			}
+		},
+		cancel(): void {
+			done = true;
+			child.kill();
+		},
+	};
 }
 
 function toPluginQuestion(q: EngineQuestion, config: SessionConfig): Question {
