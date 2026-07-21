@@ -31,11 +31,9 @@ import { ConfirmationModal } from "./ui/confirmation-modal";
 import { showActionNotice } from "./ui/notices";
 import { ADAPTIVE_PRACTICE_HOVER_SOURCE } from "./ui/markdown";
 import {
-	createFlowSessionGenerator,
 	generateQuestions,
 	finalizeSession,
 } from "./practice/session";
-import { FlowSessionGenerator } from "./practice/flow-engine";
 import { hasPracticedToday as memoryHasPracticedToday } from "./practice/daily-status";
 import { resolvePracticeCredit } from "./practice/daily-credit";
 import { recordQuestionFeedback as recordQuestionFeedbackInMemory } from "./practice/question-feedback";
@@ -1006,51 +1004,13 @@ export default class AdaptivePracticePlugin extends Plugin {
 				return;
 			}
 
-			// Flow mode: generate a small opening batch for fast time-to-first-
-			// question; later batches arrive in the background, conditioned on
-			// how the session is going. Single-shot remains for small sessions
-			// and as the fallback when flow is disabled.
-			const useFlow =
-				this.settings.flowGeneration && config.questionCount > 4;
-			let flow: FlowSessionGenerator | undefined;
-			let questions: Question[];
-			if (useFlow) {
-				flow = await createFlowSessionGenerator(
-					this.app,
-					apiKey,
-					config,
-					this.settings.llmProvider,
-					this.settings,
-				);
-				// Sessions start on the unverified batch; when the blind
-				// re-solve lands, contested questions the learner hasn't
-				// reached are quietly retracted.
-				flow.onBatchVerified = (verified, original) => {
-					const surviving = new Set(verified.map((q) => q.id));
-					flow?.noteRetracted(original.length - verified.length);
-					const contested = new Set(
-						original
-							.filter((q) => !surviving.has(q.id))
-							.map((q) => q.id),
-					);
-					for (const leaf of this.app.workspace.getLeavesOfType(
-						PRACTICE_VIEW_TYPE,
-					)) {
-						if (leaf.view instanceof PracticeView) {
-							leaf.view.retractQuestions(contested);
-						}
-					}
-				};
-				questions = await flow.firstBatch();
-			} else {
-				questions = await generateQuestions(
-					this.app,
-					apiKey,
-					config,
-					this.settings.llmProvider,
-					this.settings,
-				);
-			}
+			const questions: Question[] = await generateQuestions(
+				this.app,
+				apiKey,
+				config,
+				this.settings.llmProvider,
+				this.settings,
+			);
 
 			if (this.isStaleGeneration(generationId, canceled)) {
 				loadingNotice.hide();
@@ -1076,9 +1036,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 				usedTopics.has(t.title),
 			).length;
 			new Notice(
-				flow
-					? `Practice started — ${questions.length} of ${config.questionCount} questions ready; the rest adapt to your answers.`
-					: `${questions.length} questions generated from ${usedCount} / ${selectedCount} selected notes.`,
+				`${questions.length} questions generated from ${usedCount} / ${selectedCount} selected notes.`,
 			);
 
 			await this.openPracticeView(
@@ -1087,7 +1045,6 @@ export default class AdaptivePracticePlugin extends Plugin {
 				0,
 				config.topics,
 				config,
-				flow,
 			);
 		} catch (e) {
 			if (this.isStaleGeneration(generationId, canceled)) return;
@@ -1238,7 +1195,6 @@ export default class AdaptivePracticePlugin extends Plugin {
 		currentIndex: number,
 		topics: TopicNote[],
 		config: SessionConfig,
-		flow?: FlowSessionGenerator,
 	): Promise<void> {
 		await this.savePracticeDraft(
 			config,
@@ -1260,7 +1216,6 @@ export default class AdaptivePracticePlugin extends Plugin {
 				currentIndex,
 				topics,
 				config,
-				flow,
 			);
 		}
 	}
@@ -1272,7 +1227,6 @@ export default class AdaptivePracticePlugin extends Plugin {
 		currentIndex: number,
 		topics: TopicNote[],
 		config: SessionConfig,
-		flow?: FlowSessionGenerator,
 	): void {
 		const onComplete = (completedResults: QuizResult[]) => {
 			void this.completeSession(config, completedResults);
@@ -1298,11 +1252,6 @@ export default class AdaptivePracticePlugin extends Plugin {
 				);
 			},
 			questionPaneSide: this.settings.questionPaneSide,
-			totalPlannedCount: flow ? flow.totalPlanned : undefined,
-			onNeedMoreQuestions: flow
-				? (sessionResults: QuizResult[], asked: Question[]) =>
-						flow.nextBatch(sessionResults, asked)
-				: undefined,
 		});
 	}
 

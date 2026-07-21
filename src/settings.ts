@@ -18,7 +18,14 @@ import {
 	modelDropdownOptions,
 } from "./practice/model-suggestions";
 
-const ALL_PROVIDERS = Object.keys(LLM_PROVIDER_LABELS) as LlmProvider[];
+const ALL_PROVIDERS: LlmProvider[] = [
+	"anthropic",
+	"gemini",
+	"openai",
+	"ollama",
+	"claude-code",
+	"codex",
+];
 
 /**
  * Local shapes for the 1.13 declarative settings API (Path B dual support:
@@ -206,26 +213,6 @@ export class AdaptivePracticeSettingTab extends PluginSettingTab {
 				heading: "Generation",
 				items: [
 					{
-						name: "Adaptive flow",
-						desc: "Generate in small batches that adapt to your answers, holding difficulty near an 80% success rate. Turn off to generate every question up front.",
-						control: { type: "toggle", key: "flowGeneration" },
-					},
-					{
-						name: "Verify answers",
-						desc: "Blind re-solve each batch and drop questions whose marked answer fails the check. Costs about one extra request per batch.",
-						control: { type: "toggle", key: "verifyAnswers" },
-					},
-					{
-						name: "Deep authoring",
-						desc: "Adversarially rewrite medium and hard questions: attack shortcuts, weak traps, and giveaways, then sharpen. Noticeably better questions at roughly double the tokens.",
-						control: { type: "toggle", key: "deepAuthoring" },
-					},
-					{
-						name: "Native engine",
-						desc: "Desktop only: generate through the Whetstone app's engine - seeded authoring, machine verification, and clarity gating. Falls back to the built-in pipeline when unavailable.",
-						control: { type: "toggle", key: "useNativeEngine" },
-					},
-					{
 						name: "Practice intent",
 						desc: "Mastery favors understanding and transfer, exam cram favors high-yield facts and classic traps, review favors quick checks across many subtopics.",
 						control: {
@@ -264,12 +251,16 @@ export class AdaptivePracticeSettingTab extends PluginSettingTab {
 		const preset = PROVIDER_PRESETS[provider];
 		const active = (): boolean => this.plugin.settings.llmProvider === provider;
 		const definitions: SettingDefinition[] = [
-			{
-				name: `${LLM_PROVIDER_LABELS[provider]} API key`,
-				desc: `Obsidian secret that stores this provider key. Default: ${preset.secretName}.`,
-				visible: active,
-				render: (setting) => this.renderSecretControl(setting, provider),
-			},
+			// Keyless providers (local servers, subscription CLIs) never
+			// show a key row - there is nothing to enter.
+			...(preset.secretName === ""
+				? []
+				: [{
+					name: `${LLM_PROVIDER_LABELS[provider]} API key`,
+					desc: `Obsidian secret that stores this provider key. Default: ${preset.secretName}.`,
+					visible: active,
+					render: (setting: Setting) => this.renderSecretControl(setting, provider),
+				}]),
 			{
 				name: "Model",
 				desc: "Model used for question generation.",
@@ -457,10 +448,12 @@ export class AdaptivePracticeSettingTab extends PluginSettingTab {
 		const provider = this.plugin.settings.llmProvider;
 		const preset = PROVIDER_PRESETS[provider];
 
-		const secretSetting = new Setting(containerEl)
-			.setName(`${LLM_PROVIDER_LABELS[provider]} API key`)
-			.setDesc(`Obsidian secret that stores this provider key. Default: ${preset.secretName}.`);
-		this.renderSecretControl(secretSetting, provider);
+		if (preset.secretName !== "") {
+			const secretSetting = new Setting(containerEl)
+				.setName(`${LLM_PROVIDER_LABELS[provider]} API key`)
+				.setDesc(`Obsidian secret that stores this provider key. Default: ${preset.secretName}.`);
+			this.renderSecretControl(secretSetting, provider);
+		}
 
 		this.renderModelSettings(containerEl, provider, preset);
 
@@ -598,49 +591,9 @@ export class AdaptivePracticeSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl).setName("Generation").setHeading();
 
-		new Setting(containerEl)
-			.setName("Adaptive flow")
-			.setDesc("Generate in small batches that adapt to your answers, holding difficulty near an 80% success rate. Turn off to generate every question up front.")
-			.addToggle((toggle) => {
-				toggle.setValue(this.plugin.settings.flowGeneration);
-				toggle.onChange(async (value) => {
-					this.plugin.settings.flowGeneration = value;
-					await this.plugin.saveSettings();
-				});
-			});
 
-		new Setting(containerEl)
-			.setName("Verify answers")
-			.setDesc("Blind re-solve each batch and drop questions whose marked answer fails the check. Costs about one extra request per batch.")
-			.addToggle((toggle) => {
-				toggle.setValue(this.plugin.settings.verifyAnswers);
-				toggle.onChange(async (value) => {
-					this.plugin.settings.verifyAnswers = value;
-					await this.plugin.saveSettings();
-				});
-			});
 
-		new Setting(containerEl)
-			.setName("Deep authoring")
-			.setDesc("Adversarially rewrite medium and hard questions: attack shortcuts, weak traps, and giveaways, then sharpen. Noticeably better questions at roughly double the tokens.")
-			.addToggle((toggle) => {
-				toggle.setValue(this.plugin.settings.deepAuthoring);
-				toggle.onChange(async (value) => {
-					this.plugin.settings.deepAuthoring = value;
-					await this.plugin.saveSettings();
-				});
-			});
 
-		new Setting(containerEl)
-			.setName("Native engine")
-			.setDesc("Desktop only: generate through the Whetstone app's engine - seeded authoring, machine verification, and clarity gating. Falls back to the built-in pipeline when unavailable. Anthropic, Gemini, OpenAI, and Ollama providers.")
-			.addToggle((toggle) => {
-				toggle.setValue(this.plugin.settings.useNativeEngine);
-				toggle.onChange(async (value) => {
-					this.plugin.settings.useNativeEngine = value;
-					await this.plugin.saveSettings();
-				});
-			});
 
 		new Setting(containerEl)
 			.setName("Engine path")

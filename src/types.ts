@@ -153,7 +153,7 @@ export const PROVIDER_PRESETS: Record<LlmProvider, ProviderPreset> = {
 	ollama: {
 		baseUrl: "http://localhost:11434/v1/chat/completions",
 		model: "llama3.1",
-		secretName: "ollama-api-key",
+		secretName: "",
 		jsonMode: "json_object",
 		supportsImages: false,
 		supportsPdfs: false,
@@ -281,7 +281,7 @@ export const DEFAULT_PRACTICE_MEMORY: PracticeMemory = {
 };
 
 export const DEFAULT_SETTINGS: AdaptivePracticeSettings = {
-	useNativeEngine: false,
+	useNativeEngine: true,
 	nativeEnginePath: "",
 	geminiApiKey: "",
 	llmProvider: "gemini",

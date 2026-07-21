@@ -119,18 +119,6 @@ export async function ensureEngine(
 	return target;
 }
 
-export function engineUsable(
-	settings: AdaptivePracticeSettings,
-	provider: LlmProvider,
-	config: SessionConfig
-): boolean {
-	return (
-		settings.useNativeEngine &&
-		ENGINE_PROVIDERS.includes(provider) &&
-		config.topics.every((topic) => !topic.isPdf) &&
-		engineAssetName() !== null
-	);
-}
 
 export async function generateWithEngine(
 	app: App,
