@@ -705,10 +705,6 @@ export class PracticeView extends ItemView {
 					: "Your answer was incorrect",
 			cls: "ap-status-title",
 		});
-		copy.createDiv({
-			text: `Difficulty level: ${difficultyLabel(q.difficulty)}`,
-			cls: "ap-status-subtitle",
-		});
 
 		const right = status.createDiv({ cls: "ap-status-time" });
 		const timeLine = right.createDiv({ cls: "ap-status-time-primary" });
@@ -1187,8 +1183,3 @@ function averageAttemptTime(results: QuizResult[]): string {
 	return formatShortTime(total / results.length);
 }
 
-function difficultyLabel(difficulty: Question["difficulty"]): string {
-	if (difficulty === "easy") return "Easy";
-	if (difficulty === "medium") return "Medium";
-	return "Hard";
-}
