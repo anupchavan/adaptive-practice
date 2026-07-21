@@ -1,3 +1,4 @@
+import { ensureVaultSkills } from "../notes/vault-file";
 import {
 	App,
 	Modal,
@@ -56,6 +57,7 @@ export class SetupModal extends Modal {
 	}
 
 	onOpen(): void {
+		void ensureVaultSkills(this.app);
 		const { contentEl } = this;
 		contentEl.empty();
 

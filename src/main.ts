@@ -1,3 +1,4 @@
+import { ensureVaultSkills } from "./notes/vault-file";
 import {
 	MarkdownView,
 	Notice,
@@ -98,6 +99,7 @@ export default class AdaptivePracticePlugin extends Plugin {
 	private workspaceRestoreComplete = false;
 
 	async onload(): Promise<void> {
+		void ensureVaultSkills(this.app);
 		await this.loadSettings();
 		await this.migrateApiKey();
 

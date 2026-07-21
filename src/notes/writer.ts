@@ -1,4 +1,5 @@
 import { App, TFile } from "obsidian";
+import { writeVaultSkill } from "./vault-file";
 import { QuizResult, TopicNote } from "../types";
 import { resolveQuestionTargetTopics } from "../practice/source-map";
 import {
@@ -81,16 +82,12 @@ export async function updateSkill(
 ): Promise<void> {
 	const rounded = Math.round(newSkill * 10) / 10;
 
-	if (path.endsWith(".pdf")) {
-		if (savePdfSkill) await savePdfSkill(path, rounded);
-		return;
+	if (path.endsWith(".pdf") && savePdfSkill) {
+		// Kept alongside the shared file so older data stays readable.
+		await savePdfSkill(path, rounded);
 	}
 
-	const file = app.vault.getAbstractFileByPath(path);
-	if (!(file instanceof TFile)) return;
-
-	await app.fileManager.processFrontMatter(file, (fm) => {
-		const frontmatter = fm as Record<string, unknown>;
-		frontmatter["skill"] = rounded;
-	});
+	// Progress lives in the vault's shared .whetstone file - the same one
+	// the desktop apps and native engine maintain - never in frontmatter.
+	await writeVaultSkill(app, path, rounded);
 }

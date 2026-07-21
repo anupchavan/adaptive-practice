@@ -1,3 +1,4 @@
+import { ensureVaultSkills } from "../notes/vault-file";
 import { App } from "obsidian";
 import { FilterGroup, NoteIndexEntry, TopicNote } from "../types";
 import { buildNoteIndexEntry, fileToTopicNote, getTopicFiles } from "../notes/reader";
@@ -31,6 +32,7 @@ export async function scanVaultSkeleton(
 	now = Date.now(),
 	batchSize = DEFAULT_SCAN_BATCH_SIZE
 ): Promise<VaultIndexResult> {
+	await ensureVaultSkills(app);
 	const files = getTopicFiles(app, folder, filterRules);
 	const topics: TopicNote[] = [];
 	const nextIndex: Record<string, NoteIndexEntry> = {};

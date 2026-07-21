@@ -1,3 +1,4 @@
+import { vaultSkill } from "./vault-file";
 import { App, CachedMetadata, requestUrl, TFile } from "obsidian";
 import {
 	FilterGroup,
@@ -159,6 +160,10 @@ export function getTopicNotesWithFilters(
 }
 
 function getSkillFromCache(app: App, file: TFile): number {
+	// The shared .whetstone file is authoritative; a legacy frontmatter
+	// skill (written by older plugin versions) migrates on first read.
+	const shared = vaultSkill(app, file.path);
+	if (shared !== null) return parseSkillValue(shared, DEFAULT_SKILL);
 	const cache = app.metadataCache.getFileCache(file);
 	const frontmatter = frontmatterRecord(cache);
 	return parseSkillValue(frontmatter?.["skill"], DEFAULT_SKILL);
