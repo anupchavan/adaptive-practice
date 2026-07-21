@@ -54,6 +54,18 @@ Daily sessions also adjust the generated question count before calling the model
 - Node.js (LTS, v18+ recommended) for local builds.
 - Git (for install via cloning).
 
+## Security disclosure
+
+On desktop, this plugin runs a native helper program (the open-source [Whetstone engine](https://github.com/anupchavan/whetstone-engine)) as a separate process to generate and verify practice questions. That is why plugin scanners report shell or process execution.
+
+What it actually does:
+
+- The engine is downloaded once from a pinned GitHub release, and its SHA-256 checksum is verified before it is ever executed. A download that does not match the checksum carried in the plugin is discarded.
+- The plugin only ever launches a fixed binary with fixed arguments (`serve`, `--version`). It never builds shell command strings and never runs with a shell.
+- You can point the plugin at your own engine binary in settings, or build it yourself from the AGPL source.
+- If you select the Claude Code or Codex provider, the engine invokes that CLI on your machine, using your existing login.
+- On mobile, none of this applies and no processes are started.
+
 ---
 
 ## Installation

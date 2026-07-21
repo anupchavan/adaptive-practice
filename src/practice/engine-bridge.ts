@@ -16,8 +16,34 @@ import type {
 	SessionConfig,
 } from "../types";
 
+// Pinned release, not "latest": each plugin version downloads exactly the
+// engine build whose checksum it carries below.
 const ENGINE_RELEASE_BASE =
-	"https://github.com/anupchavan/whetstone-releases/releases/latest/download";
+	"https://github.com/anupchavan/whetstone-releases/releases/download/v0.1.1";
+
+/**
+ * SHA-256 of every published engine asset. A download that does not match
+ * is discarded, so the plugin never executes a binary it cannot verify.
+ */
+const ENGINE_ASSET_SHA256: Record<string, string> = {
+	"whetstone-engine-macos-arm64":
+		"37f9dd9a7d0ea0b3dcf47e8b6c0c018c279dae1346e0ebff76a4183ac531d129",
+	"whetstone-engine-linux-x64":
+		"2abc353cbdbdde2c93815ceb2dcc425bf2266fa714f1a2372004746dcb8d42e6",
+	"whetstone-engine-linux-arm64":
+		"bb2c27bfc32706d2fbd345f0d50bf684b2dd721a2297ddc66725b51cd0f1c075",
+	"whetstone-engine-windows-x64.exe":
+		"0bf673edcea7605f28664bc047a25fe3fab85145353b5230e709405e98d06973",
+	"whetstone-engine-windows-arm64.exe":
+		"0e814eee2d2d023c9c0fee460cb651d6b2be7500612cc3d4f83540930e425fe5",
+};
+
+async function sha256Hex(data: ArrayBuffer): Promise<string> {
+	const digest = await crypto.subtle.digest("SHA-256", data);
+	return Array.from(new Uint8Array(digest))
+		.map((byte) => byte.toString(16).padStart(2, "0"))
+		.join("");
+}
 
 interface EngineQuestion {
 	id: string;
@@ -192,6 +218,9 @@ export async function ensureEngine(
 	if (!target || !asset) return null;
 	const response = await requestUrl({ url: `${ENGINE_RELEASE_BASE}/${asset}` });
 	if (response.status !== 200) return null;
+	if ((await sha256Hex(response.arrayBuffer)) !== ENGINE_ASSET_SHA256[asset]) {
+		return null;
+	}
 	apis.mkdirSync(apis.dirname(target), { recursive: true });
 	apis.writeFileSync(target, new Uint8Array(response.arrayBuffer));
 	const proc = window as unknown as { process?: { platform: string } };
