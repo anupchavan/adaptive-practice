@@ -19,7 +19,7 @@ import type {
 // Pinned release, not "latest": each plugin version downloads exactly the
 // engine build whose checksum it carries below.
 const ENGINE_RELEASE_BASE =
-	"https://github.com/anupchavan/whetstone-releases/releases/download/v0.1.1";
+	"https://github.com/anupchavan/whetstone-releases/releases/download/v0.1.2";
 
 /**
  * SHA-256 of every published engine asset. A download that does not match
@@ -27,15 +27,15 @@ const ENGINE_RELEASE_BASE =
  */
 const ENGINE_ASSET_SHA256: Record<string, string> = {
 	"whetstone-engine-macos-arm64":
-		"37f9dd9a7d0ea0b3dcf47e8b6c0c018c279dae1346e0ebff76a4183ac531d129",
+		"40778c03bfd0cf22c89b07896e0f6fd90c38ac8d9ab4d18cc28b175ebce355b2",
 	"whetstone-engine-linux-x64":
-		"2abc353cbdbdde2c93815ceb2dcc425bf2266fa714f1a2372004746dcb8d42e6",
+		"5a2048d82e3e650b5f8ec82cc35c17ae87c2e5eac0a0ec9a11e06442a0841fa9",
 	"whetstone-engine-linux-arm64":
-		"bb2c27bfc32706d2fbd345f0d50bf684b2dd721a2297ddc66725b51cd0f1c075",
+		"7cc47d8aaaad387f666cd06eb2df268518dc7990cccb37a4efdf9c2a3d7a484d",
 	"whetstone-engine-windows-x64.exe":
-		"0bf673edcea7605f28664bc047a25fe3fab85145353b5230e709405e98d06973",
+		"dfe1a199fa4f0b9bd37785956b24c90455ba32da6fe89e9718704d4b056826e3",
 	"whetstone-engine-windows-arm64.exe":
-		"0e814eee2d2d023c9c0fee460cb651d6b2be7500612cc3d4f83540930e425fe5",
+		"fd1b3d434906c1e0a89010f4a84690ae76f6a0b52da165509cef3346d673dc0b",
 };
 
 async function sha256Hex(data: ArrayBuffer): Promise<string> {
